@@ -51,29 +51,44 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 		tamper func([]facts.Link) []facts.Link
 		index  int
 		reason string
+		kind   facts.BreakKind
 	}{
-		"an edited value": {func(l []facts.Link) []facts.Link { l[1].Value = "z"; return l }, 1, "fact hash"},
+		"an edited value": {func(l []facts.Link) []facts.Link { l[1].Value = "z"; return l }, 1, "fact hash", facts.BreakValue},
 		"an edited value and its hash": {func(l []facts.Link) []facts.Link {
 			l[1].Value = "z"
 			l[1].Hash, _ = factstest.Keys().Hash("dev1", "k", "z")
 			return l
-		}, 1, "chain hash"},
-		"an edited provenance":                         {func(l []facts.Link) []facts.Link { l[2].By.Run = "other"; return l }, 2, "chain hash"},
-		"a chain removed from a value after the start": {func(l []facts.Link) []facts.Link { l[1].Chain = ""; return l }, 1, "carries no chain"},
-		"a deleted value":                              {func(l []facts.Link) []facts.Link { return append(l[:1], l[2:]...) }, 1, "stored before it"},
-		"two values swapped":                           {func(l []facts.Link) []facts.Link { l[0], l[1] = l[1], l[0]; return l }, 0, "stored before it"},
+		}, 1, "chain hash", facts.BreakChainHash},
+		"an edited provenance":                         {func(l []facts.Link) []facts.Link { l[2].By.Run = "other"; return l }, 2, "chain hash", facts.BreakChainHash},
+		"a chain removed from a value after the start": {func(l []facts.Link) []facts.Link { l[1].Chain = ""; return l }, 1, "carries no chain", facts.BreakUnchained},
+		"a deleted value":                              {func(l []facts.Link) []facts.Link { return append(l[:1], l[2:]...) }, 1, "stored before it", facts.BreakLink},
+		"two values swapped":                           {func(l []facts.Link) []facts.Link { l[0], l[1] = l[1], l[0]; return l }, 0, "stored before it", facts.BreakLink},
 		"an unchained value after the chain began": {func(l []facts.Link) []facts.Link {
 			l[2].Chain, l[2].Prev = "", ""
 			return l
-		}, 2, "carries no chain"},
+		}, 2, "carries no chain", facts.BreakUnchained},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			v := facts.VerifyChain("dev1", tc.tamper(chained(t, 3)), factstest.Keys())
-			if v.Break == nil || v.Break.Index != tc.index || !strings.Contains(v.Break.Reason, tc.reason) {
-				t.Fatalf("verdict = %+v, want a break at %d naming %q", v, tc.index, tc.reason)
+			links := tc.tamper(chained(t, 3))
+			v := facts.VerifyChain("dev1", links, factstest.Keys())
+			if v.Break == nil || v.Break.Index != tc.index || !strings.Contains(v.Break.Reason, tc.reason) || v.Break.Kind != tc.kind {
+				t.Fatalf("verdict = %+v, want a %s break at %d naming %q", v, tc.kind, tc.index, tc.reason)
+			}
+			// One link at a time, as an inspection walks a paged history: the
+			// same verdict, and the same break for every link after it.
+			w := facts.NewChainWalk("dev1", factstest.Keys())
+			for _, l := range links {
+				w.Next(l)
+			}
+			if got := w.Verdict(); got.Values != v.Values || got.Head != v.Head || *got.Break != *v.Break {
+				t.Errorf("the walk's verdict %+v is not VerifyChain's %+v", got, v)
 			}
 		})
+	}
+	if w, links := facts.NewChainWalk("dev1", factstest.Keys()), chained(t, 3); w.Next(links[0]) != nil || w.Next(links[1]) != nil || w.Next(links[2]) != nil ||
+		w.Verdict().Head != links[2].Chain || w.Verdict().Values != 3 {
+		t.Errorf("an intact chain walked link by link: %+v", w.Verdict())
 	}
 	// One device's history does not verify as another's.
 	if v := facts.VerifyChain("dev2", chained(t, 2), factstest.Keys()); v.Break == nil || v.Break.Index != 0 {
