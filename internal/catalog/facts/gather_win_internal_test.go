@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -156,6 +157,7 @@ func (c *winTestContext) InjectSecrets() map[string]string {
 }
 func (c *winTestContext) SetStat(string, any) error { return nil }
 func (c *winTestContext) EmitFact(k string, v any) error {
+	facttest.Observe(k, v)
 	c.facts[k] = v
 	return nil
 }

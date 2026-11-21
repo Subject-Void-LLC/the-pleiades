@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -126,6 +127,7 @@ func (c *stubContext) SetStat(key string, value any) error {
 }
 
 func (c *stubContext) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
 	if c.failFact != "" && c.failFact == key {
 		return errRecording
 	}

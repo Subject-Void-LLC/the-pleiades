@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -39,8 +40,13 @@ func (c *runContext) SetStat(key string, value any) error {
 	return nil
 }
 
-// EmitFact records nothing; these methods emit none.
-func (c *runContext) EmitFact(string, any) error { return nil }
+// EmitFact holds the fact to the emitting method's declaration
+// (facttest.Observe) and keeps it nowhere else: net.frr.facts emits its
+// configuration digest, and a test judges it by its stat.
+func (c *runContext) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
+	return nil
+}
 
 // ReadProjectFile reads name from the test's project directory.
 func (c *runContext) ReadProjectFile(name string, _ int64) ([]byte, error) {

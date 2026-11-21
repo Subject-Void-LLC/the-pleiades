@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
@@ -156,6 +157,7 @@ func (c *gatherContext) SetStat(key string, value any) error {
 }
 
 func (c *gatherContext) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
 	if c.failOn != "" && c.failOn == key {
 		return errGatherEmit
 	}

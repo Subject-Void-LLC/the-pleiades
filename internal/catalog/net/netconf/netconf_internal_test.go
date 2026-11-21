@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
@@ -269,6 +270,7 @@ func (c *stubContext) SetStat(key string, value any) error {
 }
 
 func (c *stubContext) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
 	c.facts[key] = value
 	return nil
 }

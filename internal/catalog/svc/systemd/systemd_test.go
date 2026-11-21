@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
@@ -43,7 +44,10 @@ func (c *svcContext) SetStat(key string, value any) error {
 	c.stats[key] = value
 	return nil
 }
-func (c *svcContext) EmitFact(key string, value any) error { return c.SetStat(key, value) }
+func (c *svcContext) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
+	return c.SetStat(key, value)
+}
 
 type svcTarget struct {
 	*inventorytest.Stub

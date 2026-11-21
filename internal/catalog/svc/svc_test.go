@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
@@ -41,7 +42,10 @@ func (c *ctxStub) SetStat(key string, value any) error {
 	c.stats[key] = value
 	return nil
 }
-func (c *ctxStub) EmitFact(key string, value any) error { return c.SetStat(key, value) }
+func (c *ctxStub) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
+	return c.SetStat(key, value)
+}
 
 // device is a target that reports a service manager by name and is
 // reachable over SSH. manager is what ServiceManagerName returns, which
@@ -87,8 +91,16 @@ func newHarness(t *testing.T, manager string, caps ...capability.Name) *harness 
 for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
 printf -- '---\n' >> "$FAKE_RECORD"
 if [ "$1" = "show" ]; then
-  printf 'LoadState=loaded\nActiveState=inactive\nUnitFileState=disabled\n'
+  printf 'LoadState=loaded\nActiveState=%s\nUnitFileState=%s\n' "${FAKE_ACTIVE:-inactive}" "${FAKE_UNITFILE:-disabled}"
 fi
+# The three listings the concrete method's post-change reading runs
+# (pkg/hostfacts' SystemdListings), naming the one unit as it was.
+case "$*" in
+  *list-unit-files*) printf 'nginx.service %s enabled\n' "${FAKE_UNITFILE:-disabled}" ;;
+  *--type=service*list-units*)
+    sub=dead; [ "${FAKE_ACTIVE:-inactive}" = active ] && sub=running
+    printf 'nginx.service loaded %s %s nginx\n' "${FAKE_ACTIVE:-inactive}" "$sub" ;;
+esac
 exit 0
 `
 	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
@@ -205,6 +217,40 @@ func TestDispatchesToSystemd(t *testing.T) {
 			got := strings.Join(h.verbs(t), ",")
 			if got != tt.wantVerb {
 				t.Errorf("systemctl verb sent = %q, want %q", got, tt.wantVerb)
+			}
+		})
+	}
+}
+
+// TestDispatch_ReadsTheChangedUnitBackAsTheGatherersFacts: a change made
+// through the generic method emits the concrete method's post-change reading
+// (service.<unit> and service_state.<unit>), which the generic method declares
+// as its own, since the engine keeps facts under the method the task named.
+func TestDispatch_ReadsTheChangedUnitBackAsTheGatherersFacts(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		invoke          collection.Method
+		active, enabled string
+	}{
+		{"start", svc.Start, "inactive", "disabled"},
+		{"stop", svc.Stop, "active", "enabled"},
+		{"restart", svc.Restart, "active", "enabled"},
+		{"enable", svc.Enable, "inactive", "disabled"},
+		{"disable", svc.Disable, "active", "enabled"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, "systemd")
+			t.Setenv("FAKE_ACTIVE", tt.active)
+			t.Setenv("FAKE_UNITFILE", tt.enabled)
+			result, err := tt.invoke(context.Background(), h.rc, h.dev, params())
+			if err != nil || !result.Changed {
+				t.Fatalf("invoke: changed %v, %v; want a change", result.Changed, err)
+			}
+			if _, ok := h.rc.stats["service.nginx.service"].(map[string]any); !ok {
+				t.Errorf("service.nginx.service = %#v, want the unit read back as an object", h.rc.stats["service.nginx.service"])
+			}
+			if got, _ := h.rc.stats["service_state.nginx.service"].(string); got == "" {
+				t.Errorf("service_state.nginx.service = %#v, want the unit's state as the listing named it", h.rc.stats["service_state.nginx.service"])
 			}
 		})
 	}

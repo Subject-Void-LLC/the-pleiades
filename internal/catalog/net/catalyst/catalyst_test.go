@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 
@@ -64,6 +65,7 @@ func (c *fakeContext) SetStat(key string, value interface{}) error {
 }
 
 func (c *fakeContext) EmitFact(key string, value interface{}) error {
+	facttest.Observe(key, value)
 	if c.failFact != "" && c.failFact == key {
 		return errEmitting
 	}
