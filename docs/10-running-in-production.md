@@ -388,8 +388,8 @@ Two things a rotation does not carry over. A private file's keyed digest
 such file reads as changed once, with a new `hmac_key` beside it. And a device whose
 stored history does not verify under the old key is not re-keyed: it is refused
 under the new key and named in the log, and removing the previous key leaves its
-stored facts unreadable for good. Its next gather starts a new history only after
-those rows are removed.
+stored facts unreadable for good. This release has no tool to inspect or repair
+such a device.
 
 The upgrade deletes every fact stored before it, with the observations that named
 them, because no key can turn a plaintext row into a sealed one. Each device's next
