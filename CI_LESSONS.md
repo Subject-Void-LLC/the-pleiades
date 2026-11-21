@@ -74,6 +74,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     machine reach only the branches their own output takes (no extended attributes listed here, no malformed answers),
     so a package floored at 100% falls under its floor at pr-check's coverage step. Cover each branch with a crafted
     answer, and measure the package against its floor before the gate. FAILURE_PATTERNS 731, 796, 1290.
+39. **A new published schema, generated page or CLI command has a checker of its own, outside the packages it
+    changes.** A file added under `docs/reference/schemas` needs a row in `tools/schemacompat`'s contracts table
+    (`make schema-compat` names an unclassified file); anything the reference pages are generated from needs `make
+    docs-gen-check`; a command or help text needs the help golden. Running the changed packages whole reaches none of
+    the first two, so run each before `pr-check`, and name each in the brief of whoever builds the change.
+    FAILURE_PATTERNS 661, 1311, 1322; LESSONS_LEARNED 462, 465.
 
 ## Tests that do not fail by luck
 
