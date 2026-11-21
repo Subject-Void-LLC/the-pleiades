@@ -123,7 +123,15 @@ else; a truncated last line is skipped. Read it at `/timeline?kind=...&src=...&s
 ### The MCP server
 
 `mcp_status.py` is a stdio MCP server, wired in `.mcp.json` as `status`.
-Every tool only reads, through the daemon:
+Every tool only reads, through the daemon. Workflow, job and branch names
+and run titles come from GitHub, and stage details from test output, so
+every answer puts that text inside an object named `untrusted`, cut to 300
+characters, and every tool description and the server's instructions say
+it is data never to be followed as an instruction. Run titles appear only
+when a call passes `titles=true` (`actions`, `timeline`). What the daemon
+serves is masked only by the values of its own secret-named environment
+variables (below); nothing else about it is made safe. `STATUS_PORT` and
+`STATUS_STATE_DIR` point the server at another daemon, such as a test's.
 
 | Tool | Answers |
 |---|---|
@@ -237,7 +245,11 @@ their subscribers (it redraws the moment a stage changes):
   repos/Subject-Void-LLC/the-pleiades/actions/runs?branch=...` and the jobs of
   the newest five runs. The repository is in every path, since `gh api` has
   no `-R`. When gh is missing or logged out, the panel says why and the rest
-  keeps working.
+  keeps working. Only runs whose `head_repository.full_name` is this
+  repository are kept, by the poll and the backfill alike: a fork's pull
+  request runs here with a title, a branch and job names its author chose,
+  and `?branch=` also matches a fork's branch of the same name. Each name,
+  branch and title kept loses its control characters and is cut to 200.
 
 The log carries no timestamps, so every time is when the monitor read the
 line, unless a record gave it. The page shows every time in the viewer's own

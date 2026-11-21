@@ -8,12 +8,20 @@ the same job, since it never falls back to the current directory's remote.
 It never asks gh for a token and never prints one. When gh is missing or
 logged out, poll returns the reason and the rest of the monitor goes on
 without Actions.
+
+The repository is public, so a fork's pull request runs here too, and its
+author chooses its title, its branch name and (through the workflow file in
+the pull request) its job names. Only runs whose head repository is REPO
+are kept: the branch filter alone also matches a fork's branch of the same
+name. Every free-text field that is kept is cut to TEXT_MAX characters and
+loses its control characters before it is stored.
 """
 
 from __future__ import annotations
 
 import calendar
 import os
+import unicodedata
 import subprocess
 import threading
 import time
@@ -37,6 +45,9 @@ BACKFILL_MAX_PAGES = 100
 BACKFILL_WORKERS = 4
 # FAILED_CONCLUSIONS are the job conclusions the page marks as failed.
 FAILED_CONCLUSIONS = ("failure", "timed_out", "startup_failure")
+# TEXT_MAX bounds every free-text field read from GitHub (workflow, job and
+# branch names, run titles), in characters.
+TEXT_MAX = 200
 
 # ApiCall reads one API path: (decoded JSON, None) or (None, reason).
 ApiCall = Callable[[str], Tuple[JSONValue, Optional[str]]]
@@ -165,24 +176,63 @@ def parse_time(text: str) -> Optional[float]:
         return None
 
 
+def clean_text(text: str, limit: int = TEXT_MAX) -> str:
+    """Makes text from GitHub safe to keep: no control or format characters, and short.
+
+    A control character (a newline, an escape) becomes a space; a format
+    character (a zero-width space, a bidirectional override) is dropped.
+
+    Args:
+        text: The text.
+        limit: The most characters kept.
+
+    Returns:
+        The text, ending in "..." when it was cut.
+    """
+    kept: List[str] = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat == "Cc":
+            kept.append(" ")
+        elif cat != "Cf":
+            kept.append(ch)
+    out = "".join(kept)
+    return out if len(out) <= limit else out[: limit - 3] + "..."
+
+
+def from_this_repository(run: JSONObject) -> bool:
+    """Reports whether a run's head is this repository rather than a fork.
+
+    A fork's pull request run reports the fork as head_repository.full_name
+    (and fork: true); a run whose head repository was deleted reports none.
+
+    Args:
+        run: One run as the API lists it.
+
+    Returns:
+        True only when head_repository.full_name is REPO.
+    """
+    return get_str(as_object(run.get("head_repository")), "full_name") == REPO
+
+
 def parse_runs(doc: JSONValue) -> List[ActionsRun]:
-    """Reads the workflow runs in a runs API response.
+    """Reads the workflow runs in a runs API response, this repository's only.
 
     Args:
         doc: The decoded response.
 
     Returns:
-        Each run, its jobs empty.
+        Each run headed by REPO, its jobs empty; a fork's runs are left out.
     """
     out: List[ActionsRun] = []
     for r in get_objects(as_object(doc), "workflow_runs"):
         run_id = get_int(r, "id")
-        if run_id is None:
+        if run_id is None or not from_this_repository(r):
             continue
         status = get_str(r, "status")
         out.append(ActionsRun(
-            id=run_id, name=get_str(r, "name"), title=get_str(r, "display_title"),
-            branch=get_str(r, "head_branch"), sha=get_str(r, "head_sha")[:12], status=status,
+            id=run_id, name=clean_text(get_str(r, "name")), title=clean_text(get_str(r, "display_title")),
+            branch=clean_text(get_str(r, "head_branch")), sha=get_str(r, "head_sha")[:12], status=status,
             conclusion=get_str(r, "conclusion"), event=get_str(r, "event"),
             number=get_int(r, "run_number") or 0, attempt=get_int(r, "run_attempt") or 0,
             url=get_str(r, "html_url"), created=get_str(r, "created_at"),
@@ -224,7 +274,7 @@ def job_from_json(j: JSONObject) -> ActionsJob:
         # A job saved by the monitor keeps only the counts.
         steps_total = get_int(j, "steps_total") or 0
         steps_done = get_int(j, "steps_done") or 0
-    return ActionsJob(id=get_int(j, "id") or 0, name=get_str(j, "name"), status=status,
+    return ActionsJob(id=get_int(j, "id") or 0, name=clean_text(get_str(j, "name")), status=status,
                       conclusion=conclusion, start=start, end=end, url=get_str(j, "html_url") or get_str(j, "url"),
                       failed=conclusion in FAILED_CONCLUSIONS, steps_done=steps_done, steps_total=steps_total)
 
