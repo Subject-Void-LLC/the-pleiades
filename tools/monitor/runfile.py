@@ -57,6 +57,10 @@ def read_manifest(state: str) -> Optional[JSONObject]:
     return doc
 
 
+# POSIX says whether os.kill(pid, 0) only asks; on Windows it ends the process.
+POSIX = os.name == "posix"
+
+
 def process_alive(pid: int, marker: str = "monitor.py") -> bool:
     """Reports whether pid is still a monitor process (not a reused pid).
 
@@ -69,6 +73,8 @@ def process_alive(pid: int, marker: str = "monitor.py") -> bool:
     """
     if pid <= 0:
         return False
+    if not POSIX:
+        return True  # os.kill(pid, 0) would end the process there; no gate is followed off POSIX anyway
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

@@ -2,7 +2,8 @@
 """Tests of the status daemon: the timeline, the run hand-off, the single
 instance, run selection for /wait, and the roadmap panel.
 
-    cd tools/monitor && ../../.venv/bin/python -B -m unittest -v test_daemon
+    cd tools/monitor && python3 -B -m unittest -v test_daemon
+    make monitor-test            (every test file, with and without fcntl)
 
 Every test works in its own temporary state directory and port; none
 touches the real one or port 8765.
@@ -30,6 +31,8 @@ import daemon  # noqa: E402
 import githistory  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
+import locks  # noqa: E402
+import owner  # noqa: E402
 import paths  # noqa: E402
 import redact  # noqa: E402
 import roadmap  # noqa: E402
@@ -43,6 +46,13 @@ MONITOR = os.path.join(HERE, "monitor.py")
 MCP = os.path.join(HERE, "mcp_status.py")
 # A developer who switched the daemon off still runs these tests, which start their own.
 os.environ.pop("PLEIADES_NO_STATUS_DAEMON", None)
+# Every daemon these tests start inherits this, and stops itself once this
+# process is gone, even when a timeout kills it before any cleanup runs.
+os.environ[owner.OWNER] = str(os.getpid())
+# needs_flock skips a test of the daemon, or of the MCP server reading one,
+# where the platform has no flock (Windows): neither runs there, and
+# SwitchedOffTest holds what each says instead.
+needs_flock = unittest.skipUnless(locks.SUPPORTED, "needs fcntl flock; " + locks.UNSUPPORTED)
 # R1 and R2 are run ids in the form history.py gives them.
 R1 = "20261111T120000Z-aaaaaaaaaaaa"
 R2 = "20261111T130000Z-bbbbbbbbbbbb"
@@ -135,8 +145,9 @@ class TimelineTest(unittest.TestCase):
             self.assertEqual([get_str(x, "kind") for x in timeline.read(d, kinds=["gate."])], ["gate.stage", "gate.run"])
             self.assertEqual(len(list(timeline.read(d, since=oct_t))), 2)
             self.assertEqual(len(list(timeline.read(d, src="machine"))), 1)
-            mode = os.stat(os.path.join(d, names[0])).st_mode & 0o777
-            self.assertEqual(mode, 0o600)
+            if os.name == "posix":  # Windows has no POSIX file modes
+                mode = os.stat(os.path.join(d, names[0])).st_mode & 0o777
+                self.assertEqual(mode, 0o600)
 
     def test_unchanged_values_are_written_once_across_restarts(self) -> None:
         """record_if_changed skips a repeat, and a new writer seeded from the
@@ -310,6 +321,7 @@ class HandOffTest(unittest.TestCase):
             self.assertTrue(view.broker.is_closed())
             pub.stop.set()
 
+    @needs_flock
     def test_one_gate_at_a_time(self) -> None:
         """A second holder of the gate lock is refused, in another process too."""
         with tempfile.TemporaryDirectory() as d:
@@ -409,6 +421,7 @@ class WaitSelectionTest(unittest.TestCase):
                 httpd.server_close()
 
 
+@needs_flock
 class SingleInstanceTest(unittest.TestCase):
     """One daemon per state directory, started by ensure."""
 
@@ -466,7 +479,12 @@ def runs_daemon(pid: int) -> bool:
         with open("/proc/%d/cmdline" % pid, "rb") as f:
             args = [a.decode() for a in f.read().split(b"\0") if a]
     except OSError:
-        return False
+        # No /proc (macOS): ask ps, which prints the line as one string.
+        try:
+            out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        args = out.stdout.split()
     return any(a.endswith("monitor.py") and args[i + 1] == "daemon" for i, a in enumerate(args[:-1]))
 
 
@@ -505,7 +523,7 @@ def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
 
     Args:
         dest: The directory to create.
-        protocol: The PROTOCOL the copy's daemon.py declares, or None to keep it.
+        protocol: The PROTOCOL the copy's daemonconf.py declares, or None to keep it.
 
     Returns:
         dest.
@@ -516,7 +534,7 @@ def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
             with open(os.path.join(HERE, name), "rb") as src, open(os.path.join(dest, name), "wb") as out:
                 out.write(src.read())
     if protocol is not None:
-        path = os.path.join(dest, "daemon.py")
+        path = os.path.join(dest, "daemonconf.py")
         with open(path, encoding="utf-8") as f:
             text = f.read()
         old = "PROTOCOL = %d\n" % daemon.PROTOCOL
@@ -611,6 +629,7 @@ class FakeHealthApp(daemon.DaemonApp):
                 "source": HERE}
 
 
+@needs_flock
 class EnsureSafetyTest(unittest.TestCase):
     """ensure signals only a process proven to be the daemon, and starts exactly one."""
 
@@ -815,6 +834,145 @@ class EnsureSafetyTest(unittest.TestCase):
                 self.assertEqual((daemon.read_lock_info(d) or {}).get("pid"), 4242)
             finally:
                 os.close(fd)
+
+
+def monitor_imports(directory: str, start: str = "monitor.py") -> List[str]:
+    """Names every module of the monitor that start can import, read from the source.
+
+    Every import statement counts, at the top of a file or inside a function,
+    so a module imported only later, when a function first runs, is listed too.
+
+    Args:
+        directory: The monitor's directory.
+        start: The file the daemon's process runs.
+
+    Returns:
+        The file names, start included, sorted.
+    """
+    import ast
+    seen: List[str] = []
+    todo = [start]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.append(name)
+        with open(os.path.join(directory, name), encoding="utf-8") as f:
+            tree = ast.parse(f.read(), name)
+        for node in ast.walk(tree):
+            mods: List[str] = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                mods = [node.module]
+            for mod in mods:
+                if os.path.isfile(os.path.join(directory, mod + ".py")):
+                    todo.append(mod + ".py")
+    return sorted(seen)
+
+
+@needs_flock
+class FingerprintTest(unittest.TestCase):
+    """The fingerprint /healthz reports covers every module the daemon can run."""
+
+    def test_every_module_the_daemon_imports_is_fingerprinted(self) -> None:
+        """A real daemon's source_files are exactly the monitor modules its
+        entry point can import, so a change to any of them is seen."""
+        with tempfile.TemporaryDirectory() as d:
+            proc, port = start_copy(HERE, d)
+            try:
+                health = daemon.healthz(port) or {}
+            finally:
+                proc.terminate()
+                proc.wait(10)
+            files = sorted(str(n) for n in get_list(health, "source_files"))
+            self.assertEqual(files, monitor_imports(HERE))
+            for name in ("daemonconf.py", "daemonlock.py", "daemonensure.py", "daemonapp.py", "fingerprint.py"):
+                self.assertIn(name, files)
+            self.assertEqual(health.get("fingerprint"), daemon.source_fingerprint(HERE, files))
+
+
+@needs_flock
+class OwnerTest(unittest.TestCase):
+    """A daemon a test suite started does not outlive the suite (FAILURE_PATTERNS 1321)."""
+
+    def test_a_killed_suite_leaves_no_daemon(self) -> None:
+        """A suite that starts a detached daemon through ensure and is then
+        killed with SIGKILL, so none of its cleanup runs, leaves no daemon:
+        the daemon sees its owner gone and stops within seconds."""
+        with tempfile.TemporaryDirectory() as d:
+            code = ("import os, sys, time, warnings; sys.path.insert(0, %r); import daemon, owner; "
+                    "os.environ[owner.OWNER] = str(os.getpid()); warnings.simplefilter('ignore'); "
+                    "code = daemon.ensure(0, quiet=True, state_dir=%r, no_actions=True); "
+                    "print((daemon.read_lock_info(%r) or {}).get('pid') if code == 0 else 'failed', flush=True); "
+                    "time.sleep(60)") % (HERE, d, d)
+            suite = subprocess.Popen([sys.executable, "-B", "-c", code], stdout=subprocess.PIPE, text=True)
+            try:
+                assert suite.stdout is not None
+                line = suite.stdout.readline().strip()
+                self.assertTrue(line.isdigit(), line + daemon_log(d))
+                pid = int(line)
+                self.assertTrue(runs_daemon(pid))
+                suite.kill()
+                suite.wait(10)
+                deadline = time.monotonic() + 15
+                while daemon.lock_held(d) and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                self.assertFalse(daemon.lock_held(d), daemon_log(d))
+                self.assertIn("owner pid %d is gone; stopping" % suite.pid, daemon_log(d))
+            finally:
+                if suite.poll() is None:
+                    suite.kill()
+                    suite.wait(10)
+                stop_daemon(d)
+
+
+
+class OwnerRulesTest(unittest.TestCase):
+    """What OWNER is read as, and how its life is judged, on any platform."""
+
+    def test_an_owner_is_read_only_when_it_could_be_one(self) -> None:
+        """OWNER is a pid above 1, or nothing."""
+        for value, want in (("", 0), ("0", 0), ("1", 0), ("x1", 0), ("-5", 0), ("4242", 4242)):
+            with unittest.mock.patch.dict(os.environ, {owner.OWNER: value}):
+                self.assertEqual(owner.owner_pid(), want, value)
+
+    def test_the_repositorys_own_daemon_ignores_owner(self) -> None:
+        """A daemon of the repository's own state directory watches no owner,
+        however its path is written; any other directory's watches OWNER."""
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.dict(os.environ, {owner.OWNER: "4242"}):
+            real = os.path.join(d, "state")
+            os.makedirs(real)
+            self.assertEqual(owner.watched_owner(real, real), 0)
+            self.assertEqual(owner.watched_owner(os.path.join(d, ".", "state"), real), 0)
+            self.assertEqual(owner.watched_owner(os.path.join(d, "test-state"), real), 4242)
+
+    @unittest.skipUnless(os.name == "posix", "needs POSIX signals: os.kill(pid, 0) ends a process on Windows")
+    def test_a_gone_or_reused_pid_is_not_alive(self) -> None:
+        """A pid no process has is gone, and so is one whose process started at
+        another time than the owner did (a reused pid)."""
+        dead = subprocess.Popen([sys.executable, "-B", "-c", "pass"])
+        dead.wait()
+        self.assertFalse(owner.owner_alive(dead.pid))
+        mine = owner.start_marker(os.getpid())
+        self.assertIsNotNone(mine)
+        self.assertTrue(owner.owner_alive(os.getpid(), mine))
+        self.assertFalse(owner.owner_alive(os.getpid(), "another start"))
+
+    def test_no_liveness_probe_signals_off_posix(self) -> None:
+        """Where os.kill(pid, 0) would end the process (Windows), no liveness
+        check calls it: each answers alive. Forced here on any platform."""
+        import runtests
+
+        def refuse(pid: int, sig: int) -> None:
+            """Stands in for os.kill and fails the test if called."""
+            raise AssertionError("os.kill(%d, %d) was called" % (pid, sig))
+
+        with unittest.mock.patch.object(owner, "POSIX", False), unittest.mock.patch.object(runfile, "POSIX", False), \
+                unittest.mock.patch.object(runtests, "POSIX", False), unittest.mock.patch("os.kill", refuse):
+            self.assertTrue(owner.owner_alive(os.getpid() + 100000, "x"))
+            self.assertTrue(runfile.process_alive(os.getpid() + 100000))
+            self.assertTrue(runtests.alive(os.getpid() + 100000))
 
 
 class RoadmapPanelTest(unittest.TestCase):
@@ -1059,6 +1217,7 @@ class SecurityTest(unittest.TestCase):
             self.assertEqual(get_str(get_objects(doc, "unreleased")[0], "summary"), "Pins every base image by digest.")
 
 
+@needs_flock
 class McpTest(unittest.TestCase):
     """The MCP server, as a real child process talking to a real daemon backend."""
 
@@ -1080,7 +1239,7 @@ class McpTest(unittest.TestCase):
                     {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "nope"}},
                 ]
                 stdin = "".join(json.dumps(m) + "\n" for m in msgs)
-                env = dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=d)
+                env = dict(os.environ, STATUS_PORT=str(port))
                 out = subprocess.run([sys.executable, "-B", os.path.join(HERE, "mcp_status.py")], input=stdin,
                                      capture_output=True, text=True, timeout=60, env=env)
                 replies = [json.loads(x) for x in out.stdout.splitlines()]
@@ -1145,6 +1304,123 @@ def untrusted_paths(value: JSONValue, word: str, path: str = "") -> List[str]:
     return out
 
 
+@needs_flock
+class NoDaemonStartedTest(unittest.TestCase):
+    """Nothing in the committed tree starts a background daemon unasked."""
+
+    def test_the_mcp_server_never_starts_a_daemon(self) -> None:
+        """With no daemon running, the MCP server starts, lists its tools and
+        answers each call that none runs, what the developer can do, and that
+        the model is to do nothing unasked; nothing is started, here or in
+        the state directory its own copy would use."""
+        import mcp_status
+        with tempfile.TemporaryDirectory() as root:
+            copy = copy_monitor(os.path.join(root, "tree", "tools", "monitor"))
+            # Outside any git repository, the copy's state directory is under its own tree.
+            state = os.path.join(root, "tree", ".IGNORE", "ci", "monitor")
+            msgs = mcp_session("status") + json.dumps({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                                                       "params": {"name": "gate", "arguments": {}}}) + "\n"
+            try:
+                # Port 9 (discard), as SwitchedOffTest uses: nothing listens on it here.
+                out = subprocess.run([sys.executable, "-B", os.path.join(copy, "mcp_status.py")], input=msgs,
+                                     capture_output=True, text=True, timeout=60, env=dict(os.environ, STATUS_PORT="9"))
+                replies = [json.loads(x) for x in out.stdout.splitlines()]
+                self.assertEqual([r["id"] for r in replies], [1, 2, 3, 4], out.stderr)
+                self.assertEqual(len(replies[1]["result"]["tools"]), 8)
+                for reply in replies[2:]:
+                    result = reply["result"]
+                    self.assertTrue(result["isError"])
+                    answer = json.loads(result["content"][0]["text"])
+                    self.assertEqual(sorted(answer), ["developer", "error", "note"])
+                    self.assertIn("No status daemon is running", answer["error"])
+                    self.assertIn("never starts one", answer["error"])
+                    self.assertIn(mcp_status.START, answer["developer"])
+                    self.assertIn("unless the user asks", answer["note"])
+                    self.assertNotIn("SessionStart", result["content"][0]["text"])
+                self.assertFalse(os.path.exists(os.path.join(root, "tree", ".IGNORE")), "a state directory was made")
+                self.assertIsNone(daemon.healthz(9, 0.5), "something answers on the port")
+            finally:
+                stop_daemon(state)
+
+
+class SlowDaemonTest(unittest.TestCase):
+    """A daemon that is slow to answer is not reported as absent."""
+
+    def test_a_timeout_is_retried_once_and_called_slow(self) -> None:
+        """A listener that takes the connection and never answers is asked
+        twice, then reported as running but slow, and the MCP answer says so;
+        a refused connection is the one reported as no daemon."""
+        import socket
+        import mcp_status
+        import mcpclient
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        accepted: List[socket.socket] = []
+        try:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(4)
+            port: int = listener.getsockname()[1]
+            with self.assertRaises(mcpclient.DaemonSlow):
+                mcpclient.DaemonClient(port).get("/state", timeout=0.3)
+            listener.settimeout(0.5)
+            try:
+                while True:
+                    accepted.append(listener.accept()[0])
+            except OSError:
+                pass
+            self.assertEqual(len(accepted), 2, "the timeout was not retried exactly once")
+        finally:
+            for conn in accepted:
+                conn.close()
+            listener.close()
+
+        class Slow(mcpclient.DaemonClient):
+            """A client whose every request times out twice."""
+
+            def get(self, path: str, timeout: float = 15.0) -> Tuple[int, bytes]:
+                """Fails as a slow daemon does.
+
+                Args:
+                    path: Unused.
+                    timeout: Unused.
+
+                Returns:
+                    Never.
+                """
+                raise mcpclient.DaemonSlow("no answer in 15 seconds")
+
+        msg: JSONObject = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "status"}}
+        with unittest.mock.patch.object(locks, "SUPPORTED", True), \
+                unittest.mock.patch.dict(os.environ, {"PLEIADES_NO_STATUS_DAEMON": ""}):
+            reply = mcp_status.handle(Slow(9), msg) or {}
+        result = as_object(reply.get("result")) or {}
+        self.assertTrue(result.get("isError"))
+        self.assertIn("is running but did not answer in time", json.dumps(result))
+        with self.assertRaises(mcpclient.NoDaemon):
+            mcpclient.DaemonClient(9).get("/state", timeout=2)
+
+
+class CommittedSettingsTest(unittest.TestCase):
+    """The daemon is opt-in: a contributor's session starts none unless they add the hook themselves."""
+
+    def test_the_committed_settings_start_nothing(self) -> None:
+        """The repository's .claude/settings.json runs no hook, so a contributor's
+        session starts no daemon; the README shows the one hook a developer
+        may add, which runs monitor.py ensure and nothing else."""
+        with open(os.path.join(HERE, "..", "..", ".claude", "settings.json"), encoding="utf-8") as f:
+            settings = as_object(loads(f.read())) or {}
+        self.assertNotIn("hooks", settings)
+        with open(os.path.join(HERE, "README.md"), encoding="utf-8") as f:
+            readme = f.read()
+        blocks = [b.split("```", 1)[0] for b in readme.split("```json\n")[1:]]
+        hooks = [b for b in blocks if "SessionStart" in b]
+        self.assertEqual(len(hooks), 1, "the README shows one SessionStart hook")
+        hook = as_object(loads(hooks[0])) or {}
+        start = get_objects(as_object(hook.get("hooks")), "SessionStart")
+        commands = [get_str(h, "command") for s in start for h in get_objects(s, "hooks")]
+        self.assertEqual(commands, ['python3 -B "$CLAUDE_PROJECT_DIR/tools/monitor/monitor.py" ensure --quiet || true'])
+
+
+@needs_flock
 class UntrustedTextTest(unittest.TestCase):
     """Text a fork's author or a test chooses reaches no answer, or reaches it labeled."""
 
@@ -1222,7 +1498,7 @@ class UntrustedTextTest(unittest.TestCase):
                     msgs.append({"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": params})
                 out = subprocess.run([sys.executable, "-B", os.path.join(HERE, "mcp_status.py")],
                                      input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True,
-                                     timeout=60, env=dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=state))
+                                     timeout=60, env=dict(os.environ, STATUS_PORT=str(port)))
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -1385,6 +1661,7 @@ class CrossSiteTest(unittest.TestCase):
 class NoRoadmapTest(unittest.TestCase):
     """A clone without the git-ignored tracker files shows empty tabs, not errors."""
 
+    @needs_flock
     def test_a_clone_without_the_tracker_files(self) -> None:
         """With no panels.json, no Makefile, no waivers, no changelog and no git,
         /roadmap.json and /security.json answer 200 without an error, the MCP
@@ -1409,7 +1686,7 @@ class NoRoadmapTest(unittest.TestCase):
                                            "params": {"name": n, "arguments": {}}}) + "\n"
                                for i, n in enumerate(("roadmap", "security")))
                 out = subprocess.run([sys.executable, "-B", MCP], input=msgs, capture_output=True, text=True, timeout=60,
-                                     env=dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=state))
+                                     env=dict(os.environ, STATUS_PORT=str(port)))
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -1483,7 +1760,7 @@ class SwitchedOffTest(unittest.TestCase):
                                  out.stderr)
             self.assertEqual(os.listdir(d), [])
             out = without_fcntl(MCP, [], mcp_session("status"),
-                                dict(os.environ, STATUS_PORT="9", STATUS_STATE_DIR=d))
+                                dict(os.environ, STATUS_PORT="9"))
             replies = [json.loads(x) for x in out.stdout.splitlines()]
             self.assertEqual([r["id"] for r in replies], [1, 2, 3], out.stderr)
             self.assertEqual(len(replies[1]["result"]["tools"]), 8)
@@ -1505,7 +1782,7 @@ class SwitchedOffTest(unittest.TestCase):
                 self.assertFalse(daemon.lock_held(d))
                 self.assertEqual(os.listdir(d), [])
                 mcp = subprocess.run([sys.executable, "-B", MCP], input=mcp_session("status"), capture_output=True,
-                                     text=True, timeout=60, env=dict(env, STATUS_PORT="9", STATUS_STATE_DIR=d))
+                                     text=True, timeout=60, env=dict(env, STATUS_PORT="9"))
                 reply = json.loads(mcp.stdout.splitlines()[-1])
                 self.assertTrue(reply["result"]["isError"])
                 self.assertIn("switched off", reply["result"]["content"][0]["text"])
