@@ -229,6 +229,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"7. To look at a device without changing it, use a method that only reads (`facts.gather`, `file.stat`) or\n" +
 	"   any method with `--mode check`, which is never journaled. A command method (`exec.command`) reports\n" +
 	"   changed on every run and is journaled, so a later rollback has to be told to step over it.\n" +
+	"   To see what changed on a device since a known good moment, record its gathered facts first with\n" +
+	"   `pleiades facts baseline web01 --name <name> --reason <why>`, gather again later, and read\n" +
+	"   `pleiades facts drift web01 --json`: it exits 3 when the device drifted, and 1 when it could not be compared.\n" +
 	"8. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
 	"   (`pleiades add-credential <device> --username <name> --password-file <file>`) and reaches its methods on its own.\n" +
 	"   A secret a configuration needs that is no device's login (a pre-shared key several routers share, a CA's\n" +
