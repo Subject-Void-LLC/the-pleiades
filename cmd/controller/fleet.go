@@ -22,16 +22,20 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
 
 // heartbeatInterval is how often a controller records that it is alive,
-// rechecks the schema and sweeps for abandoned syncs.
-const heartbeatInterval = 15 * time.Second
+// rechecks the schema and sweeps for abandoned syncs. It is the migration
+// runner's, because its contract guard decides who is running from these same
+// heartbeats (internal/ent/migrate's guard.go).
+const heartbeatInterval = migrate.ControllerHeartbeatInterval
 
 // liveWithin is how recently a controller must have been seen to count as
 // alive: three missed heartbeats, so one slow database round trip does not
-// make a live peer's syncs look abandoned.
-const liveWithin = 3 * heartbeatInterval
+// make a live peer's syncs look abandoned. The same rule decides whether an
+// older controller still running blocks a contract migration.
+const liveWithin = migrate.ControllerLiveWithin
 
 // pruneAfter is how long a row with no heartbeat is kept, for an operator
 // asking what ran recently, before any controller deletes it.

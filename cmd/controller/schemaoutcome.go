@@ -23,6 +23,13 @@ func logSchemaOutcome(ctx context.Context, logger *slog.Logger, outcome migrate.
 		logger.WarnContext(ctx, "a migration deleted rows whose bytes could not be removed from the database file; on SQLite, run VACUUM once the controller is stopped",
 			"migrations", outcome.NotReclaimed)
 	}
+	if len(outcome.Contracts) > 0 {
+		// A contract ends the rollback window: worth a warning even on the
+		// upgrade that meant to apply it, since from here an older build is
+		// refused and going back means restoring the pre-upgrade backup.
+		logger.WarnContext(ctx, "applied a contract migration; a build older than the floor now refuses this database, and rolling back past it means restoring the backup taken before this upgrade",
+			"contracts", outcome.Contracts, "floor", outcome.AppliedFloor)
+	}
 	switch {
 	case len(outcome.Newer) > 0:
 		// Serving a database a newer build moved on. Worth saying at warning
