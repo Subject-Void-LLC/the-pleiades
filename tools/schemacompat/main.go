@@ -61,6 +61,7 @@ var contracts = map[string]kind{
 	"runbook.schema.json":      inputSchema,
 	"inventory.schema.json":    inputSchema,
 	"run-report.json":          outputSchema,
+	"facts-drift.json":         outputSchema,
 	"doc-filters.json":         outputSchema,
 	"doc-conditions.json":      outputSchema,
 	"migration-report.json":    outputSchema,
