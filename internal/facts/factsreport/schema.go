@@ -14,9 +14,9 @@ import (
 // SchemaFile is the schema's name under docs/reference/schemas/.
 const SchemaFile = "facts-inspection.json"
 
-// modelFiles are the repository-relative Go files whose doc comments
-// describe the model.
-var modelFiles = []string{"internal/facts/factsreport/report.go"}
+// ModelFiles are the repository-relative Go files whose doc comments
+// describe the model, which Schema reads from the root it is given.
+var ModelFiles = []string{"internal/facts/factsreport/report.go"}
 
 // Contract is the report's compatibility rule, as its schema states it.
 const Contract = "schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets (a state, a failure kind, a role, a repair). So a reader ignores a field it does not know, treats a state it does not know as needing repair, and refuses a major version it does not know."
@@ -26,8 +26,8 @@ const Contract = "schema_version is the major version: it goes up only for a cha
 // an object may carry a property it does not declare, and a field's known
 // values are examples, not an enum.
 func Schema(root string) (map[string]any, error) {
-	paths := make([]string, 0, len(modelFiles))
-	for _, f := range modelFiles {
+	paths := make([]string, 0, len(ModelFiles))
+	for _, f := range ModelFiles {
 		paths = append(paths, filepath.Join(root, f))
 	}
 	docs, err := jsonschema.FilesDocs(paths...)
