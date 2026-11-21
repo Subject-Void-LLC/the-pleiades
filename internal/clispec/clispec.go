@@ -626,14 +626,45 @@ var Root = Command{
 		{
 			Name:       "facts",
 			Positional: "<host> [<key>]",
-			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain",
+			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain; facts baseline and facts drift compare hosts with a baseline (as the first word they are subcommands: a host named baseline or drift is read as pleiades facts -- <host>)",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 				{Name: "verify", Type: "bool", Default: "false", Doc: "check the host's fact chain instead of showing its facts; exits non-zero when it is broken"},
 			},
-			Examples: []string{"pleiades facts web1", "pleiades facts web1 os.kernel.release --json", "pleiades facts web1 --verify"},
+			Examples: []string{"pleiades facts web1", "pleiades facts web1 os.kernel.release --json", "pleiades facts web1 --verify", "pleiades facts -- drift"},
+			Subcommands: []Command{
+				{
+					Name:       "baseline",
+					Positional: "<hosts>",
+					Synopsis:   "record a named, immutable baseline of each host's current stable facts, or of another host's (--from), sealed under the project's master key with who took it, when and why; refused when the project has no master key, a host or the source was never gathered, or a host already has a baseline of the name",
+					Flags: []Flag{
+						{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+						{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+						{Name: "name", Type: "string", Default: "", Doc: "the baseline's name, unique per host (letters, digits, '.', '_' and '-'); required"},
+						{Name: "reason", Type: "string", Default: "", Doc: "why the baseline is taken, recorded with it; required"},
+						{Name: "from", Type: "string", Default: "", Doc: "a host to take the facts from (a golden host); each value is hashed again for the host it is a baseline of, and one carrying a digest keyed for the source alone (hmac_sha256) is recorded not comparable"},
+						{Name: "keys", Type: "string", Default: "", Doc: "the facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset. Volatile facts are never taken"},
+					},
+					Examples: []string{
+						"pleiades facts baseline web --name pre-upgrade --reason 'before the 6.8 kernel upgrade'",
+						"pleiades facts baseline web2,web3 --name golden --from web1 --keys 'package.*' --reason 'web1 is the reference build'",
+					},
+				},
+				{
+					Name:       "drift",
+					Positional: "[<hosts>]",
+					Synopsis:   "each host's current stable facts against its baseline (its newest unless --baseline names one): in_sync, drifted, unknown (never gathered, or a baseline under other keys) or no_baseline, then each key added, removed or changed, with when its value was observed and last seen; a value holding a digest is named, never shown; exits 3 when a host drifted, and 1 when none did but one could not be compared (or a host named has no baseline)",
+					Flags: []Flag{
+						{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+						{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+						{Name: "baseline", Type: "string", Default: "", Doc: "the baseline to compare against, by name; each host's newest when unset"},
+						{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text (docs/reference/schemas/facts-drift.json)"},
+					},
+					Examples: []string{"pleiades facts drift", "pleiades facts drift web --baseline pre-upgrade --json"},
+				},
+			},
 		},
 		{
 			Name:     "journal",

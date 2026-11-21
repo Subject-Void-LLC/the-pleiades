@@ -664,7 +664,7 @@ undo a run from its journal: every device it changed, newest change first
 
 ## pleiades facts
 
-what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain
+what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain; facts baseline and facts drift compare hosts with a baseline (as the first word they are subcommands: a host named baseline or drift is read as pleiades facts -- <host>)
 
 `pleiades facts <host> [<key>] [flags]`
 
@@ -680,6 +680,44 @@ what this project's runs observed about a host: each fact's current value, or on
 `pleiades facts web1 os.kernel.release --json`
 
 `pleiades facts web1 --verify`
+
+`pleiades facts -- drift`
+
+### pleiades facts baseline
+
+record a named, immutable baseline of each host's current stable facts, or of another host's (--from), sealed under the project's master key with who took it, when and why; refused when the project has no master key, a host or the source was never gathered, or a host already has a baseline of the name
+
+`pleiades facts baseline <hosts> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --inventory | `string` | - | inventory file to read, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --dir | `string` | `.` | project directory |
+| --name | `string` | - | the baseline's name, unique per host (letters, digits, '.', '_' and '-'); required |
+| --reason | `string` | - | why the baseline is taken, recorded with it; required |
+| --from | `string` | - | a host to take the facts from (a golden host); each value is hashed again for the host it is a baseline of, and one carrying a digest keyed for the source alone (hmac_sha256) is recorded not comparable |
+| --keys | `string` | - | the facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset. Volatile facts are never taken |
+
+`pleiades facts baseline web --name pre-upgrade --reason 'before the 6.8 kernel upgrade'`
+
+`pleiades facts baseline web2,web3 --name golden --from web1 --keys 'package.*' --reason 'web1 is the reference build'`
+
+### pleiades facts drift
+
+each host's current stable facts against its baseline (its newest unless --baseline names one): in_sync, drifted, unknown (never gathered, or a baseline under other keys) or no_baseline, then each key added, removed or changed, with when its value was observed and last seen; a value holding a digest is named, never shown; exits 3 when a host drifted, and 1 when none did but one could not be compared (or a host named has no baseline)
+
+`pleiades facts drift [<hosts>] [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --inventory | `string` | - | inventory file to read, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --dir | `string` | `.` | project directory |
+| --baseline | `string` | - | the baseline to compare against, by name; each host's newest when unset |
+| --json | `bool` | `false` | print one JSON document instead of text (docs/reference/schemas/facts-drift.json) |
+
+`pleiades facts drift`
+
+`pleiades facts drift web --baseline pre-upgrade --json`
 
 ## pleiades journal
 

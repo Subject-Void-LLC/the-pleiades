@@ -20,8 +20,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
-// factsUsage is the command's usage.
-const factsUsage = "usage: pleiades facts <host> [<key>] [--verify] [--dir DIR] [--json]"
+// factsUsage is the command's usage. baseline and drift, as the first word,
+// are subcommands; a host named either is read after "--".
+const factsUsage = "usage: pleiades facts <host> [<key>] [--verify] [--dir DIR] [--json] | " +
+	"pleiades facts baseline <hosts> --name NAME --reason TEXT [--from HOST] [--keys KEYS] [--dir DIR] | " +
+	"pleiades facts drift [<hosts>] [--baseline NAME] [--dir DIR] [--json]\n" +
+	"(baseline and drift as the first word are subcommands; read a host named either with pleiades facts -- <host>)"
 
 // factsReport is `pleiades facts`' model: the host, and either its current
 // facts or one key's history.
@@ -44,8 +48,18 @@ type factChainReport struct {
 // tell an intact chain from a broken one by the exit status alone.
 var errFactChainBroken = errors.New("the host's fact chain is broken")
 
-// runFacts is `pleiades facts <host> [<key>]`.
+// runFacts is `pleiades facts <host> [<key>]`, and its subcommands baseline
+// and drift when the first word names one: a subcommand wins over a host of
+// the same name, which is read after "--".
 func runFacts(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "baseline":
+			return runFactsBaseline(args[1:])
+		case "drift":
+			return runFactsDrift(args[1:])
+		}
+	}
 	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}

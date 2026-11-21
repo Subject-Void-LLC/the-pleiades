@@ -204,15 +204,18 @@ func TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas(t *testing.T) {
 			continue
 		}
 		rest := words[2:]
-		// A command with subcommands runs only one of them, so the span
-		// must name a real one (journal list).
+		// A command with subcommands and no positional of its own runs only
+		// one of them, so the span must name a real one (journal list); one
+		// that also runs on its own (facts <host>) may name none.
 		if len(cmd.Subcommands) > 0 {
 			sub, ok := clispec.Find(cmd, strings.Join(rest[:min(1, len(rest))], ""))
-			if !ok {
+			switch {
+			case ok:
+				cmd, rest = sub, rest[1:]
+			case cmd.Positional == "":
 				t.Errorf("the skill names `%s`, but %s runs only through a subcommand it does not name", spans[i], words[1])
 				continue
 			}
-			cmd, rest = sub, rest[1:]
 		}
 		for _, w := range rest {
 			if !strings.HasPrefix(w, "--") {
