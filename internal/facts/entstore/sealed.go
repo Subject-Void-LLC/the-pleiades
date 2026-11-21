@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
@@ -28,6 +29,31 @@ const payloadFactKey = "key"
 // that no lookup would join to it. A device under the previous keys is not
 // refused: it is re-keyed (rekey.go).
 var ErrKeysChanged = errors.New("facts: the device's stored facts were sealed under another facts key than this controller holds; set PLEIADES_FACTS_DIGEST_KEY_PREVIOUS to the key they were sealed under, beside the new PLEIADES_FACTS_DIGEST_KEY, so they are re-keyed")
+
+// errPlaintextRows refuses a device holding a row that names no facts key at
+// all: a fact in plaintext, as a Controller of a release from before facts
+// were sealed stores one. The migration that sealed facts deleted every such
+// row, but it is an expand migration (internal/ent/migrate's compat.go), so
+// an older Controller can still serve the schema it left, and one storing a
+// gather after it writes such a row. No facts key re-keys it, so
+// ErrKeysChanged's advice cannot help, and this says what does. errors.Is
+// still reads it as ErrKeysChanged, so every caller refuses the device as it
+// refuses one under other keys: not retried, counted as refused by
+// RekeyAll, and its batches dropped and logged.
+var errPlaintextRows error = plaintextRowsError{}
+
+// plaintextRowsError is errPlaintextRows' type: its own text, and
+// ErrKeysChanged to errors.Is.
+type plaintextRowsError struct{}
+
+// Error implements error. The text names the tables, since no route or
+// command deletes a device's stored facts.
+func (plaintextRowsError) Error() string {
+	return "facts: the device's stored facts include rows that name no facts key, stored in plaintext by a Controller of a release from before facts were sealed; no facts key re-keys them, so PLEIADES_FACTS_DIGEST_KEY_PREVIOUS does not help: stop every Controller of an earlier release, then delete this device's rows from the facts, fact_coverages and fact_observations tables, and its next gather stores its facts again, sealed"
+}
+
+// Is reports whether target is ErrKeysChanged, which this error is a case of.
+func (plaintextRowsError) Is(target error) bool { return target == ErrKeysChanged }
 
 // ErrNotThisDevices marks a row that does not open as the device's own: its
 // payload was sealed for another row, was edited, was never sealed, or holds
@@ -64,7 +90,7 @@ const (
 // keyState reads which keys device's rows (device is its database ID) name:
 // the current keys alone, or the previous ones too. A row naming any other
 // keys is ErrKeysChanged, as is one naming the previous keys when the store
-// holds none.
+// holds none, and a row naming no keys at all is errPlaintextRows.
 func (s *Store) keyState(ctx context.Context, rows factQuerier, device int) (keyState, error) {
 	others, err := rows.Query().
 		Where(entfact.HasDeviceWith(entdevice.IDEQ(device)), entfact.KeyedByNEQ(s.keys.ID())).
@@ -76,6 +102,11 @@ func (s *Store) keyState(ctx context.Context, rows factQuerier, device int) (key
 	}
 	if len(others) == 0 {
 		return keysCurrent, nil
+	}
+	// Judged before the previous keys: a device holding plaintext beside
+	// rows under the previous keys is not re-keyed either.
+	if slices.Contains(others, "") {
+		return 0, errPlaintextRows
 	}
 	if previous := s.previousID(); previous != "" && len(others) == 1 && others[0] == previous {
 		return keysPrevious, nil

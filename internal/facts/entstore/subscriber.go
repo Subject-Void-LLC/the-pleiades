@@ -294,6 +294,14 @@ func (s *Subscriber) Handle(evt event.Event) error {
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)))
 			return nil
 		}
+		// Plaintext rows from a Controller of a release before sealing,
+		// which no key re-keys, so the advice below would send the operator
+		// to a key that cannot help; the reason says what does.
+		if errors.Is(err, errPlaintextRows) {
+			s.logger.Error("dropping a facts batch for a device whose stored facts include plaintext rows from a release before facts were sealed, which no facts key re-keys",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
+			return nil
+		}
 		// No key to seal the facts under, a facts key other than the ones
 		// the device's history was written under, or a history under the
 		// previous key that does not verify under it: none changes on a
