@@ -125,13 +125,12 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 func TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog(t *testing.T) {
 	store := &recordingStore{}
 	var logged bytes.Buffer
-	sub, err := newFactsSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	entries, _, _ := facts.Prepare(map[string]any{"host.name": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
-	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
+	// Sealed, as a Runner of this release publishes it: a batch in plaintext
+	// is warned about, which is not what this test holds.
+	data, opens := sealedFactsBatch(t, facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
 		By: facts.Provenance{Method: "newer.gather"}})
+	sub, err := newFactsSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil, opens)
 	if err != nil {
 		t.Fatal(err)
 	}
