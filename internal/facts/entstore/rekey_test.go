@@ -80,9 +80,9 @@ func gatherRotationHistory(t *testing.T, store *entstore.Store, device string) {
 		stable map[string]any
 		uptime any
 	}{
-		{"run1", 10, rotationT0, map[string]any{"package.openssh-server": "1:9.6p1-3ubuntu13.5", "user.zq9operator": a}, 424242},
-		{"run2", 20, rotationT0.Add(time.Hour), map[string]any{"package.openssh-server": "1:9.6p1-3ubuntu13.5", "user.zq9operator": a}, 424243},
-		{"run3", 30, rotationT0.Add(2 * time.Hour), map[string]any{"package.openssh-server": "1:9.9p2-zq7build", "user.zq9operator": a, "file.zq9shadow": shadowValue()}, 424244},
+		{"run1", 10, rotationT0, map[string]any{"package.openssh-server": "1:9.6p1-3ubuntu13.5", "user.zq9operator": a}, uptime(0)},
+		{"run2", 20, rotationT0.Add(time.Hour), map[string]any{"package.openssh-server": "1:9.6p1-3ubuntu13.5", "user.zq9operator": a}, uptime(1)},
+		{"run3", 30, rotationT0.Add(2 * time.Hour), map[string]any{"package.openssh-server": "1:9.9p2-zq7build", "user.zq9operator": a, "file.zq9shadow": shadowValue()}, uptime(2)},
 		// Observed between run2 and run3, stored after them.
 		{"run4", 25, rotationT0.Add(90 * time.Minute), map[string]any{"user.zq9operator": map[string]any{"shell": "/bin/zq9late"}}, nil},
 	} {
@@ -301,7 +301,7 @@ func aRekeyKeepsTheHistory(t *testing.T, client *ent.Client, device string, db *
 	}
 	a := map[string]any{"shell": "/bin/zq9sh", "uid": 1001}
 	if err := recordGather(t, rotated, device, "run5", 40, rotationT0.Add(3*time.Hour),
-		map[string]any{"package.openssh-server": "1:9.9p2-zq7build", "user.zq9operator": a, "file.zq9shadow": shadowValue()}, 424245); err != nil {
+		map[string]any{"package.openssh-server": "1:9.9p2-zq7build", "user.zq9operator": a, "file.zq9shadow": shadowValue()}, uptime(3)); err != nil {
 		t.Fatalf("a gather after the re-key: %v", err)
 	}
 	after := snapshotOf(t, rotated, device)

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,7 +169,7 @@ func sealedProject(t *testing.T) (*facts.FileStore, string) {
 	at := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
 	for i, version := range []string{"1:9.6p1-3ubuntu13.5", "1:9.6p1-3ubuntu13.5", "1:9.9p2-zq7build"} {
 		stable := prepared(t, map[string]any{"package.openssh-server": version, "user.zq9operator": map[string]any{"shell": "/bin/zq9sh"}})
-		up := prepared(t, map[string]any{"host.zq9uptime": 4242 + i})
+		up := prepared(t, map[string]any{"host.zq9uptime": fileUptime(i)})
 		up[0].Kind = facts.KindVolatile
 		obs := facts.Observation{Entries: append(stable, up...), At: at.Add(time.Duration(i) * time.Hour),
 			By: facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}}
@@ -178,6 +179,11 @@ func sealedProject(t *testing.T) (*facts.FileStore, string) {
 	}
 	return store, dir
 }
+
+// fileUptime is the volatile value gather i of sealedProject stores. It
+// holds a ".", which a sealed line (its prefix aside) never does, since
+// base64 has none, so finding one in a file is never chance.
+func fileUptime(i int) float64 { return 4242.5 + float64(i) }
 
 // TestFileStore_NothingStoredIsPlaintext: after real gathers, no file under
 // the fact directory holds a fact's key, a value, a field of one or a plain
@@ -200,7 +206,11 @@ func TestFileStore_NothingStoredIsPlaintext(t *testing.T) {
 		if len(raw) > 0 {
 			searched++
 		}
-		for _, plain := range []string{"package", "openssh", "ubuntu13", "9.6p1", "zq7build", "zq9operator", "zq9sh", "zq9uptime", "4242", "shell", plainHash, `"key"`, `"value"`} {
+		needles := []string{"package", "openssh", "ubuntu13", "9.6p1", "zq7build", "zq9operator", "zq9sh", "zq9uptime", "shell", plainHash, `"key"`, `"value"`}
+		for i := range 3 {
+			needles = append(needles, fmt.Sprint(fileUptime(i)))
+		}
+		for _, plain := range needles {
 			if bytes.Contains(raw, []byte(plain)) {
 				t.Errorf("%s holds %q in plaintext", f.Name(), plain)
 			}

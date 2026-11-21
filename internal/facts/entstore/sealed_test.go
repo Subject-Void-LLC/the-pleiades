@@ -8,7 +8,10 @@ package entstore_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,11 +32,20 @@ import (
 
 // plaintexts is what the gathers below store that no row may hold readable:
 // each key, parts of it, each value, a field name inside a value, and the
-// plain SHA-256 fact hash a build before this one stored.
+// plain SHA-256 fact hash a build before this one stored. Each uptime holds
+// a ".", which no hex column (a token, a hash, a chain link) and no base64 can
+// hold, so finding one is never chance.
 func plaintexts() []string {
 	plainHash, _ := facts.Hash("package.openssh-server", "1:9.6p1-3ubuntu13.5")
-	return []string{"package", "openssh", "ubuntu13", "9.6p1", "zq7build", "zq9operator", "zq9sh", "zq9uptime", "424242", "shell", plainHash}
+	out := []string{"package", "openssh", "ubuntu13", "9.6p1", "zq7build", "zq9operator", "zq9sh", "zq9uptime", "shell", plainHash}
+	for i := range 3 {
+		out = append(out, fmt.Sprint(uptime(i)))
+	}
+	return out
 }
+
+// uptime is the volatile value gather i stores.
+func uptime(i int) float64 { return 424242.5 + float64(i) }
 
 // sqliteClientDB is a client over a real SQLite file with one device in it,
 // the database handle beside it, and the file's path.
@@ -59,7 +71,7 @@ func gatherThrice(t *testing.T, store *entstore.Store, device string) {
 	at := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
 	for i, version := range []string{"1:9.6p1-3ubuntu13.5", "1:9.6p1-3ubuntu13.5", "1:9.9p2-zq7build"} {
 		stable := prepared(t, map[string]any{"package.openssh-server": version, "user.zq9operator": map[string]any{"shell": "/bin/zq9sh"}})
-		up := prepared(t, map[string]any{"host.zq9uptime": 424242 + i})
+		up := prepared(t, map[string]any{"host.zq9uptime": uptime(i)})
 		up[0].Kind = facts.KindVolatile
 		obs := facts.Observation{Entries: append(stable, up...), At: at.Add(time.Duration(i) * time.Hour),
 			By: facts.Provenance{Run: fmt.Sprintf("run%d", i+1), Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}}
@@ -110,15 +122,106 @@ func rawRows(t *testing.T, db *sql.DB, table string) (string, int) {
 	return out.String(), n
 }
 
+// rawLink is one stable row as a copy of the database shows it, read with
+// plain SQL: every input of its chain link but the fact's key, which is
+// sealed in its payload.
+type rawLink struct {
+	prev, hash, chain string
+	at                time.Time
+	by                facts.Provenance
+}
+
+// rawLinks is every stable row of the facts table, in the order they were
+// written, read with plain SQL and decoded as an attacker holding a copy
+// would decode them: the provenance column is the JSON text of a Provenance
+// under "json", and the time is the column's own.
+func rawLinks(t *testing.T, db *sql.DB) []rawLink {
+	t.Helper()
+	rows, err := db.Query("SELECT chain_prev, hash, created_at, provenance, chain FROM facts WHERE kind = 'stable' ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []rawLink
+	for rows.Next() {
+		var prev sql.NullString
+		var link rawLink
+		var provenance []byte
+		if err := rows.Scan(&prev, &link.hash, &link.at, &provenance, &link.chain); err != nil {
+			t.Fatal(err)
+		}
+		link.prev = prev.String
+		var column map[string]string
+		if err := json.Unmarshal(provenance, &column); err != nil {
+			t.Fatalf("the provenance column %q: %v", provenance, err)
+		}
+		if err := json.Unmarshal([]byte(column["json"]), &link.by); err != nil {
+			t.Fatalf("the provenance text %q: %v", column["json"], err)
+		}
+		out = append(out, link)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// unkeyedChain is the chain link a store wrote before the chain was keyed:
+// SHA-256 over the canonical JSON of the device, the link before, the key,
+// the fact hash, the time and the provenance. Every input but the key is in
+// the row's own columns.
+func unkeyedChain(t *testing.T, device, prev, key, hash string, at time.Time, by facts.Provenance) string {
+	t.Helper()
+	canon, err := facts.Canonical([]any{device, prev, key, hash, facts.StoredTime(at).Format(time.RFC3339Nano), by})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canon)
+	return hex.EncodeToString(sum[:])
+}
+
+// noLinkConfirmsAGuessedKey is the guess a holder of a copy of the database
+// makes: for every stable row and every key the gathers stored, the unkeyed
+// chain link recomputed from the row's own columns and the guessed key. None
+// may equal the row's chain, or one SHA-256 per guess would say which device
+// has which package, user or service, and when it changed. The control: the
+// keyed link, recomputed from the same columns under the store's keys,
+// equals each row's chain for exactly one guess, its own key, so the columns
+// were read the way the store wrote them and the guesses include the truth.
+func noLinkConfirmsAGuessedKey(t *testing.T, db *sql.DB, device string) {
+	t.Helper()
+	guesses := []string{"package.openssh-server", "user.zq9operator"}
+	links := rawLinks(t, db)
+	if len(links) != 3 {
+		t.Fatalf("%d stable rows, want the package twice and the user once", len(links))
+	}
+	for i, l := range links {
+		matched := 0
+		for _, key := range guesses {
+			if unkeyedChain(t, device, l.prev, key, l.hash, l.at, l.by) == l.chain {
+				t.Errorf("stable row %d: its chain is the unkeyed link of %q over its own columns, so a copy of the database confirms the guess", i, key)
+			}
+			if keyed, err := factstest.Keys().ChainHash(device, l.prev, key, l.hash, l.at, l.by); err == nil && keyed == l.chain {
+				matched++
+			}
+		}
+		if matched != 1 {
+			t.Errorf("the control failed: stable row %d's chain is the keyed link of %d of the guesses, want its own key alone", i, matched)
+		}
+	}
+}
+
 // nothingStoredIsPlaintext is the proof both dialects run: after real
-// gathers no row of any fact table holds a key, a value or a plain hash; the
-// store reads all of it back, saw the one change and only that one, finds a
-// key's history by its token, and its chain verifies.
+// gathers no row of any fact table holds a key, a value or a plain hash, and
+// no chain link confirms a guessed key; the store reads all of it back, saw
+// the one change and only that one, finds a key's history by its token, and
+// its chain verifies.
 func nothingStoredIsPlaintext(t *testing.T, client *ent.Client, device string, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
 	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	gatherThrice(t, store, device)
+	noLinkConfirmsAGuessedKey(t, db, device)
 	counts := map[string]int{}
 	for _, table := range []string{"facts", "fact_coverages", "fact_observations"} {
 		text, n := rawRows(t, db, table)
