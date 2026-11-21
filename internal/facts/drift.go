@@ -162,11 +162,17 @@ func Drift(b Baseline, keysID string, current []Entry, at time.Time) DriftReport
 	latest := map[string]time.Time{}
 	var last time.Time
 	for _, e := range current {
+		if e.Kind == KindVolatile {
+			volatile[e.Key] = true
+		}
+	}
+	for _, e := range current {
 		if e.LastSeenAt.After(last) {
 			last = e.LastSeenAt
 		}
-		if e.Kind == KindVolatile {
-			volatile[e.Key] = true
+		// A key volatile in any entry is never compared, whatever else
+		// claims it.
+		if volatile[e.Key] {
 			continue
 		}
 		if _, dup := stable[e.Key]; !dup {
