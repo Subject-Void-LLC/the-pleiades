@@ -27,8 +27,8 @@ func factsRunbookSource(t *testing.T) runbook.Source {
 	t.Helper()
 	dir := t.TempDir()
 	for name, body := range map[string]string{
-		"pb-1":     "id: pb-1\ntasks:\n  - name: step\n    fqcn: ios_backup\n",
-		"pb-facts": "id: pb-facts\ntasks:\n  - name: step\n    fqcn: ios_backup\n  - name: on seventeen\n    when: facts[\"os.version\"] == \"17.3\"\n    fqcn: ios_backup\n",
+		"pb-1":     "id: pb-1\ntasks:\n  - name: step\n    ios_backup: {}\n",
+		"pb-facts": "id: pb-facts\ntasks:\n  - name: step\n    ios_backup: {}\n  - name: on seventeen\n    when: facts[\"os.version\"] == \"17.3\"\n    ios_backup: {}\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)

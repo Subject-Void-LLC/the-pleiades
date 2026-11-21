@@ -185,7 +185,7 @@ func TestDeclaredBefore_OnlyAnEarlierTaskCounts(t *testing.T) {
 			Facts: []collection.FactSpec{{Key: "tfy.k", Kind: collection.FactStable, Type: collection.FactString, Description: "a key"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	dag := buildInternalDAG(t, `{"id": "d", "tasks": [{"name": "a", "fqcn": "noop"}, {"name": "g", "fqcn": "tfy.gather"}, {"name": "b", "fqcn": "noop"}]}`)
+	dag := buildInternalDAG(t, `{"id": "d", "tasks": [{"name": "a", "noop": {}}, {"name": "g", "tfy.gather": {}}, {"name": "b", "noop": {}}]}`)
 	if !DeclaredBefore(dag, "tasks[2]", "tfy.k") {
 		t.Error("a key an earlier task declares was not counted")
 	}
