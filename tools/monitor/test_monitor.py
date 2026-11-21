@@ -20,12 +20,13 @@ import http.client  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import stat  # noqa: E402
+import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 import unittest.mock  # noqa: E402
-from typing import Dict, List, Mapping, Optional, Tuple, Union  # noqa: E402
+from typing import Dict, List, Mapping, Optional, Set, Tuple, Union  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
@@ -42,6 +43,21 @@ from jsonutil import JSONObject, JSONValue, as_object, loads  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTDATA = os.path.join(HERE, "testdata")
+
+
+def assert_mode(test: unittest.TestCase, path: str, mode: int, msg: str = "") -> None:
+    """Asserts a file's permission bits where the platform has POSIX modes.
+
+    Windows keeps only a read-only bit, so there the check is left out.
+
+    Args:
+        test: The test asserting.
+        path: The file or directory.
+        mode: The bits it must have, such as 0o600.
+        msg: Said on a failure.
+    """
+    if os.name == "posix":
+        test.assertEqual(stat.S_IMODE(os.stat(path).st_mode), mode, msg or None)
 
 
 def fixture(name: str) -> str:
@@ -207,6 +223,23 @@ class TraceLogTest(unittest.TestCase):
         self.assertIsNotNone(b)
         self.assertEqual(a.group(2) if a else None, "build")
         self.assertEqual(b.group(1) if b else None, "gosec")
+
+    def test_every_static_check_is_a_stage_in_make_order(self) -> None:
+        """Each check the Makefile's CI_REMOTE_STATIC lists is a stage, in its
+        order, and monitor-test is seen by its trace line and by its command."""
+        with open(os.path.join(HERE, "..", "..", "Makefile"), encoding="utf-8") as f:
+            line = next(x for x in f if x.startswith("CI_REMOTE_STATIC :="))
+        listed = line.split(":=", 1)[1].split()
+        self.assertEqual([n for n in ps.STATIC_TARGETS if n in listed], listed)
+        state = ps.RunState(0.0)
+        feed(state, ["Makefile:1188: target 'workflow-lint' does not exist", "actionlint",
+                     "Makefile:1201: target 'monitor-test' does not exist", "python3 -B tools/monitor/runtests.py",
+                     "Makefile:1140: target 'pr-check-vet' does not exist"])
+        self.assertEqual(statuses(state)["monitor-test"], ps.PASS)
+        state = ps.RunState(0.0)
+        feed(state, ["actionlint", "python3 -B tools/monitor/runtests.py"])
+        self.assertEqual(state.main, "monitor-test")
+        self.assertEqual(statuses(state)["workflow-lint"], ps.PASS)
 
     def test_backslash_lines_are_skipped(self) -> None:
         """Skips a continued recipe line and the line after it."""
@@ -493,16 +526,49 @@ class FileTailTest(unittest.TestCase):
             path = os.path.join(d, "mac.log")
             tail = live.FileTail(path)
             self.assertEqual(tail.read_lines(), [])
-            with open(path, "w", encoding="utf-8") as f:
+            # newline="\n" writes these bytes on every platform; the CRLF case is written as bytes below.
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write("one\ntw")
             self.assertEqual(tail.read_lines(), ["one"])
-            with open(path, "a", encoding="utf-8") as f:
+            with open(path, "a", encoding="utf-8", newline="\n") as f:
                 f.write("o\n")
             self.assertEqual(tail.read_lines(), ["two"])
             os.remove(path)
-            with open(path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write("fresh\n")
             self.assertEqual(tail.read_lines(), ["fresh"])
+
+    def test_every_file_written_through_os_open_is_binary(self) -> None:
+        """Each os.open that writes (O_WRONLY or O_RDWR) adds history.BINARY:
+        on Windows os.write would otherwise turn each \\n into \\r\\n, so a size
+        cap or an offset would count characters, not the bytes on disk."""
+        import ast
+        for name in sorted(os.listdir(HERE)):
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                tree = ast.parse(f.read(), name)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "open" and \
+                        isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and len(node.args) > 1:
+                    flags = {x.attr if isinstance(x, ast.Attribute) else x.id
+                             for x in ast.walk(node.args[1]) if isinstance(x, (ast.Attribute, ast.Name))}
+                    if flags & {"O_WRONLY", "O_RDWR"}:
+                        with self.subTest("%s:%d" % (name, node.lineno)):
+                            self.assertIn("BINARY", flags)
+
+    def test_windows_line_ends(self) -> None:
+        """A log with \r\n line ends, as a Windows gate writes, reads as the
+        same lines, also when a read ends between the \r and the \n."""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "win.log")
+            tail = live.FileTail(path)
+            with open(path, "wb") as f:
+                f.write(b"one\r\ntwo\r")
+            self.assertEqual(tail.read_lines(), ["one"])
+            with open(path, "ab") as f:
+                f.write(b"\nthree\r\n")
+            self.assertEqual(tail.read_lines(), ["two", "three"])
 
 
 class HistoryTest(unittest.TestCase):
@@ -513,7 +579,7 @@ class HistoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "monitor")
             store = history.HistoryStore(root)
-            self.assertEqual(stat.S_IMODE(os.stat(root).st_mode), 0o700)
+            assert_mode(self, root, 0o700)
             state = replay("prcheck-run.txt")
             state.started, state.ended = 100.0, 200.0
             old = store.unique_run_id(1000.0, "ae89f745ba1c3948")
@@ -526,9 +592,9 @@ class HistoryTest(unittest.TestCase):
             with store.open_log(new) as log:
                 log.write("a line\n")
             run_dir = store.run_dir(new)
-            self.assertEqual(stat.S_IMODE(os.stat(run_dir).st_mode), 0o700)
+            assert_mode(self, run_dir, 0o700)
             for name in ("run.json", "report.json", "log.txt"):
-                self.assertEqual(stat.S_IMODE(os.stat(os.path.join(run_dir, name)).st_mode), 0o600, name)
+                assert_mode(self, os.path.join(run_dir, name), 0o600, name)
             runs = store.list_runs()
             self.assertEqual([r["id"] for r in runs], [new, old])
             self.assertEqual(runs[0]["seconds"], 150.0)
@@ -561,7 +627,7 @@ class HistoryTest(unittest.TestCase):
             many: List[JSONObject] = [{"id": i, "created": "2026-10-%02dT%02d:00:00Z" % (1 + i // 24, i % 24)}
                                       for i in range(history.MAX_ACTIONS_RUNS + 20)]
             self.assertEqual(len(store.save_actions(many)), history.MAX_ACTIONS_RUNS)
-            self.assertEqual(stat.S_IMODE(os.stat(store.actions_path()).st_mode), 0o600)
+            assert_mode(self, store.actions_path(), 0o600)
 
     def test_actions_written_only_when_changed(self) -> None:
         """A poll that changes nothing writes nothing; a changed one writes
@@ -736,7 +802,7 @@ class ActionsTest(unittest.TestCase):
 
     def test_gh_missing(self) -> None:
         """Says gh is not installed when it cannot be run."""
-        def missing(*args: object, **kwargs: object) -> "actions.subprocess.CompletedProcess[str]":
+        def missing(*args: object, **kwargs: object) -> "subprocess.CompletedProcess[str]":
             """Raises as subprocess.run does for a missing program."""
             raise FileNotFoundError("gh")
         self.assertEqual(actions.gh_api("repos/x", run=missing), (None, "gh is not installed"))
@@ -824,6 +890,26 @@ def serve(app: server.Backend) -> Tuple[server.ThreadingHTTPServer, int]:
 
 class ServerTest(unittest.TestCase):
     """The HTTP server, on a real socket."""
+
+    def test_binding_does_no_reverse_lookup(self) -> None:
+        """Starting the server never calls socket.getfqdn, the reverse DNS
+        lookup HTTPServer.server_bind makes, which a slow resolver (as on the
+        first macOS CI run, inferred) turns into a daemon that cannot answer;
+        forced here by a getfqdn that fails the test if called."""
+        import socket
+
+        def refuse(name: str = "") -> str:
+            """Stands in for socket.getfqdn and fails the test if called."""
+            raise AssertionError("socket.getfqdn(%r) was called" % name)
+
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(socket, "getfqdn", refuse):
+            httpd = server.start_server(monitor.App("serve", history.HistoryStore(d)), 0)
+            try:
+                self.assertEqual(self.get(httpd.server_port, "/healthz")[0], 200)
+                self.assertEqual(httpd.server_name, "127.0.0.1")
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
 
     def get(self, port: int, path: str, host: Optional[str] = None) -> Tuple[int, Mapping[str, str], bytes]:
         """Makes one GET.
@@ -981,6 +1067,102 @@ class PageTest(unittest.TestCase):
                 if name.endswith((".py", ".js", ".html", ".md", ".txt", ".json")):
                     with open(os.path.join(root, name), encoding="utf-8") as f:
                         self.assertNotIn(dash, f.read(), name)
+
+
+def newer_than_3_8(source: str) -> List[str]:
+    """Finds the run-time constructs in source that Python 3.8 lacks, of the kinds this looks for.
+
+    The kinds: a builtin generic subscripted outside an annotation
+    (set[str]() raises on 3.8; an annotation is a string here, through
+    "from __future__ import annotations"), str.removeprefix and
+    removesuffix, functools.cache, and the zoneinfo, graphlib and tomllib
+    modules. A dict merged with | is not found: telling it from a set or an
+    int needs types.
+
+    Args:
+        source: A module's text.
+
+    Returns:
+        One line for each, with its line number.
+    """
+    import ast
+    tree = ast.parse(source)
+    in_annotation: Set[int] = set()
+    for node in ast.walk(tree):
+        notes: List[ast.expr] = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            every = args.posonlyargs + args.args + args.kwonlyargs + [a for a in (args.vararg, args.kwarg) if a]
+            notes = [a.annotation for a in every if a.annotation is not None]
+            notes += [node.returns] if node.returns is not None else []
+        elif isinstance(node, ast.AnnAssign):
+            notes = [node.annotation]
+        for note in notes:
+            in_annotation.update(id(x) for x in ast.walk(note))
+    found: List[str] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if id(node) in in_annotation:
+            continue
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in (
+                "list", "dict", "set", "tuple", "type", "frozenset"):
+            found.append("%d: %s[...] at run time" % (line, node.value.id))
+        elif isinstance(node, ast.Attribute) and node.attr in ("removeprefix", "removesuffix"):
+            found.append("%d: .%s" % (line, node.attr))
+        elif isinstance(node, ast.Attribute) and node.attr == "cache" and isinstance(node.value, ast.Name) \
+                and node.value.id == "functools":
+            found.append("%d: functools.cache" % line)
+        elif isinstance(node, ast.ImportFrom) and node.module == "functools" and any(a.name == "cache" for a in node.names):
+            found.append("%d: functools.cache" % line)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            mods = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            found += ["%d: import %s" % (line, m) for m in mods if m.split(".")[0] in ("zoneinfo", "graphlib", "tomllib")]
+    return found
+
+
+class OldestPythonTest(unittest.TestCase):
+    """Two checks toward Python 3.8: its grammar, and a list of run-time constructs it lacks.
+
+    Neither is a run on 3.8. A library call newer than 3.8 that newer_than_3_8
+    does not look for is found only by running there.
+    """
+
+    def sources(self) -> List[Tuple[str, str]]:
+        """Reads every Python file of the monitor.
+
+        Returns:
+            (name, text) for each.
+        """
+        out: List[Tuple[str, str]] = []
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py"):
+                with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                    out.append((name, f.read()))
+        return out
+
+    def test_every_file_parses_as_python_3_8(self) -> None:
+        """Every file parses with ast.parse(feature_version=(3, 8)), which
+        refuses some grammar newer than 3.8 (a match statement, an except
+        star). Skipped where this interpreter no longer takes that version."""
+        import ast
+        try:
+            ast.parse("x = 1", feature_version=(3, 8))
+        except (ValueError, TypeError) as exc:
+            self.skipTest("this Python no longer parses as 3.8: %s" % exc)
+        for name, source in self.sources():
+            with self.subTest(name):
+                ast.parse(source, name, feature_version=(3, 8))
+
+    def test_no_file_uses_a_run_time_construct_3_8_lacks(self) -> None:
+        """No file holds what newer_than_3_8 looks for, and the search finds
+        each kind in a sample, so an empty answer is not a blind one."""
+        sample = ("import tomllib\nfrom functools import cache\nx = set[str]()\n"
+                  "def f(a: list[int]) -> dict[str, int]:\n    return {}\ny = 'ab'.removeprefix('a')\n")
+        self.assertEqual(newer_than_3_8(sample), ["1: import tomllib", "2: functools.cache",
+                                                  "3: set[...] at run time", "6: .removeprefix"])
+        for name, source in self.sources():
+            with self.subTest(name):
+                self.assertEqual(newer_than_3_8(source), [])
 
 
 class CommandLineTest(unittest.TestCase):

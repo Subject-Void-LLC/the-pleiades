@@ -33,7 +33,7 @@ import time
 from collections import OrderedDict
 from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
-from history import ensure_private_dir
+from history import BINARY, ensure_private_dir
 from jsonutil import JSONObject, JSONValue, as_object, get_str, loads
 from redact import Redactor
 
@@ -370,7 +370,7 @@ class Timeline:
         raw = (json.dumps(line, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
         with self.lock:
             ensure_private_dir(self.directory)
-            fd = os.open(month_file(self.directory, at), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            fd = os.open(month_file(self.directory, at), os.O_WRONLY | os.O_CREAT | os.O_APPEND | BINARY, 0o600)
             try:
                 os.write(fd, raw)
             finally:

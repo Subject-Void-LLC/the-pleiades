@@ -88,8 +88,9 @@ jobs:
   ci:
     # The static checks: compilation on three operating systems, vet under
     # both tag sets, gofmt, module tidiness, the pinned scanners, the
-    # generated trees, the Helm lint, the internal-docs citation lint and
-    # the workflow lint. That set is `make ci-remote`. The three-OS matrix
+    # generated trees, the Helm lint, the internal-docs citation lint, the
+    # workflow lint and tools/monitor's Python tests (monitor-test, run on
+    # all three). That set is `make ci-remote`. The three-OS matrix
     # is also the guard against a _windows/_linux/_darwin filename suffix
     # silently constraining a file to one platform (FAILURE_PATTERNS 51):
     # compilation alone sees it. macOS is blocking and Windows advisory,
@@ -153,6 +154,20 @@ jobs:
         run: |
           go build ./...
           go vet ./...
+
+      # tools/monitor's Python tests, `make monitor-test`, which ci-remote
+      # runs on Linux. They need only the runner's own Python 3. The Windows
+      # step calls the target's one command with the image's python
+      # directly, so it needs no make; there the suite runs once, the
+      # daemon's tests skip (no fcntl) and the rest run.
+      - name: monitor-test (macOS)
+        if: runner.os == 'macOS'
+        run: make monitor-test
+
+      - name: monitor-test (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python -B tools/monitor/runtests.py
 
   fast:
     # Every package that starts no container, on Linux. The coverage job

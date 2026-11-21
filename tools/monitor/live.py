@@ -62,7 +62,7 @@ class FileTail:
         when it begins.
 
         Returns:
-            The new lines, without newlines.
+            The new lines, without their \n or \r\n.
         """
         try:
             st = os.stat(self.path)
@@ -81,7 +81,8 @@ class FileTail:
         self.offset += len(data)
         lines = (self.partial + data.decode("utf-8", errors="replace")).split("\n")
         self.partial = lines.pop()
-        return lines
+        # A log written on Windows ends its lines \r\n: the \r is part of the end, not the line.
+        return [x[:-1] if x.endswith("\r") else x for x in lines]
 
 
 def read_records(records_dir: str) -> Tuple[Dict[str, JSONObject], Optional[JSONObject]]:
