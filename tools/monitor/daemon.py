@@ -29,8 +29,10 @@ a run in progress.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -58,9 +60,13 @@ import server
 import timeline
 from jsonutil import JSONObject, JSONValue, as_object, get_float, get_int, get_list, get_objects, get_str, loads
 
-# PROTOCOL rises whenever what the daemon serves or reads changes in a way an
-# older daemon would get wrong. ensure replaces a daemon with a lower one.
-PROTOCOL = 1
+# PROTOCOL rises with every change to what the daemon serves or stores (a
+# route, a field of an answer, a file it writes or how): ensure replaces a
+# daemon with a lower one and leaves a higher one alone. A daemon of the same
+# protocol is also replaced when it runs from the files ensure runs from and
+# they changed since it loaded them (its fingerprint), which covers a change
+# that forgot the bump, but only from that one tree.
+PROTOCOL = 2
 DEFAULT_PORT = 8765
 # RECENT_SECONDS is how long after a run ended a /wait naming no run still
 # answers from it, rather than waiting for the next run.
@@ -84,6 +90,49 @@ CAPPED = os.path.expanduser("~/.local/bin/capped")
 DAEMON_CAP = "400M"
 # STOP_SECONDS is how long ensure waits for a replaced daemon to let go of its lock.
 STOP_SECONDS = 10.0
+# SOURCE_NAME is what a fingerprinted file's name must look like, so a name
+# read back from /healthz never reaches outside the monitor's directory.
+SOURCE_NAME = re.compile(r"^[A-Za-z0-9_]+\.py$")
+
+
+def loaded_sources(directory: str = paths.HERE) -> List[str]:
+    """Names the files of the monitor this process has loaded.
+
+    Args:
+        directory: The monitor's directory.
+
+    Returns:
+        The file names of every module imported from it (monitor.py, run as
+        __main__, included), sorted.
+    """
+    names: List[str] = []
+    for mod in list(sys.modules.values()):
+        path: object = getattr(mod, "__file__", None)
+        if isinstance(path, str) and path.endswith(".py") and os.path.dirname(os.path.abspath(path)) == directory:
+            names.append(os.path.basename(path))
+    return sorted(set(names))
+
+
+def source_fingerprint(directory: str, names: Sequence[str]) -> str:
+    """Digests the named files as they are on disk now.
+
+    Args:
+        directory: Where they are.
+        names: Their names; any that is not a plain .py name is skipped.
+
+    Returns:
+        The SHA-256 of each name and its content, in name order.
+    """
+    h = hashlib.sha256()
+    for name in sorted(n for n in names if SOURCE_NAME.match(n)):
+        h.update(name.encode("utf-8") + b"\0")
+        try:
+            with open(os.path.join(directory, name), "rb") as f:
+                h.update(f.read())
+        except OSError:
+            h.update(b"\0missing")
+        h.update(b"\0")
+    return h.hexdigest()
 
 
 class DaemonApp:
@@ -106,6 +155,8 @@ class DaemonApp:
         security_cache: The last /security.json and when it was built.
         git_seen: The main line's commit when its history was last recorded.
         git_catalog: The module catalog's counts already read, by commit.
+        source_files: The monitor files this process loaded.
+        fingerprint: Their digest as loaded, which /healthz reports.
     """
 
     state_dir: str
@@ -124,6 +175,8 @@ class DaemonApp:
     security_cache: Optional[Tuple[float, JSONObject]]
     git_seen: str
     git_catalog: Dict[str, Optional[Tuple[int, int]]]
+    source_files: List[str]
+    fingerprint: str
 
     def __init__(self, state_dir: str, root: str, port: int, redactor: redact.Redactor,
                  poller: Optional[actions.ActionsPoller] = None) -> None:
@@ -152,6 +205,9 @@ class DaemonApp:
         self.started = time.time()
         self.alive = runfile.process_alive
         self.security_cache = None
+        # Every module is imported by now, so this is the code this process runs.
+        self.source_files = loaded_sources()
+        self.fingerprint = source_fingerprint(paths.HERE, self.source_files)
 
     # ---- following runs ----
 
@@ -342,7 +398,8 @@ class DaemonApp:
         """
         view = self.current_view()
         return {"ok": True, "protocol": PROTOCOL, "pid": os.getpid(), "port": self.port, "started": self.started,
-                "source": paths.HERE, "state_dir": self.state_dir,
+                "source": paths.HERE, "state_dir": self.state_dir, "fingerprint": self.fingerprint,
+                "source_files": list(self.source_files),
                 "run_id": view.run_id if view is not None else None,
                 "gate_live": view is not None and not view.broker.is_closed(),
                 "roadmap": self.panel.configured()}
@@ -845,6 +902,13 @@ def replace_reason(health: JSONObject) -> Optional[str]:
     proto = get_int(health, "protocol") or 0
     if proto < PROTOCOL:
         return "protocol %d is older than %d" % (proto, PROTOCOL)
+    if proto > PROTOCOL or not same_dir(source, paths.HERE):
+        # Newer, or another tree's: that tree's own ensure judges its files,
+        # so two trees of one protocol never replace each other's daemon.
+        return None
+    files = [n for n in get_list(health, "source_files") if isinstance(n, str)]
+    if files and get_str(health, "fingerprint") != source_fingerprint(paths.HERE, files):
+        return "its files changed since it started"
     return None
 
 

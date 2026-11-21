@@ -36,7 +36,7 @@ import roadmap  # noqa: E402
 import runfile  # noqa: E402
 import server  # noqa: E402
 import timeline  # noqa: E402
-from jsonutil import JSONObject, JSONValue, as_object, get_int, get_objects, get_str, loads  # noqa: E402
+from jsonutil import JSONObject, JSONValue, as_object, get_int, get_list, get_objects, get_str, loads  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # R1 and R2 are run ids in the form history.py gives them.
@@ -580,6 +580,40 @@ class EnsureSafetyTest(unittest.TestCase):
                 log = daemon_log(d)
                 self.assertEqual(log.count("statusd: serving"), 1, log)
                 self.assertNotIn("already running", log)
+            finally:
+                stop_daemon(d)
+
+    def test_a_daemon_whose_files_changed_is_replaced_from_them(self) -> None:
+        """A daemon of this protocol is kept while its files are unchanged and
+        replaced by an ensure from the same files once one changes; an ensure
+        from another tree leaves it alone, so two trees never take turns."""
+        with tempfile.TemporaryDirectory() as root:
+            d = os.path.join(root, "state")
+            copy = copy_monitor(os.path.join(root, "copy"))
+            ensure = [sys.executable, "-B", os.path.join(copy, "monitor.py"), "ensure", "--port", "0", "--state-dir", d,
+                      "--no-actions"]
+            try:
+                self.assertEqual(subprocess.run(ensure + ["--quiet"], timeout=60).returncode, 0, daemon_log(d))
+                first = daemon.healthz(lock_port(d)) or {}
+                self.assertEqual(first.get("source"), copy)
+                self.assertEqual(first.get("fingerprint"),
+                                 daemon.source_fingerprint(copy, [str(n) for n in get_list(first, "source_files")]))
+                self.assertIn("daemon.py", get_list(first, "source_files"))
+                kept = subprocess.run(ensure, capture_output=True, text=True, timeout=60)
+                self.assertIn("running", kept.stdout)
+                with open(os.path.join(copy, "timeline.py"), "a", encoding="utf-8") as f:
+                    f.write("# changed after the daemon started\n")
+                # An ensure from this tree, not the daemon's, judges only by protocol.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", ResourceWarning)
+                    self.assertEqual(daemon.ensure(0, quiet=True, state_dir=d, no_actions=True), 0)
+                self.assertEqual((daemon.healthz(lock_port(d)) or {}).get("pid"), first.get("pid"))
+                replaced = subprocess.run(ensure, capture_output=True, text=True, timeout=60)
+                self.assertEqual(replaced.returncode, 0, replaced.stderr + daemon_log(d))
+                self.assertIn("its files changed", replaced.stdout)
+                second = daemon.healthz(lock_port(d)) or {}
+                self.assertNotEqual(second.get("pid"), first.get("pid"))
+                self.assertNotEqual(second.get("fingerprint"), first.get("fingerprint"))
             finally:
                 stop_daemon(d)
 

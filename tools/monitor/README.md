@@ -46,8 +46,14 @@ not this machine's loopback.
   `.IGNORE/ci/monitor/`, found through git's common directory, so every
   worktree shares the one page and the one history.
 - **ensure** leaves a running daemon alone when its `PROTOCOL` is the same or
-  newer, and replaces it when the protocol is older or its source directory
-  was removed with its worktree, but never while a gate runs. The pid in the
+  newer, and replaces it when the protocol is older, when its source directory
+  was removed with its worktree, or when it runs from the same files as this
+  ensure and they changed since it started (`/healthz` reports a SHA-256
+  `fingerprint` of the `source_files` it loaded), but never while a gate runs.
+  Every change to what the daemon serves or stores (a route, a field of an
+  answer, a file it writes) must raise `PROTOCOL` in `daemon.py`; the
+  fingerprint catches a forgotten raise only from the tree the daemon runs
+  from, so two trees of one protocol never take turns replacing it. The pid in the
   lock file is only a hint: ensure signals it only once that process answers
   `/healthz` on the lock's port with the same pid and this state directory and
   its own command line runs `monitor.py daemon`, and never a pid of 0 or 1.
