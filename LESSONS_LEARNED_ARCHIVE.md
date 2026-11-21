@@ -8527,3 +8527,30 @@ package you changed, whole, and `internal/archtest`, one package at a time under
 the commands and their results. The orchestrating session does the same before each of its own commits. A change to
 what shared code logs, warns about or refuses is treated as a change to every test in the packages that use it.
 `make pr-check` would catch both cases, but only at the gate, after other work has been stacked on top.
+
+## 465. When a subagent's work adds a published schema, a generated file or a new CLI command, its brief names every checker that classifies such things (tools/schemacompat, make docs-gen-check, the help golden), since the gate will run them all (a widening of 462; FAILURE_PATTERNS 1322, in kind of 661 and 1311) (2026-11-21)
+
+Numbers 463 and 464 are not missing: they are held by pull request #216 (branch `feat/status-daemon`), which was
+open when this entry was written.
+
+**Why.** On `feat/41d-crawl-baselines-drift` a subagent built `pleiades facts baseline` and `pleiades facts drift`
+and published the drift document's schema as `docs/reference/schemas/facts-drift.json`. It ran the tools it was told
+to run. `tools/schemacompat` was not one of them, and `make pr-check` failed at schema-compat because the new file
+was not in that tool's contracts table (FAILURE_PATTERNS 1322).
+
+**What is old and what is new.** Lesson 462 says to run the whole of every package a change touches and all of
+`internal/archtest`. That rule is about packages. The checkers here are reached by a make target and sit in tools
+the change does not touch: `tools/schemacompat` holds a table of every published schema, `make docs-gen-check`
+regenerates the reference pages and fails on any difference, and `cmd/pleiades`' help golden holds every command's
+help text. A subagent that follows 462 exactly still misses the first two.
+
+**Rule in practice.** Before handing out work, ask what kinds of thing it will add, and write the checker for each
+kind into the brief with its command:
+
+- a file under `docs/reference/schemas`: `make schema-compat`, and a row in `tools/schemacompat`'s contracts table;
+- a CLI command, a flag, a method or anything else the reference pages are generated from: `make docs-gen-check`;
+- a CLI command or a change to help text: `TestHelpOutputIsUnchanged` in `cmd/pleiades`, with the golden
+  regenerated on purpose.
+
+The brief asks for each command and its result in the report. When a new kind of generated or classified file is
+added to the repository, its checker joins this list.
