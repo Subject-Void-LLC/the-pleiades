@@ -109,9 +109,20 @@ const ShellPath = "/bin/sh"
 // test stands in for a POSIX device, which a Windows machine is not.
 func POSIXShell(t testing.TB) {
 	t.Helper()
-	_, err := os.Stat(ShellPath)
-	Require(t, PosixShell, err == nil,
-		"the test runs its commands through "+ShellPath+", as a POSIX device would, and this machine has none")
+	Require(t, PosixShell, POSIXShellMissing() == "", posixShellWhy)
+}
+
+// posixShellWhy is why POSIXShell skips a test.
+const posixShellWhy = "the test runs its commands through " + ShellPath + ", as a POSIX device would, and this machine has none"
+
+// POSIXShellMissing is why the tests POSIXShell guards skip on this machine,
+// "" when it has ShellPath, for a TestMain that must know whether they ran
+// (pkg/collection/facttest's Options.Unavailable).
+func POSIXShellMissing() string {
+	if _, err := os.Stat(ShellPath); err != nil {
+		return "needs " + PosixShell + ": " + posixShellWhy
+	}
+	return ""
 }
 
 // envList returns Env's comma separated entries, trimmed.
