@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -314,8 +316,31 @@ func TestDispatch_InstallResolvesToAptAndRuns(t *testing.T) {
 	}
 	// The concrete method's post-change reading reaches the task as the
 	// generic method's own fact, which it declares.
-	if _, ok := rc.stats["package.curl"].(map[string]any); !ok {
-		t.Errorf(`stats["package.curl"] = %#v, want the package read back as an object`, rc.stats["package.curl"])
+	assertReadBack(t, rc)
+}
+
+// installedRow is the row the fake dpkg-query prints in facts.gather's
+// format for curl once the fake apt-get has installed it (its printf in
+// writeFakeAptGet); before that it prints none.
+const installedRow = "ii\tcurl\t1.0\tamd64\n"
+
+// assertReadBack holds the package.curl fact a change emitted to what the
+// gatherer's parser makes of installedRow: curl installed, at its version and
+// arch. A reading taken before the change finds no row and emits no fact, so
+// it fails here, as does a value built any other way.
+func assertReadBack(t *testing.T, rc *ctxStub) {
+	t.Helper()
+	want := hostfacts.ParseDpkg(installedRow)
+	if len(want) != 1 {
+		t.Fatalf("the reference row did not parse: %+v", want)
+	}
+	key := hostfacts.PackageKey(want[0])
+	got, ok := rc.stats[key].(map[string]any)
+	if !ok {
+		t.Fatalf("no %s fact was emitted: %#v", key, rc.stats[key])
+	}
+	if !reflect.DeepEqual(got, hostfacts.PackageValue(want[0])) {
+		t.Errorf("%s = %v, want the gatherer's %v", key, got, hostfacts.PackageValue(want[0]))
 	}
 }
 
@@ -355,7 +380,5 @@ func TestDispatch_UpgradeIsNotReversible(t *testing.T) {
 	if _, recorded := rc.stats["inverse"]; recorded {
 		t.Error("pkg.upgrade recorded an inverse, but its manifest says Reversible: false")
 	}
-	if _, ok := rc.stats["package.curl"].(map[string]any); !ok {
-		t.Errorf(`stats["package.curl"] = %#v, want the package read back as an object`, rc.stats["package.curl"])
-	}
+	assertReadBack(t, rc)
 }

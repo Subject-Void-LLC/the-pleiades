@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
@@ -78,6 +80,48 @@ type harness struct {
 	rc     *ctxStub
 	dev    *device
 	record string
+	// state holds the fake unit's active and unit-file states, one file
+	// each, which a successful verb changes as systemd would.
+	state string
+}
+
+// fakeSystemctl answers show and the three listings the concrete method's
+// post-change reading runs (pkg/hostfacts' SystemdListings) from the unit's
+// state files, and a successful verb changes them as systemd would: start
+// and restart leave the unit active, stop inactive, enable and disable set
+// its unit-file state. A reading taken before the change, or a stale one,
+// therefore differs from what the change left. Paths travel by environment.
+const fakeSystemctl = `#!/bin/sh
+for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
+printf -- '---\n' >> "$FAKE_RECORD"
+if [ "$1" = "show" ]; then
+  printf 'LoadState=loaded\nActiveState=%s\nUnitFileState=%s\n' "$(cat "$FAKE_STATE/active")" "$(cat "$FAKE_STATE/unitfile")"
+  exit 0
+fi
+case "$*" in
+  *list-unit-files*) printf 'nginx.service %s enabled\n' "$(cat "$FAKE_STATE/unitfile")"; exit 0 ;;
+  *--type=service*list-units*)
+    a="$(cat "$FAKE_STATE/active")"; sub=dead; [ "$a" = active ] && sub=running
+    printf 'nginx.service loaded %s %s nginx\n' "$a" "$sub"; exit 0 ;;
+  *--type=socket*list-units*) exit 0 ;;
+esac
+case "$1" in
+  start|restart) printf 'active' > "$FAKE_STATE/active" ;;
+  stop) printf 'inactive' > "$FAKE_STATE/active" ;;
+  enable) printf 'enabled' > "$FAKE_STATE/unitfile" ;;
+  disable) printf 'disabled' > "$FAKE_STATE/unitfile" ;;
+esac
+exit 0
+`
+
+// setUnit sets the fake unit's active and unit-file states.
+func (h *harness) setUnit(t *testing.T, active, unitFile string) {
+	t.Helper()
+	for name, value := range map[string]string{"active": active, "unitfile": unitFile} {
+		if err := os.WriteFile(filepath.Join(h.state, name), []byte(value), 0o600); err != nil {
+			t.Fatalf("writing the fake unit's %s state: %v", name, err)
+		}
+	}
 }
 
 // newHarness wires a real SSH server and a fake systemctl reporting a
@@ -87,27 +131,16 @@ func newHarness(t *testing.T, manager string, caps ...capability.Name) *harness 
 
 	dir := t.TempDir()
 	record := filepath.Join(dir, "invocations")
-	script := `#!/bin/sh
-for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
-printf -- '---\n' >> "$FAKE_RECORD"
-if [ "$1" = "show" ]; then
-  printf 'LoadState=loaded\nActiveState=%s\nUnitFileState=%s\n' "${FAKE_ACTIVE:-inactive}" "${FAKE_UNITFILE:-disabled}"
-fi
-# The three listings the concrete method's post-change reading runs
-# (pkg/hostfacts' SystemdListings), naming the one unit as it was.
-case "$*" in
-  *list-unit-files*) printf 'nginx.service %s enabled\n' "${FAKE_UNITFILE:-disabled}" ;;
-  *--type=service*list-units*)
-    sub=dead; [ "${FAKE_ACTIVE:-inactive}" = active ] && sub=running
-    printf 'nginx.service loaded %s %s nginx\n' "${FAKE_ACTIVE:-inactive}" "$sub" ;;
-esac
-exit 0
-`
-	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
+	state := filepath.Join(dir, "state")
+	if err := os.Mkdir(state, 0o700); err != nil {
+		t.Fatalf("creating the fake unit's state directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(fakeSystemctl), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
 		t.Fatalf("writing the fake systemctl: %v", err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
+	t.Setenv("FAKE_STATE", state)
 
 	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
@@ -123,11 +156,14 @@ exit 0
 	// SSH-reached device type declares: the concrete svc.systemd.* methods
 	// reach their device over ssh, and dispatch holds it to that.
 	caps = append(caps, capability.NameSSHTransport)
-	return &harness{
+	h := &harness{
 		rc:     &ctxStub{secrets: srv.Secrets(), stats: map[string]any{}},
 		dev:    &device{Stub: &inventorytest.Stub{StubName: "web1", Caps: caps}, host: srv.Host, port: srv.Port, manager: manager},
 		record: record,
+		state:  state,
 	}
+	h.setUnit(t, "inactive", "disabled")
+	return h
 }
 
 func params() map[string]any {
@@ -226,34 +262,62 @@ func TestDispatchesToSystemd(t *testing.T) {
 // through the generic method emits the concrete method's post-change reading
 // (service.<unit> and service_state.<unit>), which the generic method declares
 // as its own, since the engine keeps facts under the method the task named.
+// Each fact equals what the gatherer's parser makes of the listing the fake
+// prints for the unit as the change left it, and each case starts from a
+// state that lists differently, so a reading taken before the change fails.
 func TestDispatch_ReadsTheChangedUnitBackAsTheGatherersFacts(t *testing.T) {
 	for _, tt := range []struct {
-		name            string
-		invoke          collection.Method
-		active, enabled string
+		name                     string
+		invoke                   collection.Method
+		active, unitFile         string // before
+		wantActive, wantUnitFile string // after
 	}{
-		{"start", svc.Start, "inactive", "disabled"},
-		{"stop", svc.Stop, "active", "enabled"},
-		{"restart", svc.Restart, "active", "enabled"},
-		{"enable", svc.Enable, "inactive", "disabled"},
-		{"disable", svc.Disable, "active", "enabled"},
+		{"start", svc.Start, "inactive", "disabled", "active", "disabled"},
+		{"stop", svc.Stop, "active", "enabled", "inactive", "enabled"},
+		{"restart", svc.Restart, "inactive", "enabled", "active", "enabled"},
+		{"enable", svc.Enable, "inactive", "disabled", "inactive", "enabled"},
+		{"disable", svc.Disable, "active", "enabled", "active", "disabled"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(t, "systemd")
-			t.Setenv("FAKE_ACTIVE", tt.active)
-			t.Setenv("FAKE_UNITFILE", tt.enabled)
+			h.setUnit(t, tt.active, tt.unitFile)
 			result, err := tt.invoke(context.Background(), h.rc, h.dev, params())
 			if err != nil || !result.Changed {
 				t.Fatalf("invoke: changed %v, %v; want a change", result.Changed, err)
 			}
-			if _, ok := h.rc.stats["service.nginx.service"].(map[string]any); !ok {
-				t.Errorf("service.nginx.service = %#v, want the unit read back as an object", h.rc.stats["service.nginx.service"])
+			want := gatheredFacts(tt.wantUnitFile, tt.wantActive)
+			if len(want) != 2 {
+				t.Fatalf("the reference listing made %v, want a service and its state", want)
 			}
-			if got, _ := h.rc.stats["service_state.nginx.service"].(string); got == "" {
-				t.Errorf("service_state.nginx.service = %#v, want the unit's state as the listing named it", h.rc.stats["service_state.nginx.service"])
+			if reflect.DeepEqual(want, gatheredFacts(tt.unitFile, tt.active)) {
+				t.Fatalf("the unit before and after list the same, so this case cannot tell a stale reading")
+			}
+			for key, value := range want {
+				if got := h.rc.stats[key]; !reflect.DeepEqual(got, value) {
+					t.Errorf("%s = %#v, want the gatherer's %#v", key, got, value)
+				}
 			}
 		})
 	}
+}
+
+// gatheredFacts is what the shared parser makes of the listings the fake
+// prints for nginx.service in the given unit-file and active states, split as
+// the gatherer splits them.
+func gatheredFacts(unitFile, active string) map[string]any {
+	sub := "dead"
+	if active == "active" {
+		sub = "running"
+	}
+	listing := "nginx.service " + unitFile + " enabled\n" + hostfacts.ServiceSectionMark + "\n" +
+		"nginx.service loaded " + active + " " + sub + " nginx\n" + hostfacts.ServiceSectionMark + "\n"
+	out := map[string]any{}
+	for _, f := range hostfacts.ParseSystemd(listing) {
+		for _, part := range hostfacts.SplitServiceState(f) {
+			out[part.Key] = part.Value
+		}
+	}
+	return out
 }
 
 // TestDispatchPreservesConvergenceAndInverse proves the generic method
