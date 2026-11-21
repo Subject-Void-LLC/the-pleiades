@@ -31,16 +31,25 @@ type underCheck struct {
 	// row that fails does not stop the chain.
 	cut *factsreport.RowFailure
 	// lastGood is the gather that wrote the last stable row the chain
-	// verified before cut, where a truncate cuts (truncate.go); haveGood is
-	// false while no stable row has verified.
-	lastGood int64
-	haveGood bool
+	// verified before cut, where a truncate cuts (truncate.go), and minGood
+	// the earliest gather that wrote one; haveGood is false while no stable
+	// row has verified.
+	lastGood, minGood int64
+	haveGood          bool
 }
 
-// truncatable reports whether a truncate has a prefix to keep: no stable
-// row fails, or one verified before the first that does.
-func (c *underCheck) truncatable() bool {
-	return c.cut == nil || c.haveGood
+// keeps reports whether a truncate by this check keeps any of a history of
+// total rows. With no stable row failing it removes only the failing
+// volatile rows, which Failed then counts. Otherwise it removes the gather
+// lastGood and every later one, so it keeps something only when a stable
+// row the chain verified was written by an earlier gather: a first failure
+// inside the first gather that wrote a verified row leaves nothing, and is
+// a discard under another name.
+func (c *underCheck) keeps(total int) bool {
+	if c.cut == nil {
+		return total > c.report.Failed
+	}
+	return c.haveGood && c.minGood < c.lastGood
 }
 
 // newUnderCheck starts a check of device's rows under keys, in role.
@@ -84,6 +93,9 @@ func (c *underCheck) see(row *ent.Fact, position int, opened map[string]any, ope
 			c.fail(row, position, index, factsreport.FailureKind(b.Kind), name)
 			return
 		}
+		if !c.haveGood || row.ObservationSeq < c.minGood {
+			c.minGood = row.ObservationSeq
+		}
 		c.lastGood, c.haveGood = row.ObservationSeq, true
 	}
 	if c.report.Failure == nil {
@@ -116,6 +128,10 @@ func (c *underCheck) fail(row *ent.Fact, position, index int, kind factsreport.F
 	}
 }
 
+// keepsNothingAdvice is what a device's advice says when a truncate would
+// keep none of its history (underCheck.keeps).
+const keepsNothingAdvice = "Every value that verifies before the first failure was written by the gather a truncate removes, or none does, so a truncate would keep none of it: only `controller facts discard` repairs it, and the next gather starts a new history."
+
 // advise fills in's repairs, the gather a truncate would cut at, and what
 // the operator can do, from its state and its checks. haveCurrent says
 // whether the current keys were given, which a truncate of a history under
@@ -134,17 +150,18 @@ func advise(in *factsreport.Device, checks inspected, haveCurrent bool) {
 	case factsreport.StateBroken:
 		in.Repairs, by = []string{factsreport.RepairDiscard}, checks.current
 		in.Advice = "Its stored facts are under the current key and do not verify, and no key makes them verify again. "
-		if by.truncatable() {
+		if by.keeps(in.Rows.Total) {
 			in.Repairs = both
-			in.Advice += "`controller facts truncate` keeps the history before the gather that wrote the last value that verifies; "
+			in.Advice += "`controller facts truncate` keeps the history before the gather that wrote the last value that verifies; `controller facts discard` removes it all, and the next gather starts a new history."
+		} else {
+			in.Advice += keepsNothingAdvice
 		}
-		in.Advice += "`controller facts discard` removes it all, and the next gather starts a new history."
 	case factsreport.StateRefused:
 		in.Repairs = []string{factsreport.RepairDiscard}
 		in.Advice = "Its stored facts are under the previous key and do not verify under it, so the controller refuses to re-key them and serves none of them. Nothing makes them verify again; the backup taken before the change of key still holds them. "
 		switch {
-		case !checks.previous.truncatable():
-			in.Advice += "No value before the first failure verifies, so only `controller facts discard` repairs it; the next gather then starts a new history."
+		case !checks.previous.keeps(in.Rows.Total):
+			in.Advice += keepsNothingAdvice
 		case haveCurrent:
 			in.Repairs, by = both, checks.previous
 			in.Advice += "`controller facts truncate` keeps the history before the gather that wrote the last value that verifies and re-keys it under the current key; `controller facts discard` removes it all, and the next gather starts a new history."

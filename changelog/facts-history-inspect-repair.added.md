@@ -7,8 +7,9 @@ migrates or vacuums a database, and refuses a `MASTER_ENCRYPTION_KEY` the databa
 where the registry records none, a device no stored fact of which opens reads as `unopened`, with the advice to check
 the master key.
 `controller facts truncate` keeps the history before the gather that wrote the last value that verifies, removes
-that gather whole and everything after it, and re-keys what it keeps; it refuses a history with no value that
-verifies before the first failure and one that is `unopened`. `controller facts discard` removes the device's whole
+that gather whole and everything after it, removes a failing volatile value alone (a volatile fact holds one value,
+so its gather confirms nothing in its place), and re-keys what it keeps; it is not offered when it would keep
+nothing, and refuses a history that is `unopened`. `controller facts discard` removes the device's whole
 history so its next gather starts again, and needs `--discard-unverifiable-history` for a history the keys given
 cannot verify (`unopened`, or rows under another facts key or both). Both show what they would do until
 `--confirm`, and record themselves in the activity stream with a keyed digest of what they removed. A device's facts

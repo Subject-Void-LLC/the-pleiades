@@ -57,25 +57,38 @@
 // removes the rest, then re-keys what it keeps when that is under the
 // previous key, through the re-key itself (Store.rekey, under its own
 // precondition). It is sound because of where it cuts: at the gather that
-// wrote the last stable row the chain verified before the first that fails,
-// removing that gather whole, every row it or a later gather wrote, and
-// every later gather. A row deleted just before the first failure could
-// have been written by that gather or any later one, and whatever fails
-// first at a row (its payload, its value, its link) the chain cannot prove
-// no row before it is missing; so no gather that might have lost a write is
-// kept, and no observation is left to confirm a value its gather never saw.
-// Volatile rows that fail on their own are removed too, since they are not
-// chained; a volatile value replaced after the cut is not brought back, so
-// its key holds none until the next gather. A failing row in the middle
-// whose successors verify among themselves is cut with its successors: they
-// chain onto it, so keeping them would leave a gap. What it keeps is then
-// checked again, and the truncate is refused, changing nothing, when that
-// does not verify (a database whose storage order and gather numbers
-// disagree). Gather numbers are not covered by the chain, so an edit of them
-// alone is not seen, as it is not by the chain route either. It applies only
-// to a history wholly under one key it was given (broken, or refused with
-// the current key given too to re-key into) with a stable row that verifies
-// before the first failure; every other state can only be discarded.
+// wrote the last stable row the chain verified before the first stable row
+// that fails, removing that gather whole, every row it or a later gather
+// wrote, and every later gather. A row deleted just before the first failure
+// could have been written by that gather or any later one, and whatever
+// fails first at a row (its payload, its value, its link) the chain cannot
+// prove no row before it is missing; so no gather that might have lost a
+// write is kept, and no observation is left to confirm a value its gather
+// never saw. A failing row in the middle whose successors verify among
+// themselves is cut with its successors: they chain onto it, so keeping them
+// would leave a gap. A volatile row is not chained, so one that fails on its
+// own is removed alone and its gather kept, observation and coverage too.
+// That is sound for a narrower reason than the cut: a volatile key holds one
+// row, which a new value replaces, so no older value of it is left for that
+// gather's observation or a later one to confirm in its place, and its
+// failure says nothing of the stable rows, which the chain holds on their
+// own. A volatile value replaced after the cut is not brought back either,
+// so its key holds none until the next gather. A truncate that would keep
+// nothing (underCheck.keeps: every stable row that verified before the first
+// failure was written by the gather the cut removes) is not offered and is
+// refused, since it would be a discard under truncate's name.
+//
+// What it keeps is then checked again, and the truncate is refused, changing
+// nothing, when that does not verify (a database whose storage order and
+// gather numbers disagree). That check has limits. Gather numbers are not
+// covered by the chain, so an edit of them alone is not seen, as it is not
+// by the chain route either; and the observations and coverages it keeps are
+// counted, not held to the rows it keeps, since nothing chains them. An
+// actor who can write the database can edit either so that nothing here
+// notices; this tool does not defend against one, and neither does the
+// chain. It applies only to a history wholly under one key it was given
+// (broken, or refused with the current key given too to re-key into) that it
+// would keep some of; every other state can only be discarded.
 //
 // Each repair holds the device's facts exclusively for its whole
 // transaction (ent.Tx.LockFactsOfDevice, as a re-key does), so a gather of

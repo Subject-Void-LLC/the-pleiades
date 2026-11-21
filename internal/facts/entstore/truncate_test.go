@@ -1,12 +1,14 @@
 // Truncate (truncate.go) on SQLite and on PostgreSQL: it keeps exactly the
 // history before the gather that wrote the first failing value, re-keys it
 // when it was under the previous key, removes a failing volatile row alone,
-// and refuses every state it cannot make sound, changing nothing.
+// is not offered when it would keep nothing, and refuses every state it
+// cannot make sound, changing nothing.
 package entstore_test
 
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +162,33 @@ func TestTruncate_RemovesAFailingVolatileRowAlone(t *testing.T) {
 		t.Fatalf("the truncate = %+v, %v; want the volatile row alone removed", done, err)
 	}
 	h.startsAgain(h.store(""), 8)
+}
+
+// TestTruncate_IsNotOfferedWhenItWouldKeepNothing: a history whose first
+// failure is the second stable row, written by the first gather like the
+// row before it, verifies one value, but a cut at that gather keeps
+// nothing: a discard under truncate's name. Under the previous key (to be
+// re-keyed) and under the current one, the inspection offers only discard
+// and names no cut, and a truncate is refused, changing nothing.
+func TestTruncate_IsNotOfferedWhenItWouldKeepNothing(t *testing.T) {
+	ctx := context.Background()
+	for _, store := range []string{"", "old"} {
+		t.Run("store "+store, func(t *testing.T) {
+			h := newHistory(t, onSQLite)
+			h.editTime(1)
+			got, err := h.store(store).InspectDevice(ctx, "web1", entstore.InspectOptions{})
+			if err != nil || len(got.Repairs) != 1 || got.Repairs[0] != "discard" || got.TruncateFrom != 0 || !strings.Contains(got.Advice, "keep none") {
+				t.Errorf("the inspection = %+v, %v; want discard alone offered, saying a truncate would keep none of it", got, err)
+			}
+			raw := rawFactTables(t, h.db)
+			if done, err := h.store(store).Truncate(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor}); !errors.Is(err, entstore.ErrRepairDoesNotApply) {
+				t.Errorf("the truncate = %+v, %v; want ErrRepairDoesNotApply", done, err)
+			}
+			if rawFactTables(t, h.db) != raw || len(h.activityOf()) != 0 {
+				t.Error("a refused truncate changed the database or recorded itself")
+			}
+		})
+	}
 }
 
 // TestTruncate_RefusesWhatItCannotMakeSound: a history that verifies, one

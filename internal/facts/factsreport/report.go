@@ -161,7 +161,8 @@ const (
 const (
 	// RepairDiscard removes a device's whole stored history.
 	RepairDiscard = "discard"
-	// RepairTruncate keeps the part before the first failure.
+	// RepairTruncate keeps the part before the gather that wrote the last
+	// value that verifies ahead of the first failure.
 	RepairTruncate = "truncate"
 )
 
@@ -191,11 +192,13 @@ type Device struct {
 	// TruncateFrom is the gather a truncate would cut the history at: the
 	// one that wrote the last stable row that verifies before the first
 	// that fails. That gather and every later one are removed whole, since a
-	// row missing after the last that verifies could be any of theirs.
-	// Absent when no stable row fails, or no truncate applies.
+	// row missing after the last that verifies could be any of theirs; a
+	// failing volatile row is removed alone, and its gather kept. Absent when
+	// no stable row fails, or no truncate applies.
 	TruncateFrom int64 `json:"truncate_from,omitempty"`
 	// Repairs names the repairs that apply: discard, truncate. Empty when
-	// there is nothing to repair.
+	// there is nothing to repair. Truncate is named only when it would keep
+	// some of the history.
 	Repairs []string `json:"repairs"`
 	// Advice says what the operator can do, in a sentence or two.
 	Advice string `json:"advice"`

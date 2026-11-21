@@ -23,11 +23,12 @@ var ErrTruncateUnsound = errors.New("facts: what a truncate would keep does not 
 // the gather that wrote the last stable row that verifies ahead of the first
 // that fails, and removes the rest: every row that gather or a later one
 // wrote, every such gather, the coverages no gather left names, and each
-// volatile row that fails on its own. A history under the previous key is
-// then re-keyed under the current one, by the re-key itself. It applies to a
-// history wholly under one key the store holds (StateBroken, or StateRefused
-// when the store holds the current key too) with a stable row that verifies
-// before the first failure; a device it does not apply to is
+// volatile row that fails on its own, alone, its gather kept. A history
+// under the previous key is then re-keyed under the current one, by the
+// re-key itself. It applies to a history wholly under one key the store
+// holds (StateBroken, or StateRefused when the store holds the current key
+// too) that it would keep some of (underCheck.keeps); a device it does not
+// apply to is
 // ErrNothingToRepair or ErrRepairDoesNotApply, and one whose kept part does
 // not verify is ErrTruncateUnsound, each changing nothing.
 func (s *Store) Truncate(ctx context.Context, name string, opts RepairOptions) (Removal, error) {
@@ -50,7 +51,11 @@ func (s *Store) Truncate(ctx context.Context, name string, opts RepairOptions) (
 			}
 		}
 		// A volatile row that fails on its own is not chained, so nothing
-		// cuts it: it is removed by itself.
+		// cuts it: it is removed by itself, and its gather kept. That is
+		// sound because a volatile key holds one row (a new value replaces
+		// it), so no older value is left for that gather's or a later one's
+		// observation to confirm in its place, and its failure says nothing
+		// of the stable rows, which the chain holds on their own.
 		volatile := []predicate.Fact{entfact.KindEQ(entfact.KindVolatile)}
 		if err := r.removeFacts(ctx, volatile, func(row *ent.Fact) bool { return !s.holds(check, row) }); err != nil {
 			return err
@@ -100,8 +105,8 @@ func (s *Store) truncateCheck(before inspected) (*underCheck, bool, error) {
 	default:
 		return nil, false, fmt.Errorf("%w: its rows are %s, so no prefix of them verifies under one key; only discard repairs it", ErrRepairDoesNotApply, before.report.State)
 	}
-	if !check.truncatable() {
-		return nil, false, fmt.Errorf("%w: no stored value before its first failure verifies, so a truncate would keep none of its history; only discard repairs it", ErrRepairDoesNotApply)
+	if !check.keeps(before.report.Rows.Total) {
+		return nil, false, fmt.Errorf("%w: a truncate would keep none of its history, since no value verifies before its first failure except in the gather the cut removes; only discard repairs it", ErrRepairDoesNotApply)
 	}
 	return check, rekey, nil
 }

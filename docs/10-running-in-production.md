@@ -455,17 +455,30 @@ runs, and a controller write that waits more than five seconds for it fails.
   everything after it, including later values that would verify on their own,
   since they chain onto the failing one. It cuts that far back because a value
   missing just before the first failure could belong to any of those gathers, and
-  keeping one of them would confirm a value it never saw. It does not bring back a
-  volatile value (an uptime, a load) as it stood at the cut: such a fact holds no
-  value until the next gather. What it keeps under the old key is re-keyed under the
-  new one, so it needs both keys. It refuses a history with no value that verifies
-  before the first failure, and one no row of which opens.
+  keeping one of them would confirm a value it never saw. A volatile value (an
+  uptime, a load) is not chained, so one that fails on its own is removed alone and
+  its gather is kept: a volatile fact holds one value, which the next change
+  replaces, so no older value is left for that gather to confirm in its place. It
+  does not bring back a volatile value as it stood at the cut either: such a fact
+  holds no value until the next gather. What it keeps under the old key is re-keyed
+  under the new one, so it needs both keys. It is not offered, and refuses, when it
+  would keep nothing: when no value verifies before the first failure, or every one
+  that does was written by the gather it removes; use discard then. It refuses a
+  history no row of which opens.
 - `controller facts discard --device web1` removes every stored fact, gather and
   coverage of the device. It refuses a history that verifies unless you add
   `--discard-verified-history`, and one the keys it was given cannot verify either
   way (no row opens, or its rows name another facts key or both) unless you add
   `--discard-unverifiable-history`; check the keys before you do. It is the only
   repair for rows under both keys or under a key you no longer hold.
+
+After it cuts, truncate checks what it keeps again and refuses, changing nothing, if
+that does not verify. That check has two limits. The gather number each value
+carries is not covered by the chain, so an edit of it alone is not seen, as the fact
+chain route does not see it either. And the gathers and coverages it keeps are
+counted, not checked against the values it keeps, since nothing chains them. Someone
+who can write the database can change either without this command noticing: it does
+not defend against such a person, and neither does the chain.
 
 Either way the device's next gather stores its facts under the current key. What a
 repair removes cannot be recovered from the database: the backup taken before the

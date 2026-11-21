@@ -74,9 +74,10 @@ no key given can verify (no row opens, or its rows name another facts key)
 unless --discard-unverifiable-history is given.
 
 truncate keeps the device's history before the gather that wrote the last
-value that verifies, removes that gather and everything after it, and
-re-keys what it keeps under the current key when it was under the previous
-one.
+value that verifies, removes that gather and everything after it, removes
+a failing volatile value alone, and re-keys what it keeps under the current
+key when it was under the previous one. It is not offered when it would
+keep nothing.
 
 Both repairs print what they would do and change nothing without --confirm,
 though the preview holds the device as the repair does. What they remove
