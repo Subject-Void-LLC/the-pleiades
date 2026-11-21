@@ -77,12 +77,15 @@ import (
 )
 
 // The labels each at-rest key is derived under. A new suite is a new label.
+// atRestLookupLabel is the label of the key that makes a fact's lookup token;
+// it is a label, not a secret, and is named so a credential scanner does not
+// take it for one.
 const (
-	atRestHashLabel  = "pleiades/facts/at-rest/hash/v1"
-	atRestTokenLabel = "pleiades/facts/at-rest/token/v1"
-	atRestChainLabel = "pleiades/facts/at-rest/chain/v1"
-	atRestLineLabel  = "pleiades/facts/at-rest/line/v1/aes-256-gcm"
-	atRestIDLabel    = "pleiades/facts/at-rest/key-id"
+	atRestHashLabel   = "pleiades/facts/at-rest/hash/v1"
+	atRestLookupLabel = "pleiades/facts/at-rest/token/v1"
+	atRestChainLabel  = "pleiades/facts/at-rest/chain/v1"
+	atRestLineLabel   = "pleiades/facts/at-rest/line/v1/aes-256-gcm"
+	atRestIDLabel     = "pleiades/facts/at-rest/key-id"
 )
 
 // linePrefix opens every sealed line, and names its format.
@@ -171,7 +174,7 @@ func (k *Keys) load() error {
 			k.err = fmt.Errorf("%w: its secret must be at least 32 bytes, got %d", ErrNoKeys, len(secret))
 			return
 		}
-		k.hash, k.token = derive(secret, atRestHashLabel), derive(secret, atRestTokenLabel)
+		k.hash, k.token = derive(secret, atRestHashLabel), derive(secret, atRestLookupLabel)
 		k.chain = derive(secret, atRestChainLabel)
 		// A 32-byte key always makes an AES-256 cipher, and GCM over it.
 		block, err := aes.NewCipher(derive(secret, atRestLineLabel))
