@@ -5,6 +5,7 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 )
 
 // definedTest is a when: item that is wholly Ansible's definedness test:
@@ -21,6 +22,12 @@ var variableReference = regexp.MustCompile(`^vars\.[A-Za-z_][A-Za-z0-9_]*$`)
 // otherRoot is a subject on one of the other condition roots, which a
 // definedness test is refused on with its own reason.
 var otherRoot = regexp.MustCompile(`^(result|nodes|stat|device|loop|item|error)(\.|\[|$)`)
+
+// factReference is a stored fact a definedness test may ask about: facts and
+// a name (facts.uptime), or facts indexed by a quoted key holding no quote or
+// backslash (facts["os.family"]). Its answer is the store's: a key the device
+// was never gathered for fails the task rather than answering (facts_view.go).
+var factReference = regexp.MustCompile(`^facts(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*(?:"([^"\\]*)"|'([^'\\]*)')\s*\])$`)
 
 // ansibleTest returns the CEL a when:, when_or:, until:, changed_when:,
 // failed_when: or that: item means: an item that is wholly "vars.<name> is
@@ -45,11 +52,20 @@ func ansibleTest(expr string) (string, error) {
 		return expr, nil
 	}
 	subject, negated, word := m[1], m[2] != "", m[3]
+	// A stored fact is asked as "key" in facts, which the facts root answers
+	// from the store, and fails on a key it has no answer for.
+	if f := factReference.FindStringSubmatch(subject); f != nil {
+		test := strconv.Quote(f[1]+f[2]+f[3]) + " in " + TemplateRootFacts
+		if (word == "defined") == negated {
+			return "!(" + test + ")", nil
+		}
+		return test, nil
+	}
 	switch {
 	case otherRoot.MatchString(subject):
-		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable (vars.<name>): a registered result (result, nodes, stat) exists only for a task that ran, where Ansible registers a skipped task's too, and result holds one only a single device wrote, so the answer would not be Ansible's; an item may not be a mapping; write the condition you mean with has() in when_cel:", expr)
+		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable (vars.<name>): a registered result (result, nodes, stat) exists only for a task that ran, where Ansible registers a skipped task's too, and result holds one only a single device wrote, so the answer would not be Ansible's; an item may not be a mapping; write the condition you mean with has() in when_cel: (a stored fact may be asked too, as facts[\"<key>\"] is defined)", expr)
 	case !variableReference.MatchString(subject):
-		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable, vars and one name such as vars.region; for anything else write has() in when_cel:, testing each level of a path", expr)
+		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable, vars and one name such as vars.region, or of a stored fact, facts[\"<key>\"]; for anything else write has() in when_cel:, testing each level of a path", expr)
 	}
 	// "is not undefined" asks what "is defined" does, and "is undefined"
 	// what "is not defined" does.

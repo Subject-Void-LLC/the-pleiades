@@ -139,7 +139,7 @@ func (r *run) runUndoStep(ctx context.Context, n NodeResult, step int, task *Tas
 		if kept, ok := r.forward.of(n.NodeID, n.Device); ok {
 			roots[forwardVarsRoot] = kept
 		}
-		prepared, early := r.prepare(id, task, time.Now().UTC(), n.Device, roots)
+		prepared, early := r.prepare(ctx, id, task, time.Now().UTC(), n.Device, roots)
 		if early != nil {
 			early.Undo = undo
 			return *early

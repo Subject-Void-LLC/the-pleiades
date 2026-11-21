@@ -31,7 +31,7 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 		if untilTask && r.modeFor(task) != collection.ModeCheck {
 			sfx += fmt.Sprintf(".attempt[%d]", attempt)
 		}
-		prepared, early := r.prepare(nodeID, &local, started, key, roots)
+		prepared, early := r.prepare(ctx, nodeID, &local, started, key, roots)
 		if early != nil {
 			early.Iteration, early.Label = sfx, label
 			out.results = append(out.results, *early)

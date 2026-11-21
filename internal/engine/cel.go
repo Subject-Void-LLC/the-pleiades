@@ -144,6 +144,10 @@ func CELVariableOptions() []cel.EnvOption {
 		// loop_var is read as item there too.
 		cel.Variable("item", cel.DynType),
 		cel.Variable("loop", cel.MapType(cel.StringType, cel.DynType)),
+		// facts is the stored facts of the device a task decides on, read by
+		// a literal key in a task's when, when_or or when_cel alone
+		// (facts_root.go); the builder refuses it anywhere else.
+		cel.Variable(TemplateRootFacts, cel.MapType(cel.StringType, cel.DynType)),
 	}
 }
 

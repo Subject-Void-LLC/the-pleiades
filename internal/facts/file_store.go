@@ -179,18 +179,7 @@ func (s *FileStore) Current(_ context.Context, name string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	current := map[string]Entry{}
-	keep := func(e Entry) {
-		if cur, ok := current[e.Key]; !ok || !isLater(cur.LastBy.Order, cur.LastSeenAt, e.LastBy.Order, e.LastSeenAt) {
-			current[e.Key] = e
-		}
-	}
-	// In the order the values were written, stable and volatile together,
-	// as the ent store reads its rows: where orders of several sources mix,
-	// the comparison is not transitive and the order read decides.
-	for _, e := range d.written() {
-		keep(e)
-	}
+	current := currentOf(d, func(string) bool { return true })
 	out := make([]Entry, 0, len(current))
 	for _, e := range current {
 		out = append(out, e)

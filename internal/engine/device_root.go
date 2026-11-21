@@ -89,6 +89,11 @@ func (r *run) readsDevice(nodeID string, task *Task) bool {
 		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err == nil && uses {
 			return true
 		}
+		// A stored fact is the device's own, so a condition reading one is
+		// decided on each device (facts_root.go).
+		if len(task.conditionFactKeys()) > 0 {
+			return true
+		}
 	}
 	if r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice) {
 		return true

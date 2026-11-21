@@ -77,11 +77,15 @@ func TestRunExecutor_AStoreThatCannotBeReadIsAnError(t *testing.T) {
 	}
 }
 
-func TestProjectFactReader_History(t *testing.T) {
+// TestProjectFactReader_AnswersOnlyTheNamedKeysAsTheEngineReadsThem: a read
+// names keys and gets each one's current value; a key the device's observer
+// (facts.gather) declares and never stored is absent, one nothing that
+// observed it declares is unknown; a store that is a file is an error.
+func TestProjectFactReader_AnswersOnlyTheNamedKeysAsTheEngineReadsThem(t *testing.T) {
 	dir := t.TempDir()
 	r := projectFactReader{dir: factsDir(dir), keys: factKeysToRead(dir)}
-	if h, err := r.History(context.Background(), "web1", "os.family"); err != nil || len(h) != 0 {
-		t.Fatalf("History with no store = %v, %v", h, err)
+	if got, err := r.ReadFacts(context.Background(), "web1", []string{"os.family"}); err != nil || len(got) != 0 {
+		t.Fatalf("a read with no store = %v, %v; want nothing known", got, err)
 	}
 	store, err := facts.NewFileStore(factsDir(dir), factKeysToWrite(dir))
 	if err != nil {
@@ -89,13 +93,23 @@ func TestProjectFactReader_History(t *testing.T) {
 	}
 	for _, v := range []string{"debian", "redhat"} {
 		entries, _, _ := facts.Prepare(map[string]any{"os.family": v}, facts.Guard{})
-		if err := store.Record(context.Background(), "web1", facts.Observation{Entries: entries, At: time.Now()}); err != nil {
+		obs := facts.Observation{Entries: entries, At: time.Now(), By: facts.Provenance{Method: "facts.gather"}}
+		if err := store.Record(context.Background(), "web1", obs); err != nil {
 			t.Fatal(err)
 		}
 	}
-	h, err := r.History(context.Background(), "web1", "os.family")
-	if err != nil || len(h) != 2 || h[0].Value != "debian" || h[1].Value != "redhat" {
-		t.Fatalf("History = %+v, %v; want debian then redhat", h, err)
+	got, err := r.ReadFacts(context.Background(), "web1", []string{"os.family", "os.codename", "acme.widget"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := got["os.family"]; a.State != engine.FactPresent || a.Value != "redhat" {
+		t.Errorf("os.family = %+v, want its current value, redhat", a)
+	}
+	if a := got["os.codename"]; a.State != engine.FactAbsent {
+		t.Errorf("os.codename, which facts.gather declares and did not store = %+v, want absent", a)
+	}
+	if a := got["acme.widget"]; a.State != engine.FactUnknown {
+		t.Errorf("acme.widget, which nothing that observed web1 declares = %+v, want unknown", a)
 	}
 	if err := os.RemoveAll(factsDir(dir)); err != nil {
 		t.Fatal(err)
@@ -103,10 +117,41 @@ func TestProjectFactReader_History(t *testing.T) {
 	if err := os.WriteFile(factsDir(dir), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.History(context.Background(), "web1", "os.family"); err == nil {
-		t.Fatal("History over a store that is a file was not an error")
+	if _, err := r.ReadFacts(context.Background(), "web1", []string{"os.family"}); err == nil {
+		t.Fatal("a read of a store that is a file was not an error")
 	}
-	if _, err := r.Current(context.Background(), "web1"); err == nil {
-		t.Fatal("Current over a store that is a file was not an error")
+}
+
+// TestProjectFactReader_ALostKeyIsOneAnswerForEveryDevice: a project that
+// stored facts and lost its master key cannot read any device's, one with no
+// files of its own included, so a run never answers unavailable for one
+// device and unknown for the next; a project that never stored a fact and
+// has no key reads every device as unknown.
+func TestProjectFactReader_ALostKeyIsOneAnswerForEveryDevice(t *testing.T) {
+	t.Setenv("PLEIADES_MASTER_KEY", "")
+	if err := os.Unsetenv("PLEIADES_MASTER_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	r := projectFactReader{dir: factsDir(dir), keys: factKeysToRead(dir)}
+	store, err := facts.NewFileStore(factsDir(dir), factKeysToWrite(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.ReadFacts(context.Background(), "web2", []string{"os.family"}); err != nil || len(got) != 0 {
+		t.Fatalf("an empty store with no key = %v, %v; want every key unknown", got, err)
+	}
+	entries, _, _ := facts.Prepare(map[string]any{"os.family": "debian"}, facts.Guard{})
+	if err := store.Record(context.Background(), "web1", facts.Observation{Entries: entries, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(vaultDir(dir), ".pleiades", "master.key")); err != nil {
+		t.Fatal(err)
+	}
+	lost := projectFactReader{dir: factsDir(dir), keys: factKeysToRead(dir)}
+	for _, device := range []string{"web1", "web2"} {
+		if _, err := lost.ReadFacts(context.Background(), device, []string{"os.family"}); !errors.Is(err, facts.ErrNoKeys) {
+			t.Errorf("%s with the key lost: %v, want the store unreadable (ErrNoKeys)", device, err)
+		}
 	}
 }

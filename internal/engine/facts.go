@@ -89,6 +89,12 @@ const factRecordTimeout = 30 * time.Second
 // secret is not yet a known secret when the task that observed it finishes.
 func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 	r.noteRan(results)
+	// What the level emitted is the run's to read from the next level on,
+	// whether it is stored now, held for a secret_mask, or fails to store,
+	// and whatever recorder there is (facts_overlay.go).
+	if r.knowledge != nil {
+		r.knowledge.observe(r, results)
+	}
 	if r.x.facts == nil {
 		return
 	}
