@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factsreport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
@@ -115,10 +116,28 @@ func TestInspect_RefusesAnUnknownDevice(t *testing.T) {
 // on the controller's host can look into say how, and still name no fact,
 // key identity or text of the error.
 func TestUnavailable_NamesTheInspectCommand(t *testing.T) {
-	for _, err := range []error{entstore.ErrRekeyRefused, entstore.ErrKeysChanged} {
+	for _, err := range []error{entstore.ErrRekeyRefused, entstore.ErrKeysChanged, entstore.ErrNotThisDevices} {
 		cause, ok := entstore.Unavailable(err)
 		if !ok || !strings.Contains(cause, "controller facts inspect --device") || strings.Contains(cause, err.Error()) {
 			t.Errorf("Unavailable(%v) = %q; want the inspect command named", err, cause)
 		}
+	}
+	if cause, ok := entstore.Unavailable(facts.ErrNoKeys); !ok || !strings.Contains(cause, "PLEIADES_FACTS_DIGEST_KEY") {
+		t.Errorf("Unavailable(ErrNoKeys) = %q, %v", cause, ok)
+	}
+	if cause, ok := entstore.Unavailable(errors.New("database is locked")); ok || cause != "" {
+		t.Errorf("a fault reads as lasting: %q", cause)
+	}
+}
+
+// TestNameOf_ResolvesTheIDTheLogNames: a device's ID gives its inventory
+// name, and an ID no device has is ErrUnknownDevice.
+func TestNameOf_ResolvesTheIDTheLogNames(t *testing.T) {
+	h := newHistory(t, onSQLite)
+	if name, err := h.store("").NameOf(context.Background(), h.device); err != nil || name != "web1" {
+		t.Errorf("NameOf(web1's ID) = %q, %v", name, err)
+	}
+	if _, err := h.store("").NameOf(context.Background(), "no-such-id"); !errors.Is(err, entstore.ErrUnknownDevice) {
+		t.Errorf("an unknown ID: %v, want ErrUnknownDevice", err)
 	}
 }
