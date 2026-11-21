@@ -16,6 +16,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/restconf" // registers net.restconf.config
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
@@ -45,8 +46,13 @@ func (r *liveRecorder) SetStat(key string, value any) error {
 	return nil
 }
 
-// EmitFact implements sdk.RunbookContext.
-func (r *liveRecorder) EmitFact(string, any) error { return nil }
+// EmitFact implements sdk.RunbookContext, holding the fact to the emitting
+// method's declaration (facttest.Observe) and keeping it nowhere else: these
+// tests read what the method changed back over RESTCONF and NETCONF.
+func (r *liveRecorder) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
+	return nil
+}
 
 // NamedSecret implements sdk.NamedSecrets.
 func (r *liveRecorder) NamedSecret(name, field string) (string, bool, error) {

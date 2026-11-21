@@ -152,7 +152,7 @@ func TestEveryFactEmittingPackageAuditsItsTests(t *testing.T) {
 		if _, ok := audits[pkg]; !ok {
 			t.Errorf("%s holds fact-emitting methods %v, and no TestMain of its tests calls facttest.Main", pkg, packages[pkg])
 		}
-		if !observes(t, filepath.Join(root, filepath.FromSlash(rel))) {
+		if good, _, _ := emitFactFakes(t, filepath.Join(root, filepath.FromSlash(rel))); len(good) == 0 {
 			t.Errorf("%s holds fact-emitting methods %v, and no fake RunbookContext of its tests calls facttest.Observe", pkg, packages[pkg])
 		}
 	}
@@ -242,6 +242,35 @@ func sortedAuditKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// TestEveryFakeInAnAuditedPackageReportsItsFacts: in every package whose
+// TestMain runs facttest.Main, every type a test file declares EmitFact on
+// hands each fact to facttest.Observe, directly or through a field whose type
+// does. A second fake that drops its facts would let a method its tests drive
+// through it emit anything, and the audit would call the method undriven at
+// best.
+func TestEveryFakeInAnAuditedPackageReportsItsFacts(t *testing.T) {
+	root := repoRoot(t)
+	total, delegated := 0, 0
+	for _, pkg := range sortedAuditKeys(factAudits(t)) {
+		rel := strings.TrimPrefix(pkg, modulePath+"/")
+		good, bad, through := emitFactFakes(t, filepath.Join(root, filepath.FromSlash(rel)))
+		total += len(good) + len(bad)
+		delegated += through
+		t.Logf("%s: %s", rel, strings.Join(append(good, bad...), ", "))
+		for _, b := range bad {
+			t.Errorf("%s/%s declares EmitFact without handing the fact to facttest.Observe, and %s's TestMain audits what its tests emit", rel, b, rel)
+		}
+		if len(good)+len(bad) == 0 {
+			t.Errorf("%s audits its tests' facts, and none of its test files declares an EmitFact that could report one", rel)
+		}
+	}
+	// The control: the fakes this branch wired, one of them (net/gnmi's
+	// plainContext) by delegating to the package's recorder.
+	if total < 19 || delegated == 0 {
+		t.Errorf("found %d fakes, %d of them delegating, want at least 19 and one: the reading of the fakes stopped finding them", total, delegated)
+	}
+}
+
 // TestEveryBuiltinIsInAFactAuditGroup: facttest finds the built-ins through
 // the first-party groups, so a built-in in no group would go unaudited. Every
 // method the generated catalog lists that this binary registered is one
@@ -289,33 +318,6 @@ func TestFactTypeRuleIsTheStores(t *testing.T) {
 			}
 		}
 	}
-}
-
-// observes reports whether a test file of the package in dir calls
-// facttest.Observe.
-func observes(t *testing.T, dir string) bool {
-	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	for _, path := range paths {
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatal(err)
-		}
-		local := importName(f, facttestImport, "facttest")
-		if local == "" {
-			continue
-		}
-		for _, decl := range f.Decls {
-			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil && callsSelector(fn.Body, local, "Observe") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // callsSelector reports whether body calls pkg.name.

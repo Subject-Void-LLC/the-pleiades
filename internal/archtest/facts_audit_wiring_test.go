@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -252,4 +253,150 @@ func isSelector(expr ast.Expr, pkg, name string) bool {
 	}
 	id, ok := sel.X.(*ast.Ident)
 	return ok && id.Name == pkg
+}
+
+// fakeKey names a type in one package clause of a directory's test files
+// (an internal and an external test package may each declare a recorder).
+type fakeKey struct{ clause, name string }
+
+// fakeEmitter is one EmitFact a test file declares on a type.
+type fakeEmitter struct {
+	decl  *ast.FuncDecl
+	local string // the file's name for facttest, "" when it imports none
+	file  string
+}
+
+// emitFactFakes reads every type a test file of the package in dir declares
+// an EmitFact method on, and reports, by "file: type", which call
+// facttest.Observe (directly, or by handing the fact to a field's EmitFact
+// whose type does) and which do not, and how many did so by delegating.
+func emitFactFakes(t *testing.T, dir string) (good, bad []string, delegated int) {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	emitters := map[fakeKey]fakeEmitter{}
+	fields := map[fakeKey]map[string]string{}
+	for _, path := range paths {
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clause := f.Name.Name
+		for _, decl := range f.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+					st, ok := ts.Type.(*ast.StructType)
+					if !ok {
+						continue
+					}
+					m := map[string]string{}
+					for _, field := range st.Fields.List {
+						typ := localTypeName(field.Type)
+						if len(field.Names) == 0 && typ != "" {
+							m[typ] = typ
+						}
+						for _, n := range field.Names {
+							m[n.Name] = typ
+						}
+					}
+					fields[fakeKey{clause, ts.Name.Name}] = m
+				}
+			case *ast.FuncDecl:
+				if d.Recv == nil || d.Name.Name != "EmitFact" || d.Body == nil || len(d.Recv.List) != 1 {
+					continue
+				}
+				recv := localTypeName(d.Recv.List[0].Type)
+				emitters[fakeKey{clause, recv}] = fakeEmitter{decl: d, local: importName(f, facttestImport, "facttest"), file: filepath.Base(path)}
+			}
+		}
+	}
+	var reports func(k fakeKey, seen map[fakeKey]bool) (bool, bool)
+	// reports reports whether k's EmitFact reports to facttest, and whether
+	// it does so through another fake.
+	reports = func(k fakeKey, seen map[fakeKey]bool) (bool, bool) {
+		e, ok := emitters[k]
+		if !ok || seen[k] {
+			return false, false
+		}
+		seen[k] = true
+		if e.local != "" && callsSelector(e.decl.Body, e.local, "Observe") {
+			return true, false
+		}
+		recv := ""
+		if names := e.decl.Recv.List[0].Names; len(names) == 1 {
+			recv = names[0].Name
+		}
+		found := false
+		ast.Inspect(e.decl.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return !found
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "EmitFact" {
+				return !found
+			}
+			// recv.field.EmitFact(...): the field's type is the delegate.
+			if inner, ok := sel.X.(*ast.SelectorExpr); ok {
+				if id, ok := inner.X.(*ast.Ident); ok && id.Name == recv && recv != "" {
+					if typ := fields[k][inner.Sel.Name]; typ != "" {
+						if ok, _ := reports(fakeKey{k.clause, typ}, seen); ok {
+							found = true
+						}
+					}
+				}
+			}
+			return !found
+		})
+		return found, found
+	}
+	for _, k := range sortedFakeKeys(emitters) {
+		name := emitters[k].file + ": " + k.name
+		ok, through := reports(k, map[fakeKey]bool{})
+		switch {
+		case !ok:
+			bad = append(bad, name)
+		case through:
+			delegated++
+			good = append(good, name)
+		default:
+			good = append(good, name)
+		}
+	}
+	return good, bad, delegated
+}
+
+// localTypeName is the name of a type declared in the same package that
+// expr names, through one pointer, or "" for any other type.
+func localTypeName(expr ast.Expr) string {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	if id, ok := expr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
+}
+
+// sortedFakeKeys returns m's keys in order.
+func sortedFakeKeys(m map[fakeKey]fakeEmitter) []fakeKey {
+	keys := make([]fakeKey, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].clause != keys[j].clause {
+			return keys[i].clause < keys[j].clause
+		}
+		return keys[i].name < keys[j].name
+	})
+	return keys
 }

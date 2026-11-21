@@ -20,6 +20,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -60,9 +61,24 @@ var (
 	sharedC    testcontainers.Container
 )
 
-// TestMain stops the shared container once every test has finished.
+// TestMain stops the shared container once every test has finished, and
+// holds any fact a net.restconf method emits against rousette to its
+// declaration (pkg/collection/facttest), failing the binary for a fact the
+// method does not declare and a value of another type. Today none emits one
+// here: rousette answers over plain HTTP, and a RESTCONF read keeps facts only
+// over https, so both methods are exempt, and an exemption fails the day a
+// test here makes its method emit. Without docker the coverage is reported.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := facttest.Main(m, facttest.Options{
+		Of: "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/restconf",
+		Exempt: map[string]string{
+			"net.restconf.config": "rousette answers over plain HTTP, and net.restconf.config keeps facts only over https; " +
+				"internal/catalog/net/restconf's own tests make it emit against restconftest's TLS server, held to its declaration there",
+			"net.restconf.facts": "these tests drive only net.restconf.config, over plain HTTP; " +
+				"internal/catalog/net/restconf's own tests make net.restconf.facts emit against restconftest's TLS server, held to its declaration there",
+		},
+		Unavailable: testsupport.DockerMissing(),
+	})
 	if sharedC != nil {
 		_ = testcontainers.TerminateContainer(sharedC)
 	}

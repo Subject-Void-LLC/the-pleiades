@@ -19,8 +19,10 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/srlinux"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -53,9 +55,18 @@ var (
 	srlErr, stratumErr   error
 )
 
-// TestMain stops the shared containers once every test has finished.
+// TestMain stops the shared containers once every test has finished, and
+// holds every fact the net.gnmi methods emitted against SR Linux and Stratum
+// to their declarations (pkg/collection/facttest), failing the binary for a
+// fact a method does not declare, a value of another type, and a
+// fact-declaring method of internal/catalog/net/gnmi these tests did not
+// drive. A real device's answer is where a wrong type is likeliest; without
+// docker the coverage is reported, not enforced.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := facttest.Main(m, facttest.Options{
+		Of:          "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/gnmi",
+		Unavailable: testsupport.DockerMissing(),
+	})
 	for _, s := range []server{srl, stratum} {
 		if s.c != nil {
 			_ = testcontainers.TerminateContainer(s.c)
