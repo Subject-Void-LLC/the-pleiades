@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 )
 
 // FactReader is what the device resource reads facts through.
@@ -18,7 +19,8 @@ type FactReader interface {
 }
 
 // WithFacts serves a device's facts from reader; without it the facts routes
-// answer 501.
+// answer 501. A reader's refusal that is how its store is configured answers
+// 503, any other 500 (factsFailed).
 func (h *DeviceHandler) WithFacts(reader FactReader) {
 	h.facts = reader
 }
@@ -72,8 +74,7 @@ func (h *DeviceHandler) serveFacts(w http.ResponseWriter, r *http.Request, key s
 		entries, err = h.facts.History(r.Context(), string(item.ID()), key)
 	}
 	if err != nil {
-		h.logger.Error("reading a device's facts failed", "device", name, "error", err)
-		RespondError(w, r, http.StatusInternalServerError, "reading the device's facts failed")
+		h.factsFailed(w, r, name, "reading a device's facts failed", "reading the device's facts failed", err)
 		return
 	}
 	if entries == nil {
@@ -127,10 +128,30 @@ func (h *DeviceHandler) FactChain(w http.ResponseWriter, r *http.Request) {
 	}
 	verdict, err := h.facts.Verify(r.Context(), string(item.ID()))
 	if err != nil {
-		h.logger.Error("checking a device's fact chain failed", "device", name, "error", err)
-		RespondError(w, r, http.StatusInternalServerError, "checking the device's fact chain failed")
+		h.factsFailed(w, r, name, "checking a device's fact chain failed", "checking the device's fact chain failed", err)
 		return
 	}
 	dto := factChainDTO{Device: item.Name(), Verdict: verdict}
 	Respond(w, r, http.StatusOK, &dto)
+}
+
+// factsFailed answers a facts route whose store refused. A refusal that is
+// the store's configuration (entstore.Unavailable: no facts key, a device's
+// facts under another key, or a device that could not be re-keyed) is a 503
+// with the store's fixed cause, and a warning: it is an operator's to fix,
+// it repeats on every request until one does, and the package has no way to
+// say a state once. Anything else is a fault: a 500 with the fixed text
+// answer, and an error in the log. Neither body repeats the store's own
+// text; logged leads each log line.
+func (h *DeviceHandler) factsFailed(w http.ResponseWriter, r *http.Request, device, logged, answer string, err error) {
+	if cause, ok := entstore.Unavailable(err); ok {
+		// The cause, never the error: the error may name a key's identity
+		// or where a device's chain breaks, which is the operator's log
+		// line's, not the caller's.
+		h.logger.Warn(logged+": the facts store refuses as this controller is configured", "device", device, "cause", cause, "error", err)
+		RespondError(w, r, http.StatusServiceUnavailable, cause)
+		return
+	}
+	h.logger.Error(logged, "device", device, "error", err)
+	RespondError(w, r, http.StatusInternalServerError, answer)
 }

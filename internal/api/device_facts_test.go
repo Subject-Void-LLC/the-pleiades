@@ -53,7 +53,13 @@ func (r *factReader) Verify(_ context.Context, device string) (facts.Verdict, er
 
 func factsRouter(t *testing.T, repo *stubDeviceRepo, reader api.FactReader) http.Handler {
 	t.Helper()
-	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	return factsRouterLogging(t, repo, reader, io.Discard)
+}
+
+// factsRouterLogging is factsRouter with the handler's log written to logs.
+func factsRouterLogging(t *testing.T, repo *stubDeviceRepo, reader api.FactReader, logs io.Writer) http.Handler {
+	t.Helper()
+	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(logs, nil)))
 	if reader != nil {
 		handler.WithFacts(reader)
 	}

@@ -35,6 +35,26 @@ var ErrKeysChanged = errors.New("facts: the device's stored facts were sealed un
 // another device).
 var ErrNotThisDevices = errors.New("facts: a stored fact does not open as this device's")
 
+// Unavailable is the fixed cause, for an operator, of a refusal that comes
+// from how the store is configured rather than from a fault, and true: no
+// facts key to read with (facts.ErrNoKeys), a device's facts stored under
+// other keys than the store holds (ErrKeysChanged), or a device whose facts
+// could not be re-keyed under new ones (ErrRekeyRefused). None of these
+// changes until an operator changes the configuration. Any other error is
+// "", false. The cause is fixed text: it names no fact, no key's identity
+// and nothing the error itself says.
+func Unavailable(err error) (string, bool) {
+	switch {
+	case errors.Is(err, facts.ErrNoKeys):
+		return "facts are unavailable: this controller holds no facts key; set PLEIADES_FACTS_DIGEST_KEY", true
+	case errors.Is(err, ErrKeysChanged):
+		return "facts are unavailable: the device's facts were stored under another facts key than this controller holds; keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside the new one", true
+	case errors.Is(err, ErrRekeyRefused):
+		return "facts are unavailable: the device's facts could not be re-keyed under the new facts key, since they do not verify under the previous one", true
+	}
+	return "", false
+}
+
 // ready reports whether the store can seal and open: it has an envelope
 // service and usable keys. Without both it does nothing (facts.ErrNoKeys).
 func (s *Store) ready() error {

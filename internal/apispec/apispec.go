@@ -615,6 +615,14 @@ var factsResponseSchema = map[string]any{
 	},
 }
 
+// factsFault and factsUnavailable are the two ways each facts route fails
+// past its device: a fault reading the store, and the store refusing as the
+// controller is configured, whose body names the cause and never a fact.
+var (
+	factsFault       = Response{Status: http.StatusInternalServerError, Description: "The fact store could not be read.", Schema: errorSchema("")}
+	factsUnavailable = Response{Status: http.StatusServiceUnavailable, Description: "The device's facts cannot be read as this controller is configured: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, or they could not be re-keyed under a new one. The body says which; it names no fact.", Schema: errorSchema("")}
+)
+
 // ListDeviceFacts is GET /inventory/devices/{name}/facts: a device's current
 // facts.
 var ListDeviceFacts = Endpoint{
@@ -637,6 +645,8 @@ var ListDeviceFacts = Endpoint{
 		{Status: http.StatusOK, Description: "The device's current facts, by key.", Schema: factsResponseSchema},
 		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		factsFault,
+		factsUnavailable,
 	},
 }
 
@@ -658,6 +668,8 @@ var GetDeviceFactHistory = Endpoint{
 		{Status: http.StatusOK, Description: "The fact's values, oldest first; empty when the device never had it.", Schema: factsResponseSchema},
 		{Status: http.StatusBadRequest, Description: "name or key is empty, too long, or not a fact name.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		factsFault,
+		factsUnavailable,
 	},
 }
 
@@ -672,8 +684,8 @@ var VerifyDeviceFactChain = Endpoint{
 	Rel:     auth.RelSelf,
 	Summary: "Check a device's fact chain",
 	Description: "Walks the device's stored stable facts in the order they were written and reports the first that " +
-		"was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database can " +
-		"rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, " +
+		"was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database and holds the " +
+		"facts key can rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, " +
 		"which comparing head with a copy kept elsewhere notices. Volatile facts are not chained.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
@@ -682,6 +694,8 @@ var VerifyDeviceFactChain = Endpoint{
 		{Status: http.StatusOK, Description: "What the check found; a break is reported in the body, not as an error status.", Schema: factChainResponseSchema},
 		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		factsFault,
+		factsUnavailable,
 	},
 }
 
