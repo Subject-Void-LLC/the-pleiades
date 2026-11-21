@@ -32390,7 +32390,7 @@ internal document, and the comment is true.
 is reachable from every page the browser has open, so it checks the site and origin of each request even when it
 only reads. An import a platform lacks goes where it is used. And a rule held by a Go test holds for Go only (1320).
 
-## 1320. No Makefile target and no CI job runs `tools/monitor`'s Python tests or pyright, so `make pr-check` passed on `feat/status-daemon` in five minutes having tested none of the branch's code (open; a gap in the gate, not fixed on this branch; a sibling of 631 and 755)
+## 1320. No Makefile target and no CI job runs `tools/monitor`'s Python tests or pyright, so `make pr-check` passed on `feat/status-daemon` in five minutes having tested none of the branch's code (fixed 2026-11-21 by make monitor-test in pr-check and the ci job; a gap in the gate; a sibling of 631 and 755)
 
 **Symptom.** 2026-11-21, branch `feat/status-daemon`. Every file the branch changes is Python, JavaScript, HTML or
 settings under `tools/monitor` and `.claude`. `make pr-check` selected no Go package, ran its static checks and
@@ -32415,7 +32415,15 @@ built, and not this branch's to build without the owner's word, since it adds a 
 **Lesson.** A gate tests the languages it was built for. When a branch's diff is in another one, a pass is silence,
 not a result. Read what the gate selected before reading its verdict.
 
-## 1321. A test daemon started by a subagent's timed-out test run outlived the run by about three hours on a temporary state directory, and was noticed only by chance (process; open: pid 2187623 left for the owner; a repeat in kind of 340; the family of 747)
+**Resolved, 2026-11-21.** The owner asked for the suite in the gate. `make monitor-test` runs
+`tools/monitor/runtests.py` with a plain `python3` (3.8 or newer, standard library only, no virtual environment): the
+unittest suite once as it is and once with `fcntl` hidden, as on Windows. It is in `CI_REMOTE_STATIC`, so `pr-check`
+and `ci-remote` run it on every branch whatever it changes, and in `ci` and `push-gate`; `.github/workflows/ci.yml`'s
+`ci` job runs it on Ubuntu (through `ci-remote`), macOS and Windows. The monitor shows it as the `monitor-test`
+stage. pyright stays out of the gate, as a third-party tool; the README says how to run it by hand. The "Fix. None.
+Open." paragraph above is kept as written; it no longer describes the present state.
+
+## 1321. A test daemon started by a subagent's timed-out test run outlived the run by about three hours on a temporary state directory, and was noticed only by chance (process; fixed 2026-11-21: a test daemon stops when its suite is gone; pid 2187623 left for the owner; a repeat in kind of 340; the family of 747)
 
 **Symptom.** 2026-11-21, branch `feat/status-daemon`. A subagent ran `tools/monitor/test_daemon.py`, and the run hit
 its outside time limit and was killed. One of the daemons the tests start (pid 2187623, on a temporary state
@@ -32439,3 +32447,12 @@ its own on a temporary state directory) would close this for a killed runner too
 **Lesson.** LESSONS 463. A test that starts a detached process owns it on every way out, a kill of the runner
 included. After any test run that was cut short, list what it may have started before doing anything else. A
 leftover that cannot be stopped within the session's permissions is reported with its pid, not worked around.
+
+**Resolved, 2026-11-21.** A daemon started with `PLEIADES_STATUS_DAEMON_OWNER` set checks every second that the pid
+it names still exists, and stops once it is gone. `test_daemon` sets it to its own pid, and every daemon a test
+starts inherits it, so a suite killed with SIGKILL leaves nothing running within seconds
+(`OwnerTest.test_a_killed_suite_leaves_no_daemon`, which fails with the check taken out). `make monitor-test` also
+gives each run its own `TMPDIR` and, on every way the run ends, stops any status daemon whose command line names it
+and fails the run. The tests' own cleanup now finds a daemon through `ps` where there is no `/proc`, as on macOS,
+where it found none before. Pid 2187623 is still the owner's to stop. The "Fix" and "Open" paragraphs above are kept
+as written; they no longer describe the present state.
