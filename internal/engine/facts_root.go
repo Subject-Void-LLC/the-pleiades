@@ -32,6 +32,7 @@ import (
 	"cel.dev/cel-go/common/types"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 )
 
 // TemplateRootFacts is the root a condition reads stored facts through.
@@ -48,6 +49,11 @@ const (
 	factsOtherDevice   = "a condition may not read another device's facts (hostvars): facts is the stored facts of the device the task decides on, and reading another device's is not built yet"
 	factsOtherKeywords = "reads facts, which only a task's when, when_or or when_cel may read: a stored fact decides whether a task runs, never how its own result is judged"
 )
+
+// ErrParamReadsFacts is why a parameter, a set_fact value, a loop or a
+// rollback step may not read facts: a fact is device-supplied text, and the
+// only thing a run takes from it in this release is whether a condition held.
+const ErrParamReadsFacts = "an expression reads facts, and a parameter may not: a stored fact is read only in a task's when, when_or or when_cel, so no fact's value reaches a method, a set_fact, a rollback step, the journal or a report; decide with a condition, or gather in an earlier task and read its registered result (result.<register>[\"<key>\"])"
 
 // factsParseEnv parses conditions with the syntax they compile with, the
 // optional field and index (.? and [?]) included, which the shared parseEnv
@@ -183,6 +189,13 @@ func checkFactPlacement(task *Task, id string) (ConditionFacts, error) {
 		// One that does not parse is refused by its own compile, next.
 		if uses, err := sourcesNameFacts(Conditional{When: c.list}.Sources()); err == nil && uses {
 			return ConditionFacts{}, fmt.Errorf("task %s: its %s %s", taskLabel(id, task), c.name, factsOtherKeywords)
+		}
+	}
+	// A loop's label is printed beside each item's result, so it is held to
+	// a parameter's rule; one that does not compile fails when it renders.
+	if task.LoopControl != nil && IsTemplate(task.LoopControl.Label) {
+		if tmpl, err := render.New().Compile(task.LoopControl.Label); err == nil && readsRoot(tmpl, TemplateRootFacts) {
+			return ConditionFacts{}, fmt.Errorf("task %s, loop_control label: %s", taskLabel(id, task), ErrParamReadsFacts)
 		}
 	}
 	return reads, nil
