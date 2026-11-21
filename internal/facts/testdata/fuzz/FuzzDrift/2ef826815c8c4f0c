@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"pairs\":[{\"key\":\"a\",\"hash\":\"1\"},{\"key\":\"a\",\"hash\":\"2\"}],\"keys_id\":\"k\",\"current\":[{\"key\":\"b\",\"0000\":\"0\",\"kind\":\"volatile\"},{\"keY\":\"b\",\"0000\":\"0\"}]}")
