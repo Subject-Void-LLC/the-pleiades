@@ -1,37 +1,102 @@
 #!/usr/bin/env python3
 # pyright: strict
-"""Runs the monitor's unit tests twice, and fails when a run leaves a daemon behind.
+"""Runs the monitor's unit tests, and fails when a run leaves a daemon behind.
 
     python3 -B tools/monitor/runtests.py        (make monitor-test)
 
-The first run is the ordinary one. The second hides fcntl from every Python
-process it starts, through a sitecustomize on PYTHONPATH, as on Windows:
-the tests of the daemon itself skip, saying why, and the rest must pass.
-Each run gets a temporary directory of its own as TMPDIR, so every state
-directory a test creates is under it. When the run ends, by passing,
-failing, timing out or being interrupted, any status daemon whose command
-line names that directory was left behind: it is stopped and the run fails,
-naming it.
+Where this platform has fcntl, the suite runs twice: as it is, and with
+fcntl hidden from every Python process the run starts, through a
+sitecustomize on PYTHONPATH, as on Windows. Where it has none (Windows),
+it runs once. Each run's child gets MONITOR_TEST_FCNTL (present, hidden or
+absent), and a test fails when locks.SUPPORTED disagrees with it, so a
+hide that did not take fails the run. A run passes only when unittest
+exits 0, its last line is OK, and, where fcntl is present, no test skipped
+for lacking it. Every skipped test is printed with its reason.
 
-Python 3.8 or newer, standard library only; no virtual environment.
+Each run gets a temporary directory of its own as TMPDIR, so every state
+directory a test creates is under it. However the run ends (a pass, a
+failure, RUN_SECONDS, Ctrl-C or SIGTERM), any status daemon whose command
+line names that directory is stopped, and the run fails, naming it. The
+runs are not retried, unlike the Go tests under tools/testgate.
+
+The grammar and run-time constructs hold Python 3.8 (OldestPythonTest);
+it has been run on 3.10 only here, and CI's interpreters are the first
+others. Standard library only; no virtual environment.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-from typing import Dict, List, Optional
+from types import FrameType
+from typing import Dict, List, Optional, Tuple
+
+from jsonutil import as_object, get_list, loads
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # RUN_SECONDS bounds one run of the suite; it takes about ten seconds alone.
 RUN_SECONDS = 600
 # HIDE_FCNTL is the sitecustomize that makes fcntl unimportable.
 HIDE_FCNTL = "import sys\nsys.modules['fcntl'] = None  # as on Windows: the status daemon is not supported\n"
+# MARKER tells the suite whether fcntl should be importable in it.
+MARKER = "MONITOR_TEST_FCNTL"
+# FCNTL_SKIP starts the reason of every test skipped for lacking flock.
+FCNTL_SKIP = "needs fcntl flock"
+# OK_LINE is unittest's last line on a pass.
+OK_LINE = re.compile(r"^OK(?: \(.*\))?$")
+# POSIX says whether os.kill(pid, 0) only asks; on Windows it ends the process.
+POSIX = os.name == "posix"
+
+
+class Interrupted(Exception):
+    """Raised by the SIGTERM handler, so a run's cleanup still happens."""
+
+
+def plan(fcntl_here: bool) -> List[Tuple[str, str]]:
+    """Names the runs to make.
+
+    Args:
+        fcntl_here: Whether this platform has fcntl.
+
+    Returns:
+        (label, marker) for each run: two where fcntl exists, one where it does not.
+    """
+    if fcntl_here:
+        return [("with fcntl", "present"), ("without fcntl, as on Windows", "hidden")]
+    return [("without fcntl (this platform has none)", "absent")]
+
+
+def problems(code: Optional[int], lines: List[str], skips: List[Tuple[str, str]], marker: str) -> List[str]:
+    """Judges one run.
+
+    Args:
+        code: The child's exit status, or None when it was killed.
+        lines: Its output.
+        skips: Each skipped test and its reason.
+        marker: The run's MONITOR_TEST_FCNTL.
+
+    Returns:
+        Why the run failed; empty when it passed.
+    """
+    out: List[str] = []
+    if code != 0:
+        out.append("the suite exited with status %s" % code)
+    last = next((x.strip() for x in reversed(lines) if x.strip()), "")
+    if not OK_LINE.match(last):
+        out.append("unittest's last line is %r, not OK" % last)
+    lacking = [t for t, why in skips if why.startswith(FCNTL_SKIP)]
+    if marker == "present" and lacking:
+        out.append("%d test(s) skipped for lacking fcntl where fcntl is present: %s" % (len(lacking), ", ".join(lacking)))
+    return out
 
 
 def leftovers(tmp: str) -> List[int]:
@@ -53,6 +118,27 @@ def leftovers(tmp: str) -> List[int]:
         if pid.isdigit() and "monitor.py" in args and " daemon " in args + " " and tmp in args:
             pids.append(int(pid))
     return pids
+
+
+def alive(pid: int) -> bool:
+    """Reports whether a pid still runs.
+
+    Args:
+        pid: The process.
+
+    Returns:
+        True while it does. Off POSIX it is always True, since os.kill(pid, 0)
+        would end the process there; leftovers finds none there anyway.
+    """
+    if not POSIX:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def stop(pids: List[int]) -> None:
@@ -77,51 +163,73 @@ def stop(pids: List[int]) -> None:
                 pass
 
 
-def alive(pid: int) -> bool:
-    """Reports whether a pid still runs.
+def read_skips(report: str) -> List[Tuple[str, str]]:
+    """Reads the skips a child wrote.
 
     Args:
-        pid: The process.
+        report: The child's report file.
 
     Returns:
-        True while it does.
+        (test id, reason) for each skip; none when the child wrote no report.
     """
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True
-    return True
+        with open(report, encoding="utf-8") as f:
+            doc = as_object(loads(f.read())) or {}
+    except (OSError, ValueError):
+        return []
+    out: List[Tuple[str, str]] = []
+    for row in get_list(doc, "skipped"):
+        if isinstance(row, list) and len(row) == 2:
+            out.append((str(row[0]), str(row[1])))
+    return out
 
 
-def run_suite(label: str, hide_fcntl: bool) -> int:
+def run_suite(label: str, marker: str) -> int:
     """Runs the suite once in a temporary directory of its own, then looks for leftovers.
 
     Args:
         label: What the run is called in its lines.
-        hide_fcntl: Whether fcntl is made unimportable for every Python it starts.
+        marker: present, hidden (fcntl hidden here) or absent.
 
     Returns:
-        0 when the suite passed and left nothing running, else 1.
+        0 when the run passed and left nothing running, else 1.
     """
     tmp = tempfile.mkdtemp(prefix="monitor-test-")
-    env: Dict[str, str] = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp)
-    if hide_fcntl:
+    report = os.path.join(tmp, "report.json")
+    env: Dict[str, str] = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp, **{MARKER: marker})
+    if marker == "hidden":
         site = os.path.join(tmp, "site")
         os.mkdir(site)
         with open(os.path.join(site, "sitecustomize.py"), "w", encoding="utf-8") as f:
             f.write(HIDE_FCNTL)
         env["PYTHONPATH"] = os.pathsep.join([site] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
-    cmd = [sys.executable, "-B", "-m", "unittest", "discover", "-s", HERE, "-t", HERE, "-p", "test_*.py"]
-    print("monitor-test: %s: %s" % (label, " ".join(cmd[1:])), flush=True)
+    cmd = [sys.executable, "-B", os.path.abspath(__file__), "--child", report]
+    print("monitor-test: %s (%s=%s)" % (label, MARKER, marker), flush=True)
+    lines: List[str] = []
     code: Optional[int] = None
+    proc = subprocess.Popen(cmd, cwd=HERE, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    stdout = proc.stdout
+    assert stdout is not None  # stdout=PIPE always gives one
+
+    def pump() -> None:
+        """Copies the child's output through, keeping it for the verdict."""
+        for line in stdout:
+            lines.append(line.rstrip("\n"))
+            print(line, end="", flush=True)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    found: List[int] = []
     try:
-        code = subprocess.run(cmd, cwd=HERE, env=env, timeout=RUN_SECONDS).returncode
+        code = proc.wait(timeout=RUN_SECONDS)
     except subprocess.TimeoutExpired:
         print("monitor-test: %s: the suite ran past %d seconds and was killed" % (label, RUN_SECONDS), flush=True)
     finally:
-        # Every exit path, an interrupt included, looks for what the run left.
+        # Every exit path, an interrupt included, ends the child and looks for what the run left.
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        reader.join(10)
         found = leftovers(tmp)
         deadline = time.monotonic() + 5  # a daemon whose owner just died stops within a second or two
         while found and time.monotonic() < deadline:
@@ -131,22 +239,65 @@ def run_suite(label: str, hide_fcntl: bool) -> int:
             print("monitor-test: %s: the suite left status daemon(s) running: pid %s; stopping them"
                   % (label, ", ".join(map(str, found))), flush=True)
             stop(found)
-            code = 1
+        skips = read_skips(report)
         shutil.rmtree(tmp, ignore_errors=True)
-    return 0 if code == 0 else 1
+    for test, why in skips:
+        print("monitor-test: %s: skipped %s: %s" % (label, test, why), flush=True)
+    bad = problems(code, lines, skips, marker) + (["it left a daemon running"] if found else [])
+    for why in bad:
+        print("monitor-test: %s: FAILED: %s" % (label, why), flush=True)
+    return 1 if bad else 0
 
 
-def main() -> int:
-    """Runs both passes.
+def child(report: str) -> int:
+    """Runs the suite in this process and writes its skips to report.
+
+    Args:
+        report: Where to write {"skipped": [[test id, reason], ...]}.
 
     Returns:
-        0 when both passed and left nothing behind.
+        0 when every test passed or skipped.
     """
-    status = run_suite("with fcntl", hide_fcntl=False)
-    status |= run_suite("without fcntl, as on Windows", hide_fcntl=True)
+    import unittest
+    suite = unittest.defaultTestLoader.discover(HERE, "test_*.py", HERE)
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    with open(report, "w", encoding="utf-8") as f:
+        json.dump({"skipped": [[t.id(), why] for t, why in result.skipped]}, f)
+    return 0 if result.wasSuccessful() else 1
+
+
+def main(argv: List[str]) -> int:
+    """Runs every planned run, or one suite as a child.
+
+    Args:
+        argv: The arguments, without the program name.
+
+    Returns:
+        0 when every run passed and left nothing behind.
+    """
+    if argv[:1] == ["--child"] and len(argv) == 2:
+        return child(argv[1])
+
+    def on_term(signum: int, frame: Optional[FrameType]) -> None:
+        """Turns SIGTERM into an exception, so the current run's cleanup runs.
+
+        Args:
+            signum: The signal.
+            frame: Unused.
+        """
+        raise Interrupted()
+
+    signal.signal(signal.SIGTERM, on_term)
+    status = 0
+    try:
+        for label, marker in plan(importlib.util.find_spec("fcntl") is not None):
+            status |= run_suite(label, marker)
+    except (Interrupted, KeyboardInterrupt):
+        print("\nmonitor-test: interrupted; the run in progress was ended and its daemons looked for", flush=True)
+        return 1
     print("monitor-test: %s" % ("all tests passed" if status == 0 else "FAILED"), flush=True)
     return status
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

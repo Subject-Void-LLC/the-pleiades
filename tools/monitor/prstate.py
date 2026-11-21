@@ -187,6 +187,24 @@ def group_of(name: str) -> str:
     return "static"
 
 
+def str_set() -> Set[str]:
+    """Makes an empty set of strings, a dataclass default (set[str]() needs Python 3.9).
+
+    Returns:
+        The set.
+    """
+    return set()
+
+
+def str_list() -> List[str]:
+    """Makes an empty list of strings, a dataclass default (list[str]() needs Python 3.9).
+
+    Returns:
+        The list.
+    """
+    return []
+
+
 @dataclass
 class Stage:
     """One step of a run: its status, times and progress.
@@ -216,10 +234,10 @@ class Stage:
     source: str = "seen"
     detail: str = ""
     total: Optional[int] = None
-    packages: Set[str] = field(default_factory=lambda: set[str]())
-    failed: Set[str] = field(default_factory=lambda: set[str]())
+    packages: Set[str] = field(default_factory=str_set)
+    failed: Set[str] = field(default_factory=str_set)
     last_line: str = ""
-    steps: List[str] = field(default_factory=lambda: list[str]())
+    steps: List[str] = field(default_factory=str_list)
     step: int = 0
 
     def __post_init__(self) -> None:

@@ -1185,13 +1185,17 @@ workflow-lint: tools
 	actionlint
 
 # monitor-test runs tools/monitor's unit tests (the status page, its daemon
-# and its MCP server) through tools/monitor/runtests.py: once as they are,
-# and once with fcntl hidden from every Python it starts, as on Windows,
-# where the daemon's own tests skip and say why. Either run fails when it
-# leaves a status daemon running. It needs only a Python 3.8 or newer
-# interpreter (PYTHON3) and its standard library: no virtual environment and
-# no package. pyright is a third-party tool and is not run here;
-# tools/monitor/README.md says how to run it by hand.
+# and its MCP server) through tools/monitor/runtests.py: where fcntl exists,
+# once as they are and once with fcntl hidden from every Python it starts,
+# as on Windows, where the daemon's own tests skip and say why; where it
+# does not, once. Each skip is printed with its reason, and a run fails
+# when it leaves a status daemon running. It needs a Python interpreter
+# (PYTHON3) and its standard library only: no virtual environment and no
+# package. The floor is Python 3.8 by its grammar and a search for newer
+# run-time constructs (OldestPythonTest); it has run only on 3.10 here, and
+# CI's interpreters are the first others. It runs outside tools/testgate,
+# so a failure is not re-run alone. pyright is a third-party tool and is
+# not run here; tools/monitor/README.md says how to run it by hand.
 PYTHON3 ?= python3
 monitor-test:
 	$(PYTHON3) -B tools/monitor/runtests.py

@@ -26,7 +26,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 import unittest.mock  # noqa: E402
-from typing import Dict, List, Mapping, Optional, Tuple, Union  # noqa: E402
+from typing import Dict, List, Mapping, Optional, Set, Tuple, Union  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
@@ -1016,20 +1016,100 @@ class PageTest(unittest.TestCase):
                         self.assertNotIn(dash, f.read(), name)
 
 
-class OldestPythonTest(unittest.TestCase):
-    """The monitor runs on Python 3.8, the oldest the README and runtests.py name."""
+def newer_than_3_8(source: str) -> List[str]:
+    """Finds the run-time constructs in source that Python 3.8 lacks, of the kinds this looks for.
 
-    def test_every_file_parses_as_python_3_8(self) -> None:
-        """No file uses syntax newer than 3.8 (a match statement, a
-        parenthesized with, an except star): its grammar is checked here.
-        A newer library call is not; that needs a run on 3.8 itself."""
-        import ast
+    The kinds: a builtin generic subscripted outside an annotation
+    (set[str]() raises on 3.8; an annotation is a string here, through
+    "from __future__ import annotations"), str.removeprefix and
+    removesuffix, functools.cache, and the zoneinfo, graphlib and tomllib
+    modules. A dict merged with | is not found: telling it from a set or an
+    int needs types.
+
+    Args:
+        source: A module's text.
+
+    Returns:
+        One line for each, with its line number.
+    """
+    import ast
+    tree = ast.parse(source)
+    in_annotation: Set[int] = set()
+    for node in ast.walk(tree):
+        notes: List[ast.expr] = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            every = args.posonlyargs + args.args + args.kwonlyargs + [a for a in (args.vararg, args.kwarg) if a]
+            notes = [a.annotation for a in every if a.annotation is not None]
+            notes += [node.returns] if node.returns is not None else []
+        elif isinstance(node, ast.AnnAssign):
+            notes = [node.annotation]
+        for note in notes:
+            in_annotation.update(id(x) for x in ast.walk(note))
+    found: List[str] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if id(node) in in_annotation:
+            continue
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in (
+                "list", "dict", "set", "tuple", "type", "frozenset"):
+            found.append("%d: %s[...] at run time" % (line, node.value.id))
+        elif isinstance(node, ast.Attribute) and node.attr in ("removeprefix", "removesuffix"):
+            found.append("%d: .%s" % (line, node.attr))
+        elif isinstance(node, ast.Attribute) and node.attr == "cache" and isinstance(node.value, ast.Name) \
+                and node.value.id == "functools":
+            found.append("%d: functools.cache" % line)
+        elif isinstance(node, ast.ImportFrom) and node.module == "functools" and any(a.name == "cache" for a in node.names):
+            found.append("%d: functools.cache" % line)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            mods = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            found += ["%d: import %s" % (line, m) for m in mods if m.split(".")[0] in ("zoneinfo", "graphlib", "tomllib")]
+    return found
+
+
+class OldestPythonTest(unittest.TestCase):
+    """Two checks toward Python 3.8: its grammar, and a list of run-time constructs it lacks.
+
+    Neither is a run on 3.8. A library call newer than 3.8 that newer_than_3_8
+    does not look for is found only by running there.
+    """
+
+    def sources(self) -> List[Tuple[str, str]]:
+        """Reads every Python file of the monitor.
+
+        Returns:
+            (name, text) for each.
+        """
+        out: List[Tuple[str, str]] = []
         for name in sorted(os.listdir(HERE)):
             if name.endswith(".py"):
                 with open(os.path.join(HERE, name), encoding="utf-8") as f:
-                    source = f.read()
-                with self.subTest(name):
-                    ast.parse(source, name, feature_version=(3, 8))
+                    out.append((name, f.read()))
+        return out
+
+    def test_every_file_parses_as_python_3_8(self) -> None:
+        """Every file parses with ast.parse(feature_version=(3, 8)), which
+        refuses some grammar newer than 3.8 (a match statement, an except
+        star). Skipped where this interpreter no longer takes that version."""
+        import ast
+        try:
+            ast.parse("x = 1", feature_version=(3, 8))
+        except (ValueError, TypeError) as exc:
+            self.skipTest("this Python no longer parses as 3.8: %s" % exc)
+        for name, source in self.sources():
+            with self.subTest(name):
+                ast.parse(source, name, feature_version=(3, 8))
+
+    def test_no_file_uses_a_run_time_construct_3_8_lacks(self) -> None:
+        """No file holds what newer_than_3_8 looks for, and the search finds
+        each kind in a sample, so an empty answer is not a blind one."""
+        sample = ("import tomllib\nfrom functools import cache\nx = set[str]()\n"
+                  "def f(a: list[int]) -> dict[str, int]:\n    return {}\ny = 'ab'.removeprefix('a')\n")
+        self.assertEqual(newer_than_3_8(sample), ["1: import tomllib", "2: functools.cache",
+                                                  "3: set[...] at run time", "6: .removeprefix"])
+        for name, source in self.sources():
+            with self.subTest(name):
+                self.assertEqual(newer_than_3_8(source), [])
 
 
 class CommandLineTest(unittest.TestCase):

@@ -157,9 +157,9 @@ jobs:
 
       # tools/monitor's Python tests, `make monitor-test`, which ci-remote
       # runs on Linux. They need only the runner's own Python 3. The Windows
-      # image has no make, so its step runs the target's one command with
-      # the image's python; there the daemon's tests skip (no fcntl) and the
-      # rest run.
+      # step calls the target's one command with the image's python
+      # directly, so it needs no make; there the suite runs once, the
+      # daemon's tests skip (no fcntl) and the rest run.
       - name: monitor-test (macOS)
         if: runner.os == 'macOS'
         run: make monitor-test
