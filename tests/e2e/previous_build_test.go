@@ -33,10 +33,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
 
 // previousBuild is the previous release's controller, built once per test
@@ -54,6 +57,13 @@ type previousBuild struct {
 	// crossed lists the PostgreSQL migrations this build has and the
 	// previous one does not: the schema change an upgrade from it applies.
 	crossed []string
+
+	// contracts lists the crossed migrations this build declares contracts
+	// (internal/ent/migrate's compat.go). Across one, the previous build
+	// cannot serve the schema this build leaves, so this build refuses to
+	// migrate while the previous one runs, and an upgrade stops it first.
+	contracts []string
+
 	// phase84 says the previous release has Phase 84's rollback window.
 	// Only such a build can set aside a database a newer build migrated,
 	// which is the first thing its restore does. TRANSITIONAL: every
@@ -117,10 +127,31 @@ func buildPrevious() (previousBuild, error) {
 	if err != nil {
 		return previousBuild{}, err
 	}
+	contracts, err := crossedContracts(crossed)
+	if err != nil {
+		return previousBuild{}, err
+	}
 	// Phase 84's compatibility table is the marker: a build without it has no
 	// rollback window and a restore that refuses a newer build's tables.
 	_, statErr := os.Stat(filepath.Join(tree, "internal", "ent", "migrate", "compat.go"))
-	return previousBuild{ref: ref, tree: tree, controller: bin, crossed: crossed, phase84: statErr == nil}, nil
+	return previousBuild{ref: ref, tree: tree, controller: bin, crossed: crossed, contracts: contracts, phase84: statErr == nil}, nil
+}
+
+// crossedContracts lists which of crossed this build declares contracts,
+// read from the plan this build gives a new PostgreSQL database, which names
+// every migration's kind.
+func crossedContracts(crossed []string) ([]string, error) {
+	plan, err := migrate.PlanForNewDatabase("postgres")
+	if err != nil {
+		return nil, err
+	}
+	var contracts []string
+	for _, m := range plan.Pending {
+		if m.Kind == "contract" && slices.Contains(crossed, m.Name) {
+			contracts = append(contracts, m.Name)
+		}
+	}
+	return contracts, nil
 }
 
 // previousRef resolves the previous release to a full commit id, by the rule
