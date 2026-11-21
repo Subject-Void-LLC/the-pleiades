@@ -17,7 +17,6 @@ sys.dont_write_bytecode = True
 import http.client  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
@@ -37,7 +36,7 @@ import roadmap  # noqa: E402
 import runfile  # noqa: E402
 import server  # noqa: E402
 import timeline  # noqa: E402
-from jsonutil import JSONObject, JSONValue, as_object, get_objects, get_str, loads  # noqa: E402
+from jsonutil import JSONObject, JSONValue, as_object, get_int, get_objects, get_str, loads  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # R1 and R2 are run ids in the form history.py gives them.
@@ -45,16 +44,35 @@ R1 = "20261111T120000Z-aaaaaaaaaaaa"
 R2 = "20261111T130000Z-bbbbbbbbbbbb"
 
 
-def free_port() -> int:
-    """Finds a free loopback port.
+def serve(app: server.Backend) -> Tuple[server.ThreadingHTTPServer, int]:
+    """Serves a backend on a port the kernel picks as it binds.
+
+    A port found free, closed and then bound again can be taken in between
+    (the kernel hands it to an outgoing connection), so no test picks one.
+
+    Args:
+        app: The backend.
 
     Returns:
-        The port.
+        (the running server, its port).
     """
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
+    httpd = server.start_server(app, 0)
+    port = httpd.server_port
+    if isinstance(app, daemon.DaemonApp):
+        app.port = port
+    return httpd, port
+
+
+def lock_port(d: str) -> int:
+    """Reads the port a test's daemon bound, from its lock file.
+
+    Args:
+        d: The state directory.
+
+    Returns:
+        The port, or 0 before the daemon has bound one.
+    """
+    return get_int(daemon.read_lock_info(d), "port") or 0
 
 
 def get(port: int, path: str, timeout: float = 30.0) -> Tuple[int, str, bytes]:
@@ -222,9 +240,8 @@ class WaitSelectionTest(unittest.TestCase):
         """A /wait that arrives before the gate's manifest waits for that gate
         and answers with its first failure, naming the run."""
         with tempfile.TemporaryDirectory() as d:
-            port = free_port()
-            app = make_app(d, port)
-            httpd = server.start_server(app, port)
+            app = make_app(d, 0)
+            httpd, port = serve(app)
             store = history.HistoryStore(d)
             run = live.LiveRun(redact.Redactor([]), d)
             results: List[JSONObject] = []
@@ -267,12 +284,11 @@ class WaitSelectionTest(unittest.TestCase):
     def test_timeline_and_health_routes(self) -> None:
         """/timeline serves JSONL filtered and limited; /healthz names the protocol."""
         with tempfile.TemporaryDirectory() as d:
-            port = free_port()
-            app = make_app(d, port)
+            app = make_app(d, 0)
             for i in range(5):
                 app.timeline.append("memory", "machine", {"available_mb": i})
             app.timeline.append("daemon", "machine", {"event": "start"})
-            httpd = server.start_server(app, port)
+            httpd, port = serve(app)
             try:
                 code, ctype, body = get(port, "/timeline?kind=memory&limit=2")
                 lines = [json.loads(x) for x in body.decode().splitlines()]
@@ -297,25 +313,24 @@ class SingleInstanceTest(unittest.TestCase):
         it alone; a second daemon started by hand exits at once; SIGTERM
         stops it and the timeline records start and stop."""
         with tempfile.TemporaryDirectory() as d:
-            port = free_port()
             monitor = os.path.join(HERE, "monitor.py")
             base = [sys.executable, "-B", monitor]
             try:
-                r = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d, "--quiet", "--no-actions"],
-                                   timeout=30)
-                self.assertEqual(r.returncode, 0)
-                deadline = time.monotonic() + 10
-                health = None
-                while time.monotonic() < deadline and health is None:
-                    health = daemon.healthz(port, 0.5)
-                    time.sleep(0.2)
+                # Port 0: the daemon binds any free port and names it in its lock.
+                r = subprocess.run(base + ["ensure", "--port", "0", "--state-dir", d, "--quiet", "--no-actions"],
+                                   timeout=60)
+                self.assertEqual(r.returncode, 0, daemon_log(d))
+                # ensure returns only once its daemon answers /healthz: no polling here.
+                port = lock_port(d)
+                health = daemon.healthz(port)
+                self.assertIsNotNone(health, daemon_log(d))
                 assert health is not None
                 self.assertEqual(health.get("state_dir"), d)
                 pid = health.get("pid")
-                again = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d, "--no-actions"],
-                                       capture_output=True, text=True, timeout=30)
+                again = subprocess.run(base + ["ensure", "--port", "0", "--state-dir", d, "--no-actions"],
+                                       capture_output=True, text=True, timeout=60)
                 self.assertIn("running", again.stdout)
-                second = subprocess.run(base + ["daemon", "--port", str(port), "--state-dir", d, "--no-actions"],
+                second = subprocess.run(base + ["daemon", "--port", "0", "--state-dir", d, "--no-actions"],
                                         capture_output=True, text=True, timeout=30)
                 self.assertIn("already running", second.stdout)
                 self.assertEqual((daemon.healthz(port) or {}).get("pid"), pid)
@@ -407,26 +422,30 @@ def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
     return dest
 
 
-def start_copy(src: str, d: str, port: int) -> "subprocess.Popen[bytes]":
+def start_copy(src: str, d: str) -> Tuple["subprocess.Popen[bytes]", int]:
     """Starts a daemon from a copy of the monitor and waits until it answers.
+
+    The daemon binds port 0 and names the port in its lock once bound, which
+    is the readiness this waits on; a daemon that never gets there fails the
+    test with its log.
 
     Args:
         src: The copy.
         d: The state directory.
-        port: Its port.
 
     Returns:
-        The daemon's process.
+        (the daemon's process, its port).
     """
     os.makedirs(d, exist_ok=True)
     with open(paths.daemon_log(d), "ab") as log:
-        proc = subprocess.Popen([sys.executable, "-B", os.path.join(src, "monitor.py"), "daemon", "--port", str(port),
+        proc = subprocess.Popen([sys.executable, "-B", os.path.join(src, "monitor.py"), "daemon", "--port", "0",
                                  "--state-dir", d, "--no-actions"], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        health = daemon.healthz(port, 0.5)
+    while time.monotonic() < deadline and proc.poll() is None:
+        port = lock_port(d)
+        health = daemon.healthz(port, 0.5) if port else None
         if health is not None and health.get("pid") == proc.pid:
-            return proc
+            return proc, port
         time.sleep(0.1)
     proc.kill()
     raise AssertionError("the copied daemon did not answer:\n" + daemon_log(d))
@@ -503,10 +522,9 @@ class EnsureSafetyTest(unittest.TestCase):
             for label, pid in (("pid 0", 0), ("pid 1", 1), ("unrelated", sleeper.pid), ("dead", dead.pid),
                                ("this process", os.getpid()), ("empty", None)):
                 with self.subTest(label), tempfile.TemporaryDirectory() as d:
-                    port = free_port()
-                    app = FakeHealthApp(d, d, port, redact.Redactor([]))
+                    app = FakeHealthApp(d, d, 0, redact.Redactor([]))
                     app.fake_pid = pid or 0
-                    httpd = server.start_server(app, port)
+                    httpd, port = serve(app)
                     fd = os.open(paths.daemon_lock(d), os.O_RDWR | os.O_CREAT, 0o600)
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     if pid is not None:
@@ -531,18 +549,17 @@ class EnsureSafetyTest(unittest.TestCase):
         this protocol, from these files, takes its place on the same port."""
         with tempfile.TemporaryDirectory() as root:
             d = os.path.join(root, "state")
-            port = free_port()
-            old = start_copy(copy_monitor(os.path.join(root, "old"), protocol=0), d, port)
+            old, _ = start_copy(copy_monitor(os.path.join(root, "old"), protocol=0), d)
             signals = Signals(allow=[old.pid])
             try:
                 # The daemon ensure starts outlives the call by design; its Popen is dropped running.
                 with unittest.mock.patch("os.kill", signals), warnings.catch_warnings():
                     warnings.simplefilter("ignore", ResourceWarning)
-                    code = daemon.ensure(port, quiet=True, state_dir=d, no_actions=True)
+                    code = daemon.ensure(0, quiet=True, state_dir=d, no_actions=True)
                 self.assertEqual(code, 0, daemon_log(d))
                 self.assertEqual(signals.sent, [(old.pid, 15)])
                 self.assertEqual(old.wait(10), 0)
-                health = daemon.healthz(port) or {}
+                health = daemon.healthz(lock_port(d)) or {}
                 self.assertEqual((health.get("protocol"), health.get("source")), (daemon.PROTOCOL, HERE))
                 self.assertNotEqual(health.get("pid"), old.pid)
             finally:
@@ -554,8 +571,7 @@ class EnsureSafetyTest(unittest.TestCase):
         """Two ensure processes started together both succeed, and exactly one
         daemon ever runs: none starts only to find the lock taken."""
         with tempfile.TemporaryDirectory() as d:
-            port = free_port()
-            cmd = [sys.executable, "-B", os.path.join(HERE, "monitor.py"), "ensure", "--port", str(port), "--state-dir", d,
+            cmd = [sys.executable, "-B", os.path.join(HERE, "monitor.py"), "ensure", "--port", "0", "--state-dir", d,
                    "--no-actions", "--quiet"]
             try:
                 procs = [subprocess.Popen(cmd) for _ in range(2)]
@@ -711,7 +727,7 @@ class ActionsBackfillTest(unittest.TestCase):
         self.assertEqual([j["name"] for j in runs[1]["jobs"]], ["old"])
 
         with tempfile.TemporaryDirectory() as d:
-            app = make_app(d, free_port())
+            app = make_app(d, 0)
             docs = [actions.run_to_json(r) for r in runs[:2]]
             app.record_action_runs(docs, historical=True)
             app.record_action_runs(docs, historical=True)
@@ -774,7 +790,7 @@ class GitHistoryTest(unittest.TestCase):
             self.assertEqual(time.strftime("%Y-%m-%dT%H", time.gmtime(got[1][1])), "2026-08-03T11")
 
             state = os.path.join(d, "state")
-            app = make_app(state, free_port())
+            app = make_app(state, 0)
             app.root = repo
             app.record_git()
             app.record_git()
@@ -794,7 +810,7 @@ class GitHistoryTest(unittest.TestCase):
             self.assertIsNone(githistory.count_methods("not json"))
             env_dir = os.path.join(d, "plain")
             os.makedirs(env_dir)
-            app = make_app(os.path.join(d, "state"), free_port())
+            app = make_app(os.path.join(d, "state"), 0)
             app.root = env_dir
             if githistory.resolve(env_dir) is None:
                 app.record_git()
@@ -851,10 +867,9 @@ class McpTest(unittest.TestCase):
         """Answers initialize with tools, lists every tool as read-only, and
         answers status and timeline from the daemon; a notification gets no reply."""
         with tempfile.TemporaryDirectory() as d:
-            port = free_port()
-            app = make_app(d, port)
+            app = make_app(d, 0)
             app.timeline.append("memory", "machine", {"available_mb": 4321})
-            httpd = server.start_server(app, port)
+            httpd, port = serve(app)
             try:
                 msgs: List[JSONObject] = [
                     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},

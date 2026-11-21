@@ -19,7 +19,6 @@ sys.dont_write_bytecode = True
 import http.client  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
-import socket  # noqa: E402
 import stat  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
@@ -768,16 +767,18 @@ class RedactTest(unittest.TestCase):
         self.assertEqual(run.state.stage("mac").last_line, "maccheck: token [REDACTED] leaked")
 
 
-def free_port() -> int:
-    """Finds a free port on 127.0.0.1.
+def serve(app: server.Backend) -> Tuple[server.ThreadingHTTPServer, int]:
+    """Serves a backend on a port the kernel picks as it binds, so no port
+    found free can be taken before the server binds it.
+
+    Args:
+        app: The backend.
 
     Returns:
-        The port.
+        (the running server, its port).
     """
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
+    httpd = server.start_server(app, 0)
+    return httpd, httpd.server_port
 
 
 class ServerTest(unittest.TestCase):
@@ -810,8 +811,7 @@ class ServerTest(unittest.TestCase):
             for line in fixture("prcheck-run.txt").splitlines():
                 run.feed_main(line)
             app = monitor.App("watch", store, run, "20261024T134930Z-ae89f745ba1c")
-            port = free_port()
-            httpd = server.start_server(app, port)
+            httpd, port = serve(app)
             try:
                 code, headers, body = self.get(port, "/")
                 self.assertEqual(code, 200)
@@ -885,8 +885,7 @@ class ObserverTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = history.HistoryStore(d)
             run = live.LiveRun(redact.Redactor([]), d)
-            port = free_port()
-            httpd = server.start_server(monitor.App("run", store, run, "r1"), port)
+            httpd, port = serve(monitor.App("run", store, run, "r1"))
             try:
                 def later() -> None:
                     time.sleep(0.3)
@@ -912,8 +911,7 @@ class ObserverTest(unittest.TestCase):
             finally:
                 httpd.shutdown()
                 httpd.server_close()
-            port = free_port()
-            httpd = server.start_server(monitor.App("serve", store), port)
+            httpd, port = serve(monitor.App("serve", store))
             try:
                 self.assertEqual(ServerTest().get(port, "/wait")[0], 404)
                 self.assertEqual(ServerTest().get(port, "/events")[0], 404)

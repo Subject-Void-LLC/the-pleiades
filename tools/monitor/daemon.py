@@ -532,7 +532,20 @@ def lock_held(state_dir: str) -> bool:
     return locks.held(paths.daemon_lock(state_dir))
 
 
-def take_lock(state_dir: str, port: int) -> Optional[int]:
+def lock_info(port: int, started: float) -> JSONObject:
+    """Builds what the lock file says about this daemon.
+
+    Args:
+        port: The port it serves (0 until a port asked as 0 is bound).
+        started: When it started.
+
+    Returns:
+        Its pid, port, protocol, start and source directory.
+    """
+    return {"pid": os.getpid(), "port": port, "protocol": PROTOCOL, "started": started, "source": paths.HERE}
+
+
+def take_lock(state_dir: str, port: int, started: Optional[float] = None) -> Optional[int]:
     """Takes the daemon lock and writes who holds it.
 
     A probe (lock_held, in an ensure) holds the lock shared for an instant,
@@ -542,6 +555,7 @@ def take_lock(state_dir: str, port: int) -> Optional[int]:
     Args:
         state_dir: The state directory.
         port: The port this daemon serves.
+        started: When it started; now by default.
 
     Returns:
         The descriptor, held for the process's life, or None when another daemon holds it.
@@ -551,8 +565,7 @@ def take_lock(state_dir: str, port: int) -> Optional[int]:
     if not locks.take(fd):
         os.close(fd)
         return None
-    write_lock_info(fd, {"pid": os.getpid(), "port": port, "protocol": PROTOCOL, "started": time.time(),
-                         "source": paths.HERE})
+    write_lock_info(fd, lock_info(port, started if started is not None else time.time()))
     return fd
 
 
@@ -623,7 +636,8 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
         0, also when another daemon already runs.
     """
     state = state_dir or paths.state_dir()
-    fd = take_lock(state, port)
+    started = time.time()
+    fd = take_lock(state, port, started)
     if fd is None:
         info = read_lock_info(state) or {}
         print("statusd: already running (pid %s, port %s)" % (info.get("pid"), info.get("port")), flush=True)
@@ -677,8 +691,13 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
     start_loop(stop, BACKFILL_SECONDS, app.backfill_actions, "actions-backfill")
     httpd = bind(app, port, stop)
     if httpd is not None:
+        # Port 0 asks for any free port (tests): name the one bound, here and
+        # in the lock, which is how ensure learns where to ask /healthz.
+        app.port = httpd.server_port
+        if app.port != port:
+            write_lock_info(fd, lock_info(app.port, started))
         print("statusd: serving http://127.0.0.1:%d/ (pid %d, protocol %d, state %s)"
-              % (port, os.getpid(), PROTOCOL, state), flush=True)
+              % (app.port, os.getpid(), PROTOCOL, state), flush=True)
     while not stop.wait(1):
         pass
     if httpd is not None:

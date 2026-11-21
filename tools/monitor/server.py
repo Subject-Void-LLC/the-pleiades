@@ -190,16 +190,22 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
 
     Args:
         app: Where answers come from.
-        port: The port served, which the Host header must name.
+        port: The port served, which the Host header must name; start_server
+            replaces it with the port really bound when 0 was asked for.
 
     Returns:
         A BaseHTTPRequestHandler subclass.
     """
 
     class Handler(BaseHTTPRequestHandler):
-        """Answers the dashboard's GET requests."""
+        """Answers the dashboard's GET requests.
+
+        Attributes:
+            port: The port served, which the Host header must name.
+        """
 
         server_version = "pr-check-monitor"
+        port: int = 0
 
         def log_message(self, format: str, *args: object) -> None:
             """Keeps request lines out of the terminal pr-check prints to.
@@ -239,7 +245,7 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:
             """Answers one GET."""
-            if not allowed_host(self.headers.get("Host", ""), port):
+            if not allowed_host(self.headers.get("Host", ""), self.port):
                 self.send_body(403, b"forbidden\n", "text/plain")
                 return
             path = self.path.split("?", 1)[0]
@@ -397,6 +403,7 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
             except (BrokenPipeError, ConnectionResetError):
                 return
 
+    Handler.port = port
     return Handler
 
 
@@ -405,7 +412,7 @@ def start_server(app: Backend, port: int) -> ThreadingHTTPServer:
 
     Args:
         app: Where answers come from.
-        port: The port.
+        port: The port, or 0 for any free one (read it from server_port).
 
     Returns:
         The running server; call shutdown() to stop it.
@@ -413,7 +420,10 @@ def start_server(app: Backend, port: int) -> ThreadingHTTPServer:
     Raises:
         OSError: The port cannot be bound.
     """
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app, port))
+    handler = make_handler(app, port)
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    # Port 0 binds a free port chosen by the kernel; the Host check needs the real one.
+    setattr(handler, "port", httpd.server_port)
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, name="http", daemon=True).start()
     return httpd
