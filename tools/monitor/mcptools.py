@@ -1,98 +1,21 @@
 # pyright: strict
-"""The MCP server's tools, and the client each one reads the daemon through.
+"""The MCP server's tools, each reading the daemon through mcpclient.DaemonClient.
 
 Every tool only reads: none starts, stops or signals a gate.
 """
 
 from __future__ import annotations
 
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Callable, Dict, List, Tuple
 
-from jsonutil import JSONObject, JSONValue, as_object, get_int, get_list, get_objects, get_str, loads
+from jsonutil import JSONObject, JSONValue, as_object, get_int, get_list, get_objects, get_str
 from mcpanswers import UNTRUSTED, actions_summary, cut, full_actions, roadmap_summary, stage_summary, timeline_line
+from mcpclient import DaemonClient
 
 
 # WAIT_MAX bounds gate_wait, so one call never outlives a client's patience by hours.
 WAIT_MAX = 3600
-
-
-class DaemonClient:
-    """Reads a daemon that is already running, over loopback HTTP.
-
-    It never starts one: a contributor whose session lists this server has
-    not asked for a background process. When nothing answers, a call fails
-    with OSError and the tool's answer says how to start the daemon.
-
-    Attributes:
-        port: The daemon's port.
-    """
-
-    port: int
-
-    def __init__(self, port: int) -> None:
-        """Prepares a client.
-
-        Args:
-            port: The daemon's port.
-        """
-        self.port = port
-
-    def get(self, path: str, timeout: float = 15.0) -> Tuple[int, bytes]:
-        """GETs a path from the running daemon.
-
-        Args:
-            path: The path and query.
-            timeout: Seconds to wait for the answer.
-
-        Returns:
-            (status, body).
-
-        Raises:
-            OSError: Nothing answers on the port (no daemon runs).
-        """
-        url = "http://127.0.0.1:%d%s" % (self.port, path)
-        try:
-            req = urllib.request.Request(url, headers={"Host": "127.0.0.1:%d" % self.port})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
-                body: bytes = resp.read()
-                return int(resp.status), body
-        except urllib.error.HTTPError as exc:
-            body = exc.read()
-            return int(exc.code), body
-
-    def json(self, path: str, timeout: float = 15.0) -> JSONValue:
-        """GETs a path and decodes its JSON.
-
-        Args:
-            path: The path and query.
-            timeout: Seconds to wait.
-
-        Returns:
-            The decoded value (an error object stays an object).
-        """
-        _, body = self.get(path, timeout)
-        return loads(body.decode("utf-8", errors="replace"))
-
-    def jsonl(self, path: str) -> List[JSONValue]:
-        """GETs a JSONL path.
-
-        Args:
-            path: The path and query.
-
-        Returns:
-            Each line decoded.
-        """
-        _, body = self.get(path)
-        out: List[JSONValue] = []
-        for line in body.decode("utf-8", errors="replace").splitlines():
-            try:
-                out.append(loads(line))
-            except ValueError:
-                continue
-        return out
 
 
 Tool = Callable[[DaemonClient, JSONObject], JSONValue]

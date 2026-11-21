@@ -28,11 +28,11 @@ import warnings  # noqa: E402
 from typing import Dict, List, Optional, Sequence, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
-import daemonconf  # noqa: E402
 import githistory  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import locks  # noqa: E402
+import owner  # noqa: E402
 import paths  # noqa: E402
 import redact  # noqa: E402
 import roadmap  # noqa: E402
@@ -48,7 +48,7 @@ MCP = os.path.join(HERE, "mcp_status.py")
 os.environ.pop("PLEIADES_NO_STATUS_DAEMON", None)
 # Every daemon these tests start inherits this, and stops itself once this
 # process is gone, even when a timeout kills it before any cleanup runs.
-os.environ[daemonconf.OWNER] = str(os.getpid())
+os.environ[owner.OWNER] = str(os.getpid())
 # needs_flock skips a test of the daemon, or of the MCP server reading one,
 # where the platform has no flock (Windows): neither runs there, and
 # SwitchedOffTest holds what each says instead.
@@ -901,8 +901,8 @@ class OwnerTest(unittest.TestCase):
         killed with SIGKILL, so none of its cleanup runs, leaves no daemon:
         the daemon sees its owner gone and stops within seconds."""
         with tempfile.TemporaryDirectory() as d:
-            code = ("import os, sys, time, warnings; sys.path.insert(0, %r); import daemon, daemonconf; "
-                    "os.environ[daemonconf.OWNER] = str(os.getpid()); warnings.simplefilter('ignore'); "
+            code = ("import os, sys, time, warnings; sys.path.insert(0, %r); import daemon, owner; "
+                    "os.environ[owner.OWNER] = str(os.getpid()); warnings.simplefilter('ignore'); "
                     "code = daemon.ensure(0, quiet=True, state_dir=%r, no_actions=True); "
                     "print((daemon.read_lock_info(%r) or {}).get('pid') if code == 0 else 'failed', flush=True); "
                     "time.sleep(60)") % (HERE, d, d)
@@ -926,15 +926,53 @@ class OwnerTest(unittest.TestCase):
                     suite.wait(10)
                 stop_daemon(d)
 
+
+
+class OwnerRulesTest(unittest.TestCase):
+    """What OWNER is read as, and how its life is judged, on any platform."""
+
     def test_an_owner_is_read_only_when_it_could_be_one(self) -> None:
-        """OWNER is a pid above 1, or nothing; a gone pid is not alive."""
+        """OWNER is a pid above 1, or nothing."""
         for value, want in (("", 0), ("0", 0), ("1", 0), ("x1", 0), ("-5", 0), ("4242", 4242)):
-            with unittest.mock.patch.dict(os.environ, {daemonconf.OWNER: value}):
-                self.assertEqual(daemonconf.owner_pid(), want, value)
+            with unittest.mock.patch.dict(os.environ, {owner.OWNER: value}):
+                self.assertEqual(owner.owner_pid(), want, value)
+
+    def test_the_repositorys_own_daemon_ignores_owner(self) -> None:
+        """A daemon of the repository's own state directory watches no owner,
+        however its path is written; any other directory's watches OWNER."""
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.dict(os.environ, {owner.OWNER: "4242"}):
+            real = os.path.join(d, "state")
+            os.makedirs(real)
+            self.assertEqual(owner.watched_owner(real, real), 0)
+            self.assertEqual(owner.watched_owner(os.path.join(d, ".", "state"), real), 0)
+            self.assertEqual(owner.watched_owner(os.path.join(d, "test-state"), real), 4242)
+
+    @unittest.skipUnless(os.name == "posix", "needs POSIX signals: os.kill(pid, 0) ends a process on Windows")
+    def test_a_gone_or_reused_pid_is_not_alive(self) -> None:
+        """A pid no process has is gone, and so is one whose process started at
+        another time than the owner did (a reused pid)."""
         dead = subprocess.Popen([sys.executable, "-B", "-c", "pass"])
         dead.wait()
-        self.assertFalse(daemonconf.owner_alive(dead.pid))
-        self.assertTrue(daemonconf.owner_alive(os.getpid()))
+        self.assertFalse(owner.owner_alive(dead.pid))
+        mine = owner.start_marker(os.getpid())
+        self.assertIsNotNone(mine)
+        self.assertTrue(owner.owner_alive(os.getpid(), mine))
+        self.assertFalse(owner.owner_alive(os.getpid(), "another start"))
+
+    def test_no_liveness_probe_signals_off_posix(self) -> None:
+        """Where os.kill(pid, 0) would end the process (Windows), no liveness
+        check calls it: each answers alive. Forced here on any platform."""
+        import runtests
+
+        def refuse(pid: int, sig: int) -> None:
+            """Stands in for os.kill and fails the test if called."""
+            raise AssertionError("os.kill(%d, %d) was called" % (pid, sig))
+
+        with unittest.mock.patch.object(owner, "POSIX", False), unittest.mock.patch.object(runfile, "POSIX", False), \
+                unittest.mock.patch.object(runtests, "POSIX", False), unittest.mock.patch("os.kill", refuse):
+            self.assertTrue(owner.owner_alive(os.getpid() + 100000, "x"))
+            self.assertTrue(runfile.process_alive(os.getpid() + 100000))
+            self.assertTrue(runtests.alive(os.getpid() + 100000))
 
 
 class RoadmapPanelTest(unittest.TestCase):
@@ -1266,40 +1304,26 @@ def untrusted_paths(value: JSONValue, word: str, path: str = "") -> List[str]:
     return out
 
 
-def free_port() -> int:
-    """Names a loopback port nothing listens on, as far as this test knows.
-
-    Returns:
-        A port the kernel handed out and that was then closed.
-    """
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-    return port
-
-
 @needs_flock
 class NoDaemonStartedTest(unittest.TestCase):
     """Nothing in the committed tree starts a background daemon unasked."""
 
     def test_the_mcp_server_never_starts_a_daemon(self) -> None:
         """With no daemon running, the MCP server starts, lists its tools and
-        answers each call that no daemon answered, how to start one and the
-        settings.local.json that starts one at each session; nothing is
-        started, here or in the state directory its own copy would use."""
+        answers each call that none runs, what the developer can do, and that
+        the model is to do nothing unasked; nothing is started, here or in
+        the state directory its own copy would use."""
         import mcp_status
         with tempfile.TemporaryDirectory() as root:
             copy = copy_monitor(os.path.join(root, "tree", "tools", "monitor"))
             # Outside any git repository, the copy's state directory is under its own tree.
             state = os.path.join(root, "tree", ".IGNORE", "ci", "monitor")
-            port = free_port()
             msgs = mcp_session("status") + json.dumps({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                                                        "params": {"name": "gate", "arguments": {}}}) + "\n"
             try:
+                # Port 9 (discard), as SwitchedOffTest uses: nothing listens on it here.
                 out = subprocess.run([sys.executable, "-B", os.path.join(copy, "mcp_status.py")], input=msgs,
-                                     capture_output=True, text=True, timeout=60,
-                                     env=dict(os.environ, STATUS_PORT=str(port)))
+                                     capture_output=True, text=True, timeout=60, env=dict(os.environ, STATUS_PORT="9"))
                 replies = [json.loads(x) for x in out.stdout.splitlines()]
                 self.assertEqual([r["id"] for r in replies], [1, 2, 3, 4], out.stderr)
                 self.assertEqual(len(replies[1]["result"]["tools"]), 8)
@@ -1307,14 +1331,72 @@ class NoDaemonStartedTest(unittest.TestCase):
                     result = reply["result"]
                     self.assertTrue(result["isError"])
                     answer = json.loads(result["content"][0]["text"])
+                    self.assertEqual(sorted(answer), ["developer", "error", "note"])
+                    self.assertIn("No status daemon is running", answer["error"])
                     self.assertIn("never starts one", answer["error"])
-                    self.assertIn(mcp_status.START, answer["start"])
-                    self.assertIn("settings.local.json", answer["automatic"])
-                    self.assertEqual(answer["settings_local_json"], mcp_status.AUTOSTART)
+                    self.assertIn(mcp_status.START, answer["developer"])
+                    self.assertIn("unless the user asks", answer["note"])
+                    self.assertNotIn("SessionStart", result["content"][0]["text"])
                 self.assertFalse(os.path.exists(os.path.join(root, "tree", ".IGNORE")), "a state directory was made")
-                self.assertIsNone(daemon.healthz(port, 0.5), "something answers on the port")
+                self.assertIsNone(daemon.healthz(9, 0.5), "something answers on the port")
             finally:
                 stop_daemon(state)
+
+
+class SlowDaemonTest(unittest.TestCase):
+    """A daemon that is slow to answer is not reported as absent."""
+
+    def test_a_timeout_is_retried_once_and_called_slow(self) -> None:
+        """A listener that takes the connection and never answers is asked
+        twice, then reported as running but slow, and the MCP answer says so;
+        a refused connection is the one reported as no daemon."""
+        import socket
+        import mcp_status
+        import mcpclient
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        accepted: List[socket.socket] = []
+        try:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(4)
+            port: int = listener.getsockname()[1]
+            with self.assertRaises(mcpclient.DaemonSlow):
+                mcpclient.DaemonClient(port).get("/state", timeout=0.3)
+            listener.settimeout(0.5)
+            try:
+                while True:
+                    accepted.append(listener.accept()[0])
+            except OSError:
+                pass
+            self.assertEqual(len(accepted), 2, "the timeout was not retried exactly once")
+        finally:
+            for conn in accepted:
+                conn.close()
+            listener.close()
+
+        class Slow(mcpclient.DaemonClient):
+            """A client whose every request times out twice."""
+
+            def get(self, path: str, timeout: float = 15.0) -> Tuple[int, bytes]:
+                """Fails as a slow daemon does.
+
+                Args:
+                    path: Unused.
+                    timeout: Unused.
+
+                Returns:
+                    Never.
+                """
+                raise mcpclient.DaemonSlow("no answer in 15 seconds")
+
+        msg: JSONObject = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "status"}}
+        with unittest.mock.patch.object(locks, "SUPPORTED", True), \
+                unittest.mock.patch.dict(os.environ, {"PLEIADES_NO_STATUS_DAEMON": ""}):
+            reply = mcp_status.handle(Slow(9), msg) or {}
+        result = as_object(reply.get("result")) or {}
+        self.assertTrue(result.get("isError"))
+        self.assertIn("is running but did not answer in time", json.dumps(result))
+        with self.assertRaises(mcpclient.NoDaemon):
+            mcpclient.DaemonClient(9).get("/state", timeout=2)
 
 
 class CommittedSettingsTest(unittest.TestCase):
@@ -1322,9 +1404,8 @@ class CommittedSettingsTest(unittest.TestCase):
 
     def test_the_committed_settings_start_nothing(self) -> None:
         """The repository's .claude/settings.json runs no hook, so a contributor's
-        session starts no daemon; the README's settings.local.json is the
-        MCP server's own AUTOSTART, exactly."""
-        import mcp_status
+        session starts no daemon; the README shows the one hook a developer
+        may add, which runs monitor.py ensure and nothing else."""
         with open(os.path.join(HERE, "..", "..", ".claude", "settings.json"), encoding="utf-8") as f:
             settings = as_object(loads(f.read())) or {}
         self.assertNotIn("hooks", settings)
@@ -1333,7 +1414,10 @@ class CommittedSettingsTest(unittest.TestCase):
         blocks = [b.split("```", 1)[0] for b in readme.split("```json\n")[1:]]
         hooks = [b for b in blocks if "SessionStart" in b]
         self.assertEqual(len(hooks), 1, "the README shows one SessionStart hook")
-        self.assertEqual(loads(hooks[0]), mcp_status.AUTOSTART)
+        hook = as_object(loads(hooks[0])) or {}
+        start = get_objects(as_object(hook.get("hooks")), "SessionStart")
+        commands = [get_str(h, "command") for s in start for h in get_objects(s, "hooks")]
+        self.assertEqual(commands, ['python3 -B "$CLAUDE_PROJECT_DIR/tools/monitor/monitor.py" ensure --quiet || true'])
 
 
 @needs_flock

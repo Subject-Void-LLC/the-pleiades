@@ -4,7 +4,7 @@ One always-on page per machine for development work: the `make pr-check`
 gate (every stage, whichever worktree runs it), GitHub Actions, memory, the
 implementation roadmap when this machine has one, and a JSONL history of
 every value it has seen. It draws with Apache ECharts and runs on the Python
-3 standard library alone (3.8 or newer). Nothing in the Makefile or CI runs
+3 standard library alone. Nothing in the Makefile or CI runs
 it; `make monitor-test` runs its tests, in pr-check and on every pull request.
 
 ## Run it
@@ -12,8 +12,8 @@ it; `make monitor-test` runs its tests, in pr-check and on every pull request.
 The page is a daemon, and it is opt-in: nothing in the repository starts
 it for you. The committed `.claude/settings.json` runs no hook, and the
 `status` MCP server that `.mcp.json` lists only reads a daemon that is
-already running; with none, each of its tools answers that no daemon
-answered, the command that starts one, and the JSON below. Start it by hand
+already running; with none, each of its tools answers that none is
+running and that the developer can start one. Start it by hand
 with `python3 -B tools/monitor/monitor.py ensure`.
 
 To start it at each Claude Code session, add this to your own
@@ -145,16 +145,18 @@ caller has always read from `daemon`, `monitor`, `mcp_status`, `actions` or
 | `daemonensure.py` | `ensure`: start, keep or replace a daemon |
 | `daemonstate.py`, `daemonserve.py`, `daemonapp.py` | the daemon's backend: what it holds, what it serves, what it records |
 | `fingerprint.py` | the source fingerprint `/healthz` reports |
-| `mcp_status.py` | the MCP server; `mcptools.py` its tools, `mcpanswers.py` the shape of their answers |
+| `owner.py` | the test suite a test's daemon must not outlive |
+| `mcp_status.py` | the MCP server; `mcptools.py` its tools, `mcpanswers.py` the shape of their answers, `mcpclient.py` its client of the daemon |
+| `runtests.py` | the runner `make monitor-test` calls |
 | `actions.py` | the Actions poller and backfill; `actionsjson.py` runs and jobs as JSON, `ghapi.py` `gh api` |
 | `prlog.py` | the pr-check log parser; `prpatterns.py` its patterns, `prstages.py` and `prsteps.py` its handlers, `prrecords.py` the records |
 
 Some files are still past the cap and were left as they are: `server.py`
 (525 lines, most of it one request handler class built inside
-`make_handler`, which a move cannot split), `prstate.py` (520, most of it
+`make_handler`, which a move cannot split), `prstate.py` (539, most of it
 the one `RunState` class), `history.py`, `timeline.py` and `runfile.py`
-(about 420 each, one store or follower apiece), and `security.py` and
-`live.py`, a few lines over. `dashboard.js` (968) and
+(420 to 430 each, one store or follower apiece), and `security.py`,
+`live.py` and `runtests.py`, a few lines over. `dashboard.js` (968) and
 `roadmap.js` (646) were left too: a new script file is a new route in
 `server.STATIC`, which is a change to what the daemon serves (a `PROTOCOL`
 raise), not a move, and no test runs the page's JavaScript.
@@ -216,8 +218,13 @@ than 20,000 lines of one file is parsed again each time instead of kept.
 `mcp_status.py` is a stdio MCP server, wired in `.mcp.json` as `status`.
 Every tool only reads, through a daemon that is already running. It never
 starts one, neither when the server starts nor on a call: with no daemon,
-every call answers with an error, `python3 -B tools/monitor/monitor.py
-ensure` to start one, and the `settings.local.json` above. Workflow, job and branch names
+every call answers with an error saying no daemon is running and this
+server never starts one, that the developer can start one with `python3 -B
+tools/monitor/monitor.py ensure` (this README says how to make it
+automatic), and that the model is not to run it or edit a settings file
+unless the user asks. A refused connection is that answer; a request that
+times out is asked once more, and a second timeout answers that the daemon
+runs but was slow, never that it is absent. Workflow, job and branch names
 and run titles come from GitHub, and stage details from test output, so
 every answer puts that text inside an object named `untrusted`, cut to 300
 characters, and every tool description and the server's instructions say
@@ -398,18 +405,36 @@ cd tools/monitor && python3 -B -m unittest -v             # one run, test_monito
 pyright tools/monitor                                     # by hand: every file is strict
 ```
 
-`make monitor-test` (`runtests.py`) needs a Python 3.8 or newer interpreter
-and nothing else: no virtual environment and no package, since every import
-is the standard library's or a sibling module's (`PYTHON3=python3.12 make
-monitor-test` picks another). It runs the suite twice. The second run hides
+`make monitor-test` (`runtests.py`) needs a Python interpreter and nothing
+else: no virtual environment and no package, since every import is the
+standard library's or a sibling module's (`PYTHON3=python3.12 make
+monitor-test` picks another). The floor is Python 3.8, by what
+`OldestPythonTest` checks: every file parses with 3.8's grammar, and none
+holds the run-time constructs it searches for (a builtin generic such as
+`set[str]()` called outside an annotation, `str.removeprefix`,
+`functools.cache`, `zoneinfo`, `graphlib`, `tomllib`). A dict merged with
+`|`, or any other library call newer than 3.8, is caught only by running on
+3.8, which has not happened: it has run only on 3.10 here, and CI's
+interpreters are the first others.
+
+Where the platform has `fcntl`, the suite runs twice. The second run hides
 `fcntl` from every Python it starts, through a `sitecustomize` on
 `PYTHONPATH`, as on Windows: the tests of the daemon and of the MCP server
-reading one skip, saying `needs fcntl flock`, and the rest must pass.
-`OldestPythonTest` parses every file with Python 3.8's grammar; a library
-call newer than 3.8 is caught only by running on 3.8.
+reading one skip, saying `needs fcntl flock`, and the rest must pass. Where
+it has none, the suite runs once. Each run's child gets `MONITOR_TEST_FCNTL`
+(`present`, `hidden` or `absent`), and `test_runtests.MarkerTest` fails when
+`locks.SUPPORTED` disagrees with it, so a hide that did not take fails. A run
+passes only when unittest exits 0 with `OK` as its last line and, where
+`fcntl` is present, no test skipped for lacking it; every skipped test is
+printed with its reason, so a skipped run never reads as a passing one.
+These runs are outside `tools/testgate` and are not re-run alone: a failure
+under load fails the gate. Two tests act after a fixed pause rather than on
+an event (`test_a_probe_does_not_refuse_a_gate` and
+`test_a_probe_never_looks_like_a_holder` release a probe's lock 0.3 seconds
+in, inside the one second `locks.take` retries), and were left so.
 `make ci-remote` runs it on Linux and `.github/workflows/ci.yml`'s `ci` job
-runs it on macOS and Windows too; pr-check's monitor shows it as the
-`monitor-test` stage. pyright is a third-party tool, so no gate runs it:
+is set to run it on macOS and Windows too, steps that have not yet run;
+pr-check's monitor shows it as the `monitor-test` stage. pyright is a third-party tool, so no gate runs it:
 install it (`npm install -g pyright`, or `pip install pyright` outside the
 repository) and run it on `tools/monitor` before a push that changes this
 directory; it must report 0 errors.
@@ -417,12 +442,20 @@ directory; it must report 0 errors.
 Every daemon a test starts stops itself once the test process is gone:
 `test_daemon` sets `PLEIADES_STATUS_DAEMON_OWNER` to its own pid, every
 child inherits it, and a daemon started with it checks every second that
-the pid still exists. A suite killed by a timeout, which runs no cleanup,
-so leaves nothing behind. `runtests.py` gives each run its own `TMPDIR`,
-under which every test's state directory is made, and when the run ends by
-any path (a pass, a failure, its 600-second limit or Ctrl-C) it looks for a
-status daemon whose command line names that directory, stops it, and fails.
-Never set the variable for a daemon you want to keep.
+the pid still exists (`owner.py`). A suite killed by a timeout, which runs
+no cleanup, so leaves nothing behind. A daemon of the repository's own state
+directory ignores the variable, so it can never stop the real one. A pid
+can be reused: where the platform says when a process started (`/proc` on
+Linux, else `ps -o lstart=`), the daemon remembers its owner's start and
+treats a different one as gone. That `ps` path has not run on macOS yet,
+and `lstart` counts whole seconds, so there a pid reused within the same
+second is not caught. Off POSIX nothing probes a pid with `os.kill(pid, 0)`,
+which would end the process on Windows; each such check answers alive
+there, and no daemon runs there. `runtests.py` gives each run its own
+`TMPDIR`, under which every test's state directory is made, and when the run
+ends by any path (a pass, a failure, its 600-second limit, Ctrl-C or
+SIGTERM) it looks for a status daemon whose command line names that
+directory, stops it, and fails.
 
 The fixtures in `testdata/` come from a real pr-check run, with hosts
 replaced by documentation addresses (`someone@192.0.2.10`).
