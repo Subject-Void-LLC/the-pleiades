@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,12 @@ func TestCELFilters_Phase56SecurityCryptographyFilters(t *testing.T) {
 	certPEM, wantNotBefore := buildTestCertPEM(t)
 	jwtToken := signTestJWTForEngine(t)
 	sshAuthorizedKey := buildTestSSHAuthorizedKey(t)
+	// OpenSSL's own certificate, whose serial "openssl x509 -noout -serial"
+	// prints as 7264FB1A0BD9A9E5806469100D6BED4B4E08A337.
+	opensslPEM, err := os.ReadFile("../../pkg/devicetls/testdata/spki-vector.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cases := []struct {
 		name string
@@ -50,6 +57,7 @@ func TestCELFilters_Phase56SecurityCryptographyFilters(t *testing.T) {
 		{"generate_random_password_length", `size(filters.generateRandomPassword(16)) == 16`, nil},
 		{"parse_jwt_payload_unverified", `filters.parseJWTPayloadUnverified(stat.token)["sub"] == "user-1"`, map[string]interface{}{"stat": map[string]interface{}{"token": jwtToken}}},
 		{"parse_x509_certificate", `filters.parseX509Certificate(stat.cert)["not_before"] == stat.wantNotBefore`, map[string]interface{}{"stat": map[string]interface{}{"cert": certPEM, "wantNotBefore": wantNotBefore}}},
+		{"parse_x509_certificate_serial_hex", `filters.parseX509Certificate(stat.cert)["serial_hex"] == "7264fb1a0bd9a9e5806469100d6bed4b4e08a337"`, map[string]interface{}{"stat": map[string]interface{}{"cert": string(opensslPEM)}}},
 		{"pem_to_der_der_to_pem_round_trip", `filters.derToPEM(filters.pemToDER(stat.cert), "CERTIFICATE") == stat.cert`, map[string]interface{}{"stat": map[string]interface{}{"cert": certPEM}}},
 		{"ssh_public_key_to_pem_round_trip", `filters.pemToSSHPublicKey(filters.sshPublicKeyToPEM(stat.sshKey)) == stat.sshKey`, map[string]interface{}{"stat": map[string]interface{}{"sshKey": sshAuthorizedKey}}},
 		{"mask_pii", `filters.maskPII("SSN is 123-45-6789 on file") == "SSN is [REDACTED-SSN] on file"`, nil},

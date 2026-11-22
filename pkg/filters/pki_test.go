@@ -90,6 +90,10 @@ func TestParseX509Certificate(t *testing.T) {
 	if got["serial_number"] != wantSerial {
 		t.Errorf("serial_number = %v, want %v", got["serial_number"], wantSerial)
 	}
+	// The same serial, 0x1234abcd, in the tls.certificate.serial fact's form.
+	if got["serial_hex"] != "1234abcd" {
+		t.Errorf("serial_hex = %v, want 1234abcd", got["serial_hex"])
+	}
 	dnsNames, _ := got["dns_names"].([]any)
 	if len(dnsNames) != 2 || dnsNames[0] != "test.example.com" || dnsNames[1] != "alt.example.com" {
 		t.Errorf("dns_names = %v, want [test.example.com alt.example.com]", dnsNames)

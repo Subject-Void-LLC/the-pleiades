@@ -4,8 +4,9 @@ package tlsfacts
 
 import (
 	"crypto/x509"
-	"encoding/hex"
 	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/filters"
 )
 
 // MaxSerialDigits is the longest serial recorded, in hex digits of the
@@ -18,10 +19,10 @@ import (
 const MaxSerialDigits = 40
 
 // serialText returns the serial number of cert (presented by the named
-// device) as tls.certificate.serial records it: lowercase hex of the
-// number's bytes, two digits a byte, the form OpenSSL's "x509 -serial" prints
-// in lowercase ("00" for a zero serial, which RFC 5280 forbids and some
-// devices write anyway). When the serial is not recorded it returns "" and
+// device) as tls.certificate.serial records it: filters.SerialHex's form,
+// lowercase hex of the number's bytes, two digits a byte ("00" for a zero
+// serial, which RFC 5280 forbids and some devices write anyway). When the
+// serial is not recorded it returns "" and
 // the warning that says why: a serial longer than MaxSerialDigits, or a
 // negative one, which Go's parser refuses unless GODEBUG holds
 // x509negativeserial=1, and whose hex would read the same as the positive
@@ -33,11 +34,9 @@ func serialText(device string, cert *x509.Certificate) (string, string) {
 		return "", fmt.Sprintf("device %q presented a certificate with no serial number, so no %s fact is recorded", device, FactSerial)
 	case n.Sign() < 0:
 		return "", fmt.Sprintf("device %q presented a certificate whose serial number is negative, which RFC 5280 forbids, so no %s fact is recorded", device, FactSerial)
-	case n.Sign() == 0:
-		// big.Int's Bytes is empty for zero; OpenSSL prints it as 00.
-		return "00", ""
 	}
-	text := hex.EncodeToString(n.Bytes())
+	// The one form, shared with parseX509Certificate's serial_hex.
+	text := filters.SerialHex(n)
 	if len(text) > MaxSerialDigits {
 		return "", fmt.Sprintf("device %q presented a certificate whose serial number is %d hex digits, more than the %d recorded (RFC 5280 allows 20 encoded octets), so no %s fact is recorded", device, len(text), MaxSerialDigits, FactSerial)
 	}
