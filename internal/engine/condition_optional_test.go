@@ -110,22 +110,27 @@ func TestConditionOptional_DecidedOnEachDevice(t *testing.T) {
 func TestConditionOptional_LockAllIsRefusedForADeviceRead(t *testing.T) {
 	registerRollbackFixtures(t)
 	registerDeviceRootTypes()
-	resolver := mapResolver{"web": {typedStub{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive}}}}
-	seen := &paramsSeen{}
-	x := engine.NewExecutor(resolver, seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
-		engine.WithRenderer(render.New()))
-	result, err := x.Run(context.Background(), yamlRunbook(t, "id: l\nhosts: web\ntasks:\n  - name: all\n    lock_acquisition: all_at_plan_time\n    when_cel: \"device.?name.hasValue()\"\n    rbtest.make:\n      name: x\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	refused := false
-	for _, n := range result.Nodes {
-		if n.Err != nil && strings.Contains(n.Err.Error(), engine.ErrDeviceRootLockAll) {
-			refused = true
+	resolver := mapResolver{"web": {typedStub{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive,
+		Props: map[string]inventory.PropertyValue{engine.DeviceVarsProperty: map[string]any{"site": "hq"}}}}}}
+	// A device read, and a read of a variable the device brings, which
+	// differs by device (engine.VarsDifferByDevice, which validate asks too).
+	for _, condition := range []string{`device.?name.hasValue()`, `vars.?site.orValue('') == 'hq'`} {
+		seen := &paramsSeen{}
+		x := engine.NewExecutor(resolver, seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
+			engine.WithRenderer(render.New()))
+		result, err := x.Run(context.Background(), yamlRunbook(t, "id: l\nhosts: web\ntasks:\n  - name: all\n    lock_acquisition: all_at_plan_time\n    when_cel: \""+condition+"\"\n    rbtest.make:\n      name: x\n"))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !refused || len(seen.seen) != 0 {
-		t.Errorf("lock all with an optional device read: ran %v, nodes %+v", seen.seen, result.Nodes)
+		refused := false
+		for _, n := range result.Nodes {
+			if n.Err != nil && strings.Contains(n.Err.Error(), engine.ErrDeviceRootLockAll) {
+				refused = true
+			}
+		}
+		if !refused || len(seen.seen) != 0 {
+			t.Errorf("lock all with %s: ran %v, nodes %+v", condition, seen.seen, result.Nodes)
+		}
 	}
 }
 
@@ -134,7 +139,7 @@ func TestConditionOptional_LockAllIsRefusedForADeviceRead(t *testing.T) {
 // refuses nothing in a runbook whose condition only reads vars that way; the
 // segmenter's TaskReads names the register too.
 func TestConditionOptional_SelectAndSegmenterSeeTheRead(t *testing.T) {
-	built, err := buildYAML(t, "id: r\ntasks:\n  - name: probe\n    fqcn: noop\n    register: probe\n    tags: check\n  - name: act\n    fqcn: noop\n    tags: act\n    when_cel: \"result.?probe.hasValue()\"\n  - name: other\n    fqcn: noop\n    tags: other\n    when_cel: \"vars.?x.orValue(false)\"\n")
+	built, err := buildYAML(t, "id: r\ntasks:\n  - name: probe\n    noop: {}\n    register: probe\n    tags: check\n  - name: act\n    noop: {}\n    tags: act\n    when_cel: \"result.?probe.hasValue()\"\n  - name: other\n    noop: {}\n    tags: other\n    when_cel: \"vars.?x.orValue(false)\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +216,44 @@ func TestConditionOptional_AnUnreadableConditionIsDecidedOnEachDevice(t *testing
 			}
 			if want := []string{"web1: ran"}; !slices.Equal(seen.seen, want) {
 				t.Errorf("ran %v, want %v", seen.seen, want)
+			}
+		})
+	}
+}
+
+// TestConditionOptional_OnlyASafelyConsumedOptionalIsAPresenceTest: an
+// optional read is written for the register's absence only when its optional
+// is consumed without failing on an empty one (hasValue, orValue, or, either
+// side, optMap, optFlatMap, through a chain of optional steps); one whose value
+// is taken (.value()) fails without the register and is a plain read.
+func TestConditionOptional_OnlyASafelyConsumedOptionalIsAPresenceTest(t *testing.T) {
+	for _, tc := range []struct {
+		cond   string
+		tested []string
+	}{
+		{"result.?a.hasValue()", []string{"a"}},
+		{"result.?a.orValue({'rc': 1}).rc == 0", []string{"a"}},
+		{"result.?a.or(result.?b).hasValue()", []string{"a", "b"}},
+		{"optional.none().or(nodes[?'a']).hasValue()", []string{"a"}},
+		{"result.?a.optMap(v, v.rc).orValue(1) == 0", []string{"a"}},
+		{"result.?a.optFlatMap(v, v.?rc).hasValue()", []string{"a"}},
+		{"result.?a.?b.hasValue()", []string{"a"}},
+		{"result.?a.value().rc == 0", nil},
+		{"result.?a.?b.value() == 1", nil},
+		{"stat[?'a'].value()[''].rc == 0", nil},
+	} {
+		t.Run(tc.cond, func(t *testing.T) {
+			tested, err := engine.ConditionTestsPresence(engine.Conditional{WhenCEL: tc.cond})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for name := range tested {
+				got = append(got, name)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.tested) {
+				t.Errorf("ConditionTestsPresence(%s) = %v, want %v", tc.cond, got, tc.tested)
 			}
 		})
 	}

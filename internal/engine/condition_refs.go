@@ -133,37 +133,46 @@ func ConditionUsesRoot(c Conditional, root string) (bool, error) {
 
 // ConditionTestsPresence returns the register names c tests for with
 // has(stat.<name>), has(nodes.<name>) or has(result.<name>), with "<name>" in
-// stat, nodes or result, or reads through the optional field or index
-// (result.?<name>, result[?"<name>"]), which yields an empty optional rather
-// than failing when the register is absent: a condition that does is written
-// for the register's absence, and validation lets it read a register that may
-// not exist.
+// stat, nodes or result, or reads through an optional field or index whose
+// optional is consumed safely (result.?<name>.hasValue(),
+// result[?"<name>"].orValue(...), SafeOptionalReads), which yields an empty
+// optional rather than failing when the register is absent: a condition that
+// does is written for the register's absence, and validation lets it read a
+// register that may not exist. result.?<name>.value() is a plain read: it fails
+// without the register.
 func ConditionTestsPresence(c Conditional) (map[string]bool, error) {
 	tested := map[string]bool{}
-	err := eachConditionExpr(c, func(e celast.Expr) {
-		if e.Kind() == celast.CallKind {
-			call := e.AsCall()
-			switch call.FunctionName() {
-			case operators.In:
-				if key, ok := inLiteral(call); ok {
-					tested[key] = true
+	for _, src := range c.Sources() {
+		expr, err := ParseCondition(src)
+		if err != nil {
+			return tested, err
+		}
+		safe := SafeOptionalReads(expr)
+		celast.PreOrderVisit(expr, celast.NewExprVisitor(func(e celast.Expr) {
+			if e.Kind() == celast.CallKind {
+				call := e.AsCall()
+				switch call.FunctionName() {
+				case operators.In:
+					if key, ok := inLiteral(call); ok {
+						tested[key] = true
+					}
+				case operators.OptSelect, operators.OptIndex:
+					if key, ok := optionalLiteral(call); ok && safe[e.ID()] {
+						tested[key] = true
+					}
 				}
-			case operators.OptSelect, operators.OptIndex:
-				if key, ok := optionalLiteral(call); ok {
-					tested[key] = true
-				}
+				return
 			}
-			return
-		}
-		if e.Kind() != celast.SelectKind {
-			return
-		}
-		sel := e.AsSelect()
-		if op := sel.Operand(); sel.IsTestOnly() && op.Kind() == celast.IdentKind && registerVariables[op.AsIdent()] {
-			tested[sel.FieldName()] = true
-		}
-	})
-	return tested, err
+			if e.Kind() != celast.SelectKind {
+				return
+			}
+			sel := e.AsSelect()
+			if op := sel.Operand(); sel.IsTestOnly() && op.Kind() == celast.IdentKind && registerVariables[op.AsIdent()] {
+				tested[sel.FieldName()] = true
+			}
+		}))
+	}
+	return tested, nil
 }
 
 // inLiteral returns the register a call of the in operator tests for, when

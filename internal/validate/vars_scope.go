@@ -260,8 +260,9 @@ func readsOf(eng render.Engine, pt paramTask) []varRead {
 
 // conditionVarReads returns the names c reads as vars.<name> (or
 // vars["name"]) and the names it only tests for, with has(vars.<name>),
-// "<name>" in vars, or the optional vars.?<name> or vars[?"<name>"], which
-// yield an empty optional rather than failing when the name is absent, sorted.
+// "<name>" in vars, or an optional vars.?<name> or vars[?"<name>"] consumed
+// safely (engine.SafeOptionalReads), which yields an empty optional rather than
+// failing when the name is absent, sorted.
 // It parses with engine.ParseCondition, the parser every reader of a condition
 // shares, which accepts exactly the syntax a condition compiles with. A
 // condition that does not parse reads nothing here: ConditionRule refuses it,
@@ -276,6 +277,7 @@ func conditionVarReads(c engine.Conditional) (read, tested []string) {
 		if err != nil {
 			continue
 		}
+		safe := engine.SafeOptionalReads(expr)
 		celast.PreOrderVisit(expr, celast.NewExprVisitor(func(e celast.Expr) {
 			switch e.Kind() {
 			case celast.SelectKind:
@@ -294,12 +296,15 @@ func conditionVarReads(c engine.Conditional) (read, tested []string) {
 				case operators.Index, operators.OptIndex, operators.OptSelect:
 					if len(args) == 2 && isVars(args[0]) && args[1].Kind() == celast.LiteralKind {
 						if key, ok := args[1].AsLiteral().(types.String); ok {
-							// vars["name"] fails without the name; the
-							// optional forms are written for its absence.
-							if call.FunctionName() == operators.Index {
-								readSet[string(key)] = true
-							} else {
+							// vars["name"] fails without the name, and so
+							// does an optional read whose value is taken
+							// (vars.?name.value()); one consumed safely
+							// (hasValue(), orValue(...)) is written for its
+							// absence.
+							if call.FunctionName() != operators.Index && safe[e.ID()] {
 								testedSet[string(key)] = true
+							} else {
+								readSet[string(key)] = true
 							}
 						}
 					}

@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // wantFinding fails t unless findings holds exactly one finding containing
@@ -33,6 +36,7 @@ func TestConditionOptional_ConditionRule(t *testing.T) {
 		{"optional index", `when_cel: "nodes[?'kernal'].hasValue()"`, ""},
 		{"beside a misspelled read", `when_cel: "result.?kernel.hasValue() && result.kernal.rc == 0"`, `reads the register "kernal", and no task`},
 		{"in a when item", `when: ["vars.?x.orValue(true) && stat.kernal.rc == 0"]`, `"kernal"`},
+		{"an optional whose value is taken", `when_cel: "result.?kernal.value().rc == 0"`, `reads the register "kernal", and no task`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wantFinding(t, validate.ConditionRule(validate.WorldView{DAG: yamlDAG(t, head+"    "+tc.cond+"\n")}), tc.want)
@@ -61,7 +65,7 @@ func TestConditionOptional_HandlersRule(t *testing.T) {
 // variable that way is not refused at all.
 func TestConditionOptional_CheckModeRule(t *testing.T) {
 	registerMethod(t, "ruleoptional.can", true)
-	const probe = "id: r\ntasks:\n  - name: probe\n    fqcn: ruleoptional.can\n    register: drift\n    check_mode: true\n  - name: act\n    fqcn: noop\n"
+	const probe = "id: r\ntasks:\n  - name: probe\n    ruleoptional.can: {}\n    register: drift\n    check_mode: true\n  - name: act\n    noop: {}\n"
 	for _, tc := range []struct{ name, cond, want string }{
 		{"reads the checked result", `when_cel: "result.?drift.hasValue()"`, `reads the result of a task that is only checked: "drift"`},
 		{"by an optional index", `when_cel: "stat[?'drift'].hasValue()"`, `"drift"`},
@@ -97,10 +101,48 @@ func TestConditionOptional_VarsRule(t *testing.T) {
 		{"optional field", `when_cel: "vars.?region.orValue('x') == 'x'"`, ""},
 		{"optional index", `when_cel: "vars[?'region'].hasValue()"`, ""},
 		{"beside a missing read", `when_cel: "vars.?region.orValue('x') == 'x' && vars.typo == 1"`, "no value is supplied for vars.typo"},
+		{"an optional whose value is taken", `when_cel: "vars.?typo.value() == 1"`, "no value is supplied for vars.typo"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dag := yamlDAG(t, "id: v\ntasks:\n  - name: the task\n    noop: {}\n    "+tc.cond+"\n")
 			wantFinding(t, validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true}), tc.want)
+		})
+	}
+}
+
+// TestConditionOptional_LockAllOnVariablesThatDifferByDevice: validate refuses
+// lock_acquisition: all_at_plan_time on a task whose condition reads a variable
+// a set_fact can set per device, plainly or through the optional syntax, as
+// the run refuses it (engine.VarsDifferByDevice); with no set_fact and no
+// device bringing variables, the same task passes, as it runs.
+func TestConditionOptional_LockAllOnVariablesThatDifferByDevice(t *testing.T) {
+	const setFact = "  - name: set it\n    set_fact:\n      x: 1\n"
+	for _, tc := range []struct{ name, before, cond, want string }{
+		{"optional, after a set_fact", setFact, `when_cel: "vars.?x.orValue(0) == 1"`, "cannot take lock_acquisition: all_at_plan_time"},
+		{"plain, after a set_fact", setFact, `when: ["vars.x == 1"]`, "cannot take lock_acquisition: all_at_plan_time"},
+		{"control: no set_fact, no device variables", "", `when_cel: "vars.?x.orValue(0) == 1"`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dag := yamlDAG(t, "id: l\nhosts: web\ntasks:\n"+tc.before+"  - name: all\n    noop: {}\n    lock_acquisition: all_at_plan_time\n    "+tc.cond+"\n")
+			wantFinding(t, validate.TemplateRule(validate.WorldView{DAG: dag}), tc.want)
+		})
+	}
+	// A device bringing variables of its own makes them differ by device too;
+	// a device bringing none, or a task with no target, does not.
+	withVars := &inventorytest.Stub{StubName: "web1", Props: map[string]inventory.PropertyValue{engine.DeviceVarsProperty: map[string]any{"x": 1}}}
+	plain := &inventorytest.Stub{StubName: "web2"}
+	for _, tc := range []struct {
+		name, hosts string
+		device      inventory.InventoryItem
+		want        string
+	}{
+		{"a device with variables", "hosts: web\n", withVars, "cannot take lock_acquisition: all_at_plan_time"},
+		{"control: a device with none", "hosts: web\n", plain, ""},
+		{"control: no target", "", withVars, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dag := yamlDAG(t, "id: l\n"+tc.hosts+"tasks:\n  - name: all\n    noop: {}\n    lock_acquisition: all_at_plan_time\n    when_cel: \"vars.?x.orValue(0) == 1\"\n")
+			wantFinding(t, validate.TemplateRule(validate.WorldView{DAG: dag, Resolver: oneDevice{tc.device}}), tc.want)
 		})
 	}
 }
