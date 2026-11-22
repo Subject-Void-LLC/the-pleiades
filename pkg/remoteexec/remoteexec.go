@@ -555,6 +555,11 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		if i > 0 {
 			dial = dialThroughHop(dialed[i-1])
 		}
+		// The target's leg marks each attempt, so only the keys of the
+		// attempt that becomes the session are its own (hostkeys.go).
+		if leg.hostKeys != nil && !leg.insecureSkipHostKeyVerify {
+			dial = attemptsOf(dial, leg.hostKeys)
+		}
 		// Each attempt starts its own record of what the stored key did, so
 		// the warnings describe the login that opened the connection.
 		attempt := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {

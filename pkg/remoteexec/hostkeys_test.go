@@ -191,26 +191,78 @@ func TestVerifiedHostKeys_ALentConnectionReportsItsOwnHandshake(t *testing.T) {
 	}
 }
 
-// TestVerifiedHostKeys_TwoServersBehindOneNameAreBothKept: the first dial
-// attempt reaches a server whose key known_hosts also lists for the address
-// and which drops the login, and the retry reaches the real one. Both keys
-// were checked and accepted, and both are kept, so pkg/sshfacts can refuse to
+// TestVerifiedHostKeys_ARetryKeepsOnlyTheSessionsKey: the first dial attempt
+// reaches a server whose key known_hosts also lists for the address and which
+// drops the login, and the retry reaches the real one. Only the key of the
+// attempt that became the session is the connection's, and the connection
+// says an earlier attempt accepted another, so pkg/sshfacts can refuse to
 // record either.
-func TestVerifiedHostKeys_TwoServersBehindOneNameAreBothKept(t *testing.T) {
-	srv := startHostKeyServer(t, remoteexectest.Options{})
-	front, err := remoteexectest.StartTwoServers(srv)
-	if err != nil {
-		t.Fatalf("StartTwoServers: %v", err)
+func TestVerifiedHostKeys_ARetryKeepsOnlyTheSessionsKey(t *testing.T) {
+	cases := map[string]struct {
+		opts   remoteexectest.Options
+		legacy Legacy
+	}{
+		"same type":      {},
+		"different type": {opts: remoteexectest.Options{Legacy: true}, legacy: Legacy{KeyExchange: true, HostKeys: true}},
 	}
-	t.Cleanup(front.Close)
-	knownHosts := writeKnownHostsLines(t, front.Addr(), front.FirstKey, srv.HostKey)
-	r := New(Options{KnownHostsPath: knownHosts, MaxRetries: 3})
-	conn, err := r.Connect(context.Background(), nil, Target{Host: front.Host, Port: front.Port}, PasswordAuth(srv.Username, srv.Password))
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := startHostKeyServer(t, tc.opts)
+			front, err := remoteexectest.StartTwoServers(srv)
+			if err != nil {
+				t.Fatalf("StartTwoServers: %v", err)
+			}
+			t.Cleanup(front.Close)
+			knownHosts := writeKnownHostsLines(t, front.Addr(), front.FirstKey, srv.HostKey)
+			r := New(Options{KnownHostsPath: knownHosts, MaxRetries: 3})
+			conn, err := r.Connect(context.Background(), nil, Target{Host: front.Host, Port: front.Port, Legacy: tc.legacy}, PasswordAuth(srv.Username, srv.Password))
+			if err != nil {
+				t.Fatalf("Connect: %v", err)
+			}
+			defer func() { _ = conn.Close() }()
+			hk := conn.VerifiedHostKeys()
+			wantKeys(t, hk, srv.HostKey)
+			if !hk.OtherAttempt() {
+				t.Error("OtherAttempt() = false, though the first attempt accepted the other server's key")
+			}
+		})
+	}
+}
+
+// TestVerifiedHostKeys_OneServerIsNoOtherAttempt: a dial that succeeds at
+// once says no earlier attempt accepted another key.
+func TestVerifiedHostKeys_OneServerIsNoOtherAttempt(t *testing.T) {
+	srv := startHostKeyServer(t, remoteexectest.Options{})
+	r := New(Options{KnownHostsPath: writeKnownHosts(t, srv.Addr(), srv.HostKey), MaxRetries: 3})
+	conn, err := r.Connect(context.Background(), nil, target(srv), PasswordAuth(srv.Username, srv.Password))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
-	wantKeys(t, conn.VerifiedHostKeys(), front.FirstKey, srv.HostKey)
+	if conn.VerifiedHostKeys().OtherAttempt() {
+		t.Error("OtherAttempt() = true on a dial that reached one server once")
+	}
+}
+
+// TestHostKeyLog_AttemptsKeepEarlierKeysApart: what an attempt accepted moves
+// to earlier when the next begins; the same key again is no other attempt.
+func TestHostKeyLog_AttemptsKeepEarlierKeysApart(t *testing.T) {
+	a, b := generateTestHostKey(t).PublicKey(), generateTestHostKey(t).PublicKey()
+	log := newHostKeyLog(true)
+	log.beginAttempt()
+	log.add(a)
+	log.beginAttempt()
+	log.add(a)
+	if hk := log.snapshot(); hk.OtherAttempt() {
+		t.Error("a retry that met the same key reports another attempt")
+	}
+	log.beginAttempt()
+	log.add(b)
+	hk := log.snapshot()
+	wantKeys(t, hk, b)
+	if !hk.OtherAttempt() {
+		t.Error("a retry that met another key does not report it")
+	}
 }
 
 // TestKeepAccepted_KeepsNothingRefusedAndNeverTheProbe: a key the check

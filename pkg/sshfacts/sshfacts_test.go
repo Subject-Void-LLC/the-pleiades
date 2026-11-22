@@ -29,17 +29,21 @@ type recorder struct {
 	fail  bool
 }
 
+// newRecorder returns an empty recorder.
 func newRecorder() *recorder {
 	return &recorder{facts: map[string]any{}, stats: map[string]any{}}
 }
 
+// InjectSecrets returns no secret.
 func (r *recorder) InjectSecrets() map[string]string { return nil }
 
+// SetStat keeps a stat.
 func (r *recorder) SetStat(key string, value any) error {
 	r.stats[key] = value
 	return nil
 }
 
+// EmitFact keeps a fact, or fails when fail is set.
 func (r *recorder) EmitFact(key string, value any) error {
 	if r.fail {
 		return errors.New("recording failed")
@@ -170,26 +174,55 @@ func TestRecord_ALegacyRSAKeyIsRecordedAsRSA(t *testing.T) {
 }
 
 // TestRecord_TwoServersBehindOneNameRecordNone is RED test 5: one read whose
-// dial met two servers with different ed25519 keys, both in known_hosts for
-// the address, records no host key fact and warns.
+// dial met two servers, both in known_hosts for the address, records no host
+// key fact and warns, whether the second server's key is of the same type as
+// the first's or another.
 func TestRecord_TwoServersBehindOneNameRecordNone(t *testing.T) {
-	srv := startServer(t, remoteexectest.Options{})
-	front, err := remoteexectest.StartTwoServers(srv)
-	if err != nil {
-		t.Fatalf("StartTwoServers: %v", err)
+	cases := map[string]struct {
+		opts   remoteexectest.Options
+		legacy remoteexec.Legacy
+	}{
+		"same type":      {},
+		"different type": {opts: remoteexectest.Options{Legacy: true}, legacy: remoteexec.Legacy{KeyExchange: true, HostKeys: true}},
 	}
-	t.Cleanup(front.Close)
-	seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, front.Addr(), front.FirstKey, srv.HostKey)}, remoteexec.Target{Host: front.Host, Port: front.Port}, srv)
-	rc := newRecorder()
-	warnings, err := sshfacts.Record(rc, "web1", seen)
-	if err != nil {
-		t.Fatal(err)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := startServer(t, tc.opts)
+			front, err := remoteexectest.StartTwoServers(srv)
+			if err != nil {
+				t.Fatalf("StartTwoServers: %v", err)
+			}
+			t.Cleanup(front.Close)
+			target := remoteexec.Target{Host: front.Host, Port: front.Port, Legacy: tc.legacy}
+			seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, front.Addr(), front.FirstKey, srv.HostKey)}, target, srv)
+			rc := newRecorder()
+			warnings, err := sshfacts.Record(rc, "web1", seen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rc.facts) != 0 {
+				t.Errorf("facts = %v, want none when two servers answer for one name", rc.facts)
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], "more than one server") {
+				t.Errorf("warnings = %q, want one naming more than one server", warnings)
+			}
+		})
 	}
-	if len(rc.facts) != 0 {
-		t.Errorf("facts = %v, want none when two servers answer for one name", rc.facts)
+}
+
+// TestRecord_TwoConnectionsToDifferentServersRecordNone: two verified
+// connections of one read that proved themselves with different keys record
+// none, and two to the same server record its key once.
+func TestRecord_TwoConnectionsToDifferentServersRecordNone(t *testing.T) {
+	a := startServer(t, remoteexectest.Options{})
+	b := startServer(t, remoteexectest.Options{})
+	first := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, a.Addr(), a.HostKey)}, remoteexec.Target{Host: a.Host, Port: a.Port}, a)
+	second := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, b.Addr(), b.HostKey)}, remoteexec.Target{Host: b.Host, Port: b.Port}, b)
+	if facts, w := sshfacts.Read("web1", first, second); len(facts) != 0 || len(w) != 1 {
+		t.Errorf("Read over two servers = %+v, %q; want no fact and one warning", facts, w)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "more than one server") {
-		t.Errorf("warnings = %q, want one naming more than one server", warnings)
+	if facts, w := sshfacts.Read("web1", first, first); len(facts) != 1 || len(w) != 0 {
+		t.Errorf("Read over one server twice = %+v, %q; want its one fact", facts, w)
 	}
 }
 

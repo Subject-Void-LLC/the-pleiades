@@ -23,6 +23,7 @@ package remoteexec
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"sync"
 
@@ -34,20 +35,27 @@ import (
 const maxHostKeys = 8
 
 // hostKeyLog is what one connection's known_hosts check accepted on its
-// target's leg, across every dial attempt and key exchange. It is shared by
-// every view of the connection (Raw, WithBecome) and by every Conn a Pool
-// lends for it. It is safe for concurrent use: a key exchange later in the
-// connection's life runs on the library's own goroutine.
+// target's leg: the keys of the dial attempt whose handshake became the
+// session, with any later key exchange of that session, kept apart from the
+// keys earlier attempts accepted before they failed. It is shared by every
+// view of the connection (Raw, WithBecome) and by every Conn a Pool lends for
+// it. It is safe for concurrent use: a key exchange later in the connection's
+// life runs on the library's own goroutine.
 type hostKeyLog struct {
 	// verified is whether the leg's host key was checked at all; it is set
 	// once, when the log is made, and never changes.
 	verified bool
 
 	mu sync.Mutex
-	// keys are the distinct accepted keys, in the order first accepted.
+	// keys are the distinct keys the current attempt accepted, in the order
+	// first accepted: once the dial succeeds, the session's.
 	keys []ssh.PublicKey
-	// more is set once a key past maxHostKeys was accepted.
+	// more is set once the current attempt accepted a key past maxHostKeys.
 	more bool
+	// earlier are the distinct keys attempts before the current one accepted,
+	// at most maxHostKeys; earlierMore is set past that.
+	earlier     []ssh.PublicKey
+	earlierMore bool
 }
 
 // newHostKeyLog returns an empty log for a leg whose host key is checked
@@ -56,21 +64,47 @@ func newHostKeyLog(verified bool) *hostKeyLog {
 	return &hostKeyLog{verified: verified}
 }
 
-// add keeps key unless it is kept already.
-func (l *hostKeyLog) add(key ssh.PublicKey) {
-	blob := key.Marshal()
+// beginAttempt starts a new dial attempt: what the attempt before it
+// accepted becomes earlier, since that attempt's handshake did not become
+// the session.
+func (l *hostKeyLog) beginAttempt() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, k := range l.keys {
+		l.earlier, l.earlierMore = addDistinct(l.earlier, l.earlierMore, k)
+	}
+	l.earlierMore = l.earlierMore || l.more
+	l.keys, l.more = nil, false
+}
+
+// add keeps key for the current attempt unless it is kept already.
+func (l *hostKeyLog) add(key ssh.PublicKey) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.keys, l.more = addDistinct(l.keys, l.more, key)
+}
+
+// addDistinct appends key to keys unless an equal key is there, setting more
+// instead once keys holds maxHostKeys.
+func addDistinct(keys []ssh.PublicKey, more bool, key ssh.PublicKey) ([]ssh.PublicKey, bool) {
+	if containsKey(keys, key) {
+		return keys, more
+	}
+	if len(keys) == maxHostKeys {
+		return keys, true
+	}
+	return append(keys, key), more
+}
+
+// containsKey reports whether keys holds a key equal to key.
+func containsKey(keys []ssh.PublicKey, key ssh.PublicKey) bool {
+	blob := key.Marshal()
+	for _, k := range keys {
 		if bytes.Equal(k.Marshal(), blob) {
-			return
+			return true
 		}
 	}
-	if len(l.keys) == maxHostKeys {
-		l.more = true
-		return
-	}
-	l.keys = append(l.keys, key)
+	return false
 }
 
 // snapshot is the log as a HostKeys value. A nil log, a connection this
@@ -81,7 +115,21 @@ func (l *hostKeyLog) snapshot() HostKeys {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return HostKeys{verified: l.verified, keys: append([]ssh.PublicKey(nil), l.keys...), more: l.more}
+	other := l.earlierMore
+	for _, k := range l.earlier {
+		other = other || !containsKey(l.keys, k)
+	}
+	return HostKeys{verified: l.verified, keys: append([]ssh.PublicKey(nil), l.keys...), more: l.more, otherAttempt: other}
+}
+
+// attemptsOf returns dial marking, on log, the start of each attempt it makes,
+// so the keys an attempt that failed accepted are kept apart from the
+// session's.
+func attemptsOf(dial dialFunc, log *hostKeyLog) dialFunc {
+	return func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+		log.beginAttempt()
+		return dial(ctx, addr, config)
+	}
 }
 
 // keepAccepted returns cb recording on log each key cb accepts. It is applied
@@ -106,9 +154,10 @@ func keepAccepted(cb ssh.HostKeyCallback, log *hostKeyLog) ssh.HostKeyCallback {
 // accepted. Its fields are unexported so only a dial in this package can say a
 // key was verified; the zero value verified nothing.
 type HostKeys struct {
-	verified bool
-	keys     []ssh.PublicKey
-	more     bool
+	verified     bool
+	keys         []ssh.PublicKey
+	more         bool
+	otherAttempt bool
 }
 
 // Verified reports whether the connection checked its target's host key
@@ -116,15 +165,18 @@ type HostKeys struct {
 // InsecureSkipHostKeyVerify opt-in, which accepted whatever key it was shown.
 func (h HostKeys) Verified() bool { return h.verified }
 
-// Keys returns each distinct key the check accepted, in the order first
+// Keys returns each distinct key the check accepted on the dial attempt that
+// became the session, and on its later key exchanges, in the order first
 // accepted, and whether more were accepted than a connection keeps. A
-// connection that skipped verification returns none. More than one key means
-// the target proved itself with more than one: a retried dial that reached
-// another server answering at the same address, or a later key exchange with
-// a different key.
+// connection that skipped verification returns none.
 func (h HostKeys) Keys() ([]ssh.PublicKey, bool) {
 	return append([]ssh.PublicKey(nil), h.keys...), h.more
 }
+
+// OtherAttempt reports whether an earlier attempt of the same dial accepted a
+// key the session did not prove itself with: the retry reached another server
+// answering at the same address, which known_hosts also trusts.
+func (h HostKeys) OtherAttempt() bool { return h.otherAttempt }
 
 // hostKeyTypes names each plain host key type a fact can be recorded under.
 // A key's type is not its signature algorithm: an RSA key is ssh-rsa whether
