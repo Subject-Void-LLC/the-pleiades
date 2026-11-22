@@ -8974,7 +8974,7 @@
                 }
               }
             },
-            "description": "The job was not launched from a template, its template or configuration is gone, or it answered a question this platform will not replay."
+            "description": "The job was not launched from a template, its template or configuration is gone, it answered a question this platform will not replay, or its template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created."
           },
           "500": {
             "content": {
@@ -11773,7 +11773,7 @@
                 }
               }
             },
-            "description": "The body is malformed, the recurrence is not supported, the zone is unknown, or the recurrence names no real instant."
+            "description": "The body is malformed, the recurrence is not supported, the zone is unknown, the recurrence names no real instant, or what it would launch cannot run unattended: for a job template, one whose runbook does not compile (the message is the builder's own), seeds a device's login or reads a stored fact, or that needs a value nobody will be there to give."
           },
           "403": {
             "content": {
@@ -12366,7 +12366,7 @@
                 }
               }
             },
-            "description": "The body is malformed or the recurrence is not valid."
+            "description": "The body is malformed, the recurrence is not valid, or what it would launch cannot run unattended, as on a create. An edit that keeps what the schedule launches and does not turn it on is not refused because its job template's runbook has stopped compiling, so such a schedule can still be renamed or paused."
           },
           "404": {
             "content": {
@@ -13838,7 +13838,7 @@
                 }
               }
             },
-            "description": "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer."
+            "description": "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, names a definition that does not exist or a runbook that does not compile (the message is the builder's own), declares a default or a prompt the kind has no field for, or carries a survey nobody could answer."
           },
           "403": {
             "content": {
@@ -14687,7 +14687,7 @@
                 }
               }
             },
-            "description": "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, or this controller does not register the template's kind."
+            "description": "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, this controller does not register the template's kind, or the template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created."
           },
           "500": {
             "content": {
@@ -15763,7 +15763,7 @@
                 }
               }
             },
-            "description": "A survey answer violates its question's schema, or this controller does not register the template's kind."
+            "description": "A survey answer violates its question's schema, this controller does not register the template's kind, or the template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created."
           },
           "500": {
             "content": {

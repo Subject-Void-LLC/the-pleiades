@@ -50,7 +50,7 @@ func (s *entStore) Create(ctx context.Context, sched Schedule, reach launchable.
 		return Schedule{}, err
 	}
 
-	target, err := s.admit(ctx, sched, reach)
+	target, err := s.admit(ctx, sched, reach, false)
 	if err != nil {
 		return Schedule{}, err
 	}
@@ -130,7 +130,16 @@ func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.
 	// The target is admitted again on every edit, not only at create: an edit
 	// can repoint a schedule at something else entirely, and a target that
 	// was admissible when the schedule was written may not be now.
-	target, err := s.admit(ctx, sched, reach)
+	//
+	// An edit that keeps the target and its saved configuration, and does not
+	// turn the schedule on, changes nothing about what fires. The type is told
+	// so (standing), and may then leave an objection the edit did not cause to
+	// the firing, so a schedule whose target broke can still be renamed or
+	// paused.
+	standing := sched.LaunchableID == existing.LaunchableID &&
+		sched.SavedConfigID == existing.SavedConfigID &&
+		(existing.Enabled || !sched.Enabled)
+	target, err := s.admit(ctx, sched, reach, standing)
 	if err != nil {
 		return Schedule{}, err
 	}

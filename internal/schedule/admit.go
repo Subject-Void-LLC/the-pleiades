@@ -50,7 +50,10 @@ type Admitter interface {
 
 // admit resolves what a schedule launches and refuses everything a schedule
 // must not be saved with, returning the resolved target.
-func (s *entStore) admit(ctx context.Context, sched Schedule, reach launchable.Reach) (launchable.Target, error) {
+//
+// standing says the write is an edit that leaves standing what already fires
+// (launchable.Request.Standing), which the type's Preflight is told.
+func (s *entStore) admit(ctx context.Context, sched Schedule, reach launchable.Reach, standing bool) (launchable.Target, error) {
 	target, err := s.admitter.Get(ctx, sched.LaunchableID)
 	switch {
 	case errors.Is(err, launchable.ErrNotFound):
@@ -84,6 +87,7 @@ func (s *entStore) admit(ctx context.Context, sched Schedule, reach launchable.R
 	if err := s.admitter.Preflight(ctx, launchable.Request{
 		Target:        target,
 		SavedConfigID: sched.SavedConfigID,
+		Standing:      standing,
 	}); err != nil {
 		return launchable.Target{}, preflightRefusal(err)
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
@@ -53,6 +54,13 @@ type launchableScheduleFixture struct {
 	// store is the real schedule store, exposed for the one test that builds a
 	// second handler over it.
 	store api.ScheduleStore
+
+	// schedules, launcher and jobs are the same store, the launchable router a
+	// scanner fires through, and the job store the Dispatcher writes, for a
+	// test that fires a saved schedule.
+	schedules schedule.Store
+	launcher  schedule.Launcher
+	jobs      dispatch.JobStore
 
 	templateLaunchable int
 	templateID         int
@@ -129,7 +137,8 @@ func newLaunchableScheduleFixtureFor(t *testing.T, identity *auth.Identity, runb
 
 	// The real launchers behind the real router, so a preflight refusal is the
 	// launcher's own rather than a stub's idea of one.
-	dispatcher := api.NewDispatcher(runbooks, newTestJobStore(t), newCapturingBus(),
+	jobs := newTestJobStore(t)
+	dispatcher := api.NewDispatcher(runbooks, jobs, newCapturingBus(),
 		api.WithTemplates(templates), api.WithLaunchConfigs(templates))
 	runner := project.NewRunner(projects, stubSyncer{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	t.Cleanup(func() { _ = runner.Shutdown(ctx) })
@@ -165,6 +174,7 @@ func newLaunchableScheduleFixtureFor(t *testing.T, identity *auth.Identity, runb
 			apispec.CreateSchedule.Route(handler.Create),
 			apispec.GetSchedule.Route(handler.Get),
 			apispec.UpdateSchedule.Route(handler.Update),
+			apispec.DeleteSchedule.Route(handler.Delete),
 		},
 	})
 	if err != nil {
@@ -175,6 +185,9 @@ func newLaunchableScheduleFixtureFor(t *testing.T, identity *auth.Identity, runb
 		client:             client,
 		router:             httpRouter,
 		store:              store,
+		schedules:          store,
+		launcher:           router,
+		jobs:               jobs,
 		templateLaunchable: tmpl.LaunchableID,
 		templateID:         tmpl.ID,
 		projectLaunchable:  syncable.LaunchableID,

@@ -111,6 +111,10 @@ func relaunchAction(runner Relauncher) view.RecordAction {
 				// applies, and it is more specific than anything this
 				// layer could reconstruct.
 				return "", view.FieldErrors{"": {relaunchRefusal(err)}}, nil
+			case api.CompileMessage(err) != "":
+				// The runbook no longer compiles: the builder's own message,
+				// which its author can act on, in place of a fault page.
+				return "", view.FieldErrors{"": {api.CompileMessage(err)}}, nil
 			case err != nil:
 				return "", nil, err
 			}

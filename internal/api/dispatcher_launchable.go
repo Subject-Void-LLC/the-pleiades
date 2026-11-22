@@ -43,6 +43,8 @@ func (d *Dispatcher) Preflight(ctx context.Context, req launchable.Request) erro
 // comment prescribes exactly this shape for an unattended run, naming which
 // schedule so a reader can get from an unexpected job back to its cause.
 func (d *Dispatcher) Launch(ctx context.Context, req launchable.Request) (launchable.Launched, error) {
+	// Standing is a Preflight's to read. A launch makes every refusal.
+	req.Standing = false
 	tmpl, cfg, err := d.unattended(ctx, req)
 	if err != nil {
 		return launchable.Launched{}, err
@@ -53,6 +55,12 @@ func (d *Dispatcher) Launch(ctx context.Context, req launchable.Request) (launch
 	// for real, so a scheduled check may do what a real run would.
 	jobID, _, err := d.LaunchTemplate(ctx, req.Actor, tmpl.ID, cfg, nil, MayRunForReal(true))
 	if err != nil {
+		// A runbook that stopped compiling since unattended read it is the
+		// same refusal, so a scheduler records it and moves on instead of
+		// retrying a launch that can only fail.
+		if message := compileMessage(err); message != "" {
+			return launchable.Launched{}, launchable.Refusal{Field: launchable.TargetField, Message: message, Err: err}
+		}
 		return launchable.Launched{}, err
 	}
 
@@ -100,11 +108,24 @@ func (d *Dispatcher) unattended(ctx context.Context, req launchable.Request) (la
 	// A runbook that seeds a device's login, or whose condition reads a
 	// stored fact, is refused on every launch (LaunchTemplate), so it is
 	// refused at the schedule's write too, rather than at every firing: the
-	// same RefuseSeededLogins and RefuseFactReads, naming the task. A runbook
-	// that cannot be resolved is left to the launch, as LaunchTemplate leaves
-	// it.
+	// same RefuseSeededLogins and RefuseFactReads, naming the task. So is a
+	// runbook that does not compile, with the builder's message
+	// (refuseUncompiled), except for a schedule that already launched this
+	// template and is not being turned on (req.Standing): that write changes
+	// nothing about what fires, and refusing it would leave the schedule
+	// impossible to rename or pause until somebody else's runbook is fixed.
+	// A runbook the source cannot find or read is left to the launch, as
+	// LaunchTemplate leaves it.
 	if d.runbooks != nil && launch.ResolveKind(tmpl.KindName) == launch.DefaultKind {
-		if rb, err := d.runbooks.Get(ctx, tmpl.Definition); err == nil {
+		rb, err := d.runbooks.Get(ctx, tmpl.Definition)
+		if refused := refuseUncompiled(err); refused != nil && !req.Standing {
+			return launch.Template{}, launch.Config{}, launchable.Refusal{
+				Field:   launchable.TargetField,
+				Message: compileMessage(refused),
+				Err:     refused,
+			}
+		}
+		if err == nil {
 			if err := dispatch.RefuseSeededLogins(rb); err != nil {
 				return launch.Template{}, launch.Config{}, launchable.Refusal{
 					Field:   launchable.TargetField,

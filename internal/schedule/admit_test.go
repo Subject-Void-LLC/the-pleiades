@@ -197,3 +197,82 @@ func TestNewEntStore_RefusesANilAdmitter(t *testing.T) {
 	}()
 	_ = schedule.NewEntStore(newAdmitClient(t), nil)
 }
+
+// standingAdmitter is a real target for every id and records, for each
+// Preflight, whether the store said the write leaves standing what already
+// fires.
+type standingAdmitter struct {
+	standing *[]bool
+}
+
+func (a standingAdmitter) Get(_ context.Context, id int) (launchable.Target, error) {
+	target := admittedTarget()
+	target.ID = id
+	return target, nil
+}
+
+func (a standingAdmitter) Preflight(_ context.Context, req launchable.Request) error {
+	*a.standing = append(*a.standing, req.Standing)
+	return nil
+}
+
+// TestUpdate_TellsTheTypeWhetherTheEditLeavesStandingWhatFires: a create, an
+// edit that points the schedule somewhere else and an edit that turns it on
+// are writes a type's every objection applies to. An edit that keeps the
+// target and does not turn the schedule on is told to the type as standing
+// (launchable.Request.Standing), which is what lets a schedule whose target
+// broke still be renamed or paused.
+func TestUpdate_TellsTheTypeWhetherTheEditLeavesStandingWhatFires(t *testing.T) {
+	client := newAdmitClient(t)
+	ctx := context.Background()
+	org := client.Organization.Query().OnlyX(ctx)
+	inv := client.Inventory.Create().SetName("edge").SetOrganization(org).SaveX(ctx)
+	// A launchable row stands for exactly one template, as the template store
+	// writes it.
+	launchableFor := func(name string) *ent.Launchable {
+		tmpl := client.Template.Create().SetName(name).SetKind("runbook").SetDefinition(name).
+			SetOrganization(org).SetInventory(inv).SaveX(ctx)
+		return client.Launchable.Create().SetType(launchable.TypeJobTemplate).SetName(name).
+			SetOrganization(org).SetTemplate(tmpl).SaveX(ctx)
+	}
+	first, second := launchableFor("first"), launchableFor("second")
+
+	var standing []bool
+	store := schedule.NewEntStore(client, standingAdmitter{standing: &standing})
+
+	sched := scheduleFor(launchable.Target{ID: first.ID})
+	sched.OrganizationID = org.ID
+	created, err := store.Create(ctx, sched, launchable.Everything())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	steps := []struct {
+		name string
+		edit func(*schedule.Schedule)
+		want bool
+	}{
+		{"a rename", func(s *schedule.Schedule) { s.Name = "nightly, renamed" }, true},
+		{"a pause", func(s *schedule.Schedule) { s.Enabled = false }, true},
+		{"an edit while paused", func(s *schedule.Schedule) { s.Description = "paused for now" }, true},
+		{"turning it back on", func(s *schedule.Schedule) { s.Enabled = true }, false},
+		{"pointing it somewhere else", func(s *schedule.Schedule) { s.LaunchableID = second.ID }, false},
+	}
+	want := []bool{false}
+	current := created
+	for _, step := range steps {
+		step.edit(&current)
+		updated, err := store.Update(ctx, current, launchable.Everything())
+		if err != nil {
+			t.Fatalf("%s: Update = %v", step.name, err)
+		}
+		current = updated
+		want = append(want, step.want)
+		if got := standing[len(standing)-1]; got != step.want {
+			t.Errorf("%s: the type was told standing = %v, want %v", step.name, got, step.want)
+		}
+	}
+	if len(standing) != len(want) || standing[0] {
+		t.Errorf("Preflight was told %v, want %v (a create is never standing)", standing, want)
+	}
+}

@@ -129,6 +129,10 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 				// The runbook itself batches its devices (serial:), so no
 				// control on this form is at fault: the message stands alone.
 				return "", view.FieldErrors{"": {"This runbook runs its devices in serial: batches, and a launch that asks for credential inputs cannot run it: those inputs are held only while the job starts, and every batch after the first starts later. Bind a stored credential instead."}}, nil
+			case api.CompileMessage(err) != "":
+				// The runbook does not compile, which no control on this form
+				// can change: the builder's own message names what to fix.
+				return "", view.FieldErrors{"": {api.CompileMessage(err)}}, nil
 			case err != nil:
 				return "", nil, err
 			}
