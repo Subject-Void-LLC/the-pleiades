@@ -67,6 +67,7 @@ func TestGenerateWith_EachTypeLogsInByKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(srv.Close)
 		auth, err := remoteexec.AuthFrom(cred.Username, "", cred.PrivateKeyPEM, "")
 		if err != nil {
 			t.Fatalf("%s: AuthFrom: %v", keyType, err)
@@ -75,7 +76,6 @@ func TestGenerateWith_EachTypeLogsInByKey(t *testing.T) {
 		if err != nil || result.Stdout != "in\n" || srv.KeyLogins() != 1 {
 			t.Errorf("%s: %+v, %v, %d logins by key", keyType, result, err, srv.KeyLogins())
 		}
-		srv.Close()
 	}
 }
 
