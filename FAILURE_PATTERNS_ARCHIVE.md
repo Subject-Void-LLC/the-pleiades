@@ -33443,6 +33443,19 @@ failed before the fix. This is a breaking change for `validate`: a runbook it pa
 `conditionReadsDevice`, `VarsDifferByDevice`). Only the reason is shared. A fifth cause added to `readsDevice` can be
 missed the same way.
 
+**Built 2026-11-22 (on `fix/validate-lock-all-one-question`, `ca6cac62`; on main until it merges).** The paragraph
+above no longer holds. One function decides: `engine.RunsPerDevice(dag, nodeID, task, eng, devices) PerDeviceCause`
+(`internal/engine/per_device.go`). The run asks it (`r.perDevice`) and so does validation
+(`internal/validate/lock_all.go`). It names one of eight causes: `rescue`, `iteration`, `handler`,
+`condition_unreadable`, `condition_reads_device`, `condition_reads_facts`, `params_read_device` and `vars_differ`.
+Each cause has its own lock-all reason (`PerDeviceCause.LockAllReason`), so the reason and the decision come from
+one place. Guards: `TestLockAll_ValidateAndTheRunAgreeForEveryCause` (`internal/validate`) holds a case per cause,
+each through `TemplateRule` and through a real executor run. `TestLockAllIsAskedInOnePlace` (`internal/validate`)
+holds validation to the one question. `TestPerDeviceCause_OnlyPerDeviceSendsATaskDownThePath` and
+`TestPerDeviceCause_EveryConstantIsDeclaredInPerDeviceAndListed` (`internal/engine`) read the source and were seen
+failing on planted violations. Stated limit: those two read syntax only. A new per-device path that avoids both
+`runPerDevice` and `rescueOn` is not caught. The wrong reasons this work found for two causes are 1358.
+
 **Lesson.** When validation refuses what the run refuses, it asks the run's own function for the decision, not a
 copy of its parts. A message written for one cause is not reused for another: a new cause gets its own text.
 
@@ -33467,8 +33480,19 @@ reads no device.
 engine alone refuses it, and the guide says nothing checks it ahead of time. The false sentence in the guide never
 reached `main`.
 
-**Status.** Open. No validate rule and no test exist. This records pass read the corrected comment, the guide and
-`TemplateRule`; it did not run the probe again.
+**Resolved 2026-11-22 (fixed on `fix/validate-lock-all-one-question`, `ca6cac62` and `a75a5540`; on main until it
+merges).** When it was recorded no validate rule and no test existed. The probe was run again first and failed as
+recorded: validate had no finding and the run refused at the rescue. The run and validate now ask one function,
+`engine.RunsPerDevice`, which names the cause; being a rescue task outside a block that runs as one unit is one cause
+(`PerDeviceRescue`). Validate refuses it (`lockAllFindings`, `internal/validate/lock_all.go`), so `pleiades run`
+refuses it before its first task, in a check too, and a Runner refuses its dispatch. The builder does not refuse it.
+The first version of this fix did (`ca6cac62`), and review found that it blocked recovery: a rollback compiles the
+runbook its run ran, and `lock_acquisition` is part of `DAG.Version`, so a runbook that had run could no longer be
+rolled back. `a75a5540` removed that refusal. Tests: `TestLockAll_ValidateAndTheRunAgreeForEveryCause` and
+`TestLockAll_TheBuilderRefusesOnlyAHandler` (`internal/validate`),
+`TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun` (`cmd/pleiades`), which failed against the old engine and
+validate packages, and `TestRollbackFindsARunbookWhoseRescueTakesEveryLock`. Not run on the Walk tier: the Controller
+runs no validate rule (1356), so a launch is accepted and the Runner refuses each dispatch.
 
 **Lesson.** A comment that says another layer refuses something names the test that proves it, or it is not written.
 670's lesson stands: list every path, and here every layer, that should refuse, and give each a test.
@@ -33525,3 +33549,110 @@ about 250 fixture lines first. The practice is LESSONS 472.
 
 **Lesson.** LESSONS 472. Every brief is held to 471, whoever receives it, and it keeps the instruction to check the
 premise first, which is what stopped this one.
+
+## 1358. A task refused `lock_acquisition: all_at_plan_time` because its variables differ by device, or because its condition reads `facts`, was told "a task that reads device ..."; for the facts case validate and the run gave two different texts (fixed on this branch; on main until it merges; a repeat in kind of 270, 1051 and 1345, and of 1354's review finding the same day)
+
+**Symptom.** Found 2026-11-22, branch `fix/validate-lock-all-one-question`; the defect is on `main`. A probe on
+`main` before the fix showed it. A task that reads no `device` value, and takes lock-all, was refused with
+`ErrDeviceRootLockAll` ("a task that reads device runs on each device on its own ...") in two cases: its variables
+can differ by device, or its condition reads stored `facts`. The run gave that text for both. Validation gave it
+for the variables case. For the facts case validation's `FactsRule` gave a text of its own ("a task reading its
+device's facts is decided on each device on its own ..."), so one task got two reasons, one from each tier. An
+author told the task "reads device" looks for a `device` read that is not there.
+
+**Root cause.** The run sent every such task down one path and had one reason for that path. 1354's fix shared the
+reason (`engine.PerDeviceLockAllReason`) and gave iteration its own text, and every other cause still fell through
+to the device text. The facts refusal in `FactsRule` was a second, hand-written copy.
+
+**Why 270, 1051, 1345 and 1354 did not prevent it.** Each fixed the message it was found in. 1354's lesson, written
+hours earlier, says a new cause gets its own text; its fix applied that to the one cause the review named
+(iteration) and did not list the others. The causes were not a list anywhere in the code, so there was nothing to
+hold a reason against.
+
+**Fix.** `ca6cac62`. The causes are now a type (`engine.PerDeviceCause`, eight values) and each has its own reason:
+`ErrVarsLockAll`, `ErrFactsLockAll` and `ErrUnreadableConditionLockAll` are new, beside `ErrDeviceRootLockAll`,
+`ErrIterationLockAll`, `ErrRescueLockAll` and `ErrHandlerLockAll`. `FactsRule`'s own lock-all refusal is removed;
+validation's lock-all findings come from `internal/validate/lock_all.go`, in the run's words.
+`TestPerDeviceCauses_EachHasAReason` (`internal/engine`) and `TestLockAll_ValidateAndTheRunAgreeForEveryCause`
+(`internal/validate`) hold a reason and an agreeing text for every cause.
+
+**Breaking for a reader of the JSON report.** The facts lock-all finding's `rule` moved from `facts` to `template`,
+and its message changed. The branch's changelog fragment says so.
+
+**Not proven.** Nothing here was run on the Walk tier. That a Runner gives the same text is read from
+`validateDispatch` (`internal/adapters/native/validate.go`), not from a run.
+
+**Lesson.** 1354's lesson stands and is sharpened: when one refusal has several causes, the causes are a declared
+list in the code, and a test holds each to a reason of its own. A rule kept in prose was applied to the one cause in
+front of the reviewer.
+
+## 1359. The first fix for 1355 refused lock-all on a rescue task in the builder, which would have blocked rollback of a job that had already run, and would have made a Controller refuse at build a runbook the CLI and a Runner accept (fixed before push; caught in review; never on main; the second half in kind of 837 and 841; LESSONS 475)
+
+**Symptom.** 2026-11-22, branch `fix/validate-lock-all-one-question`. Caught in review before merge; never on
+`main`. `ca6cac62` added `refuseRescueLockAll` to `buildFromDef`, so a runbook whose rescue task takes
+`lock_acquisition: all_at_plan_time` no longer built. Two defects followed from the one change.
+
+First, recovery. A rollback compiles the runbook the job ran: `GetDAG` in `internal/api/dispatcher_rollback.go`, the
+Runner's adapter (`internal/adapters/native/adapter.go`) and `findRunbook` in `cmd/pleiades/rollback.go`. A runbook
+that ran before the refusal existed would no longer compile, so its run could not be rolled back. The operator
+could not edit the key away either: `lock_acquisition` is in `forwardDefinition` and so in `DAG.Version`, and a
+rollback of an edited runbook is refused as changed.
+
+Second, tiers. Whether a rescue runs per device depends on `DAG.Units`, which depends on `TaskNeedsDevice`. A
+Controller links no Collection, so it answers that differently for a `DeviceOptional` or external method. The
+Controller would have refused at build a runbook the CLI and a Runner accept.
+
+**Root cause.** The builder looked like the earliest place to refuse, and "earliest" was taken as best. Nobody
+asked who else calls the builder. It is called for every runbook that is read, including one that already ran, and
+on every tier, including one that cannot answer the question the refusal asks.
+
+**Why 837 and 841 did not prevent the second half.** They are about a Controller reading a method registry it never
+fills, and their fixes gave the Controller the embedded module catalog for the checks named there. Neither says
+that a build-time decision resting on the registry differs by tier. Searched for the first half (a new refusal that
+stops recovery of work already done; by `DAG.Version`, rollback, relaunch and "already ran"): no earlier entry. 1165
+is near, since it also turns on what `forwardDefinition` hashes, and is a different defect.
+
+**Fix.** `a75a5540`: the builder refusal is removed. Validation and the run refuse (1355's resolution).
+`TestLockAll_TheBuilderRefusesOnlyAHandler` (`internal/validate`) holds that such a runbook still builds, and
+`TestRollbackFindsARunbookWhoseRescueTakesEveryLock` (`cmd/pleiades`) holds that rollback finds it.
+
+**Siblings noted, not changed.** Two build-time refusals predate the branch and have the same property for a
+runbook that ran before they landed: the handler refusal (`internal/engine/notify.go:65`) and the background-task
+refusal (`internal/engine/async_validate.go:44`). Neither was changed here. Whether any journal holds a run of such
+a runbook is not known.
+
+**Not proven.** `pleiades rollback` was not run on a real journal from such a run; the test proves the runbook is
+found and builds. Nothing was run on the Walk tier. In a check, the engine alone skips a rescue before any refusal,
+but `run --mode check` validates first and is refused
+(`TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun`).
+
+**Lesson.** LESSONS 475. A new refusal goes in validation and the run, not in the builder, whenever recovery builds
+what already ran. A key that is part of `DAG.Version` cannot be edited away to get past a refusal.
+
+## 1360. On the Walk tier a runbook that fails to compile is accepted at launch and at a schedule write; the job is created and fan-out fails it with `runbook "x" could not be resolved`, without the compile error (open; on main; found in review and not fixed; read from code, not exercised; in kind of 1214, 1343 and 1356)
+
+**Symptom.** Found 2026-11-22 by the review of branch `fix/validate-lock-all-one-question`; on `main`, and older
+than the branch. Read from code, not exercised. A launch tolerates an error from `runbooks.Get`
+(`internal/api/dispatcher.go`, near line 591: its checks run only when `err == nil`, and the comment says a runbook
+that cannot be resolved is left to fan-out). A schedule's `Preflight` does the same
+(`internal/api/dispatcher_launchable.go`, near line 107). The job is created. Fan-out then fails it with
+`runbook "x" could not be resolved` (`internal/dispatch/definition_source.go`, near line 105), which leaves out the
+real error. A saved schedule of such a template would fire a failed job at every occurrence. Only a template create
+or edit shows the real message.
+
+**Root cause.** Two choices that are each reasonable alone. The launch leaves an unresolvable runbook to fan-out.
+Fan-out withholds the error's text on purpose, since a storage error can carry a filesystem path and the failure
+reason is caller-readable. A compile error is the author's own mistake in the author's own runbook, and it gets the
+same treatment as a storage fault, so the one message that would let the author fix it is dropped.
+
+**Why 1214, 1343 and 1356 do not cover it.** 1214 and 1343 each moved one named refusal to the launch and schedule
+writes, and both run only on a runbook that resolved. 1356 is about `validate` rules the Controller never runs. This
+is a runbook that does not build at all. It matters more after 1359: every build-time refusal (the handler and
+background-task ones named there) reaches a Walk-tier author this way.
+
+**Status.** Open. Not fixed on this branch. Not a regression. A fix has to decide two things: whether a launch and a
+schedule write refuse a runbook that does not compile (LESSONS 470 says a refusal belongs at every write that can be
+refused), and which errors are safe to show (a build error, as against a storage error).
+
+**Lesson.** LESSONS 470 covers the placement. For the text: an error is withheld from a caller by what kind it is,
+not by where it was caught. The author's own build error is shown; a storage detail is not.

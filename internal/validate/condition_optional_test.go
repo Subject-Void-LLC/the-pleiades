@@ -113,7 +113,7 @@ func TestConditionOptional_VarsRule(t *testing.T) {
 // TestConditionOptional_LockAllOnVariablesThatDifferByDevice: validate refuses
 // lock_acquisition: all_at_plan_time on a task whose condition reads a variable
 // a set_fact can set per device, plainly or through the optional syntax, as
-// the run refuses it (engine.VarsDifferByDevice); with no set_fact and no
+// the run refuses it (engine.RunsPerDevice); with no set_fact and no
 // device bringing variables, the same task passes, as it runs.
 func TestConditionOptional_LockAllOnVariablesThatDifferByDevice(t *testing.T) {
 	const setFact = "  - name: set it\n    set_fact:\n      x: 1\n"

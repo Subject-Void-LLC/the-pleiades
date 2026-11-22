@@ -1,7 +1,8 @@
 // Package engine: the device root, the device a task runs on as a template
 // and a condition read it ({{ device.name }}, 'hq' in device.tags). A task
 // that reads it is decided and rendered once on each of its devices, as a
-// rescue task already is, rather than once for all of them.
+// rescue task already is, rather than once for all of them. Which tasks run
+// that way, and why, is per_device.go's to say.
 package engine
 
 import (
@@ -76,35 +77,6 @@ func deviceRoots(d inventory.InventoryItem) map[string]any {
 	return map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
 }
 
-// readsDevice reports whether task (node nodeID) reads the device root, in
-// its condition (its syntax tree, never its text, so a string holding the
-// word does not count) or in a parameter's template.
-func (r *run) readsDevice(nodeID string, task *Task) bool {
-	// A loop or a retry runs on each device on its own (loop.go), and so does
-	// a handler, which runs only where it was notified (notify.go).
-	if task.iterates() || task.handler != nil {
-		return true
-	}
-	if r.dag.Conditions[nodeID] != nil {
-		// A condition whose references cannot be read is decided on each
-		// device, which is right whatever it reads; deciding it once would be
-		// wrong if it read device. Every condition that compiles parses here
-		// (parseEnv), so this is a backstop rather than a path a run takes.
-		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err != nil || uses {
-			return true
-		}
-		// A stored fact is the device's own, so a condition reading one is
-		// decided on each device (facts_root.go).
-		if len(task.conditionFactKeys()) > 0 {
-			return true
-		}
-	}
-	if r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice) {
-		return true
-	}
-	return r.varsNeedDevice(nodeID, task)
-}
-
 // ParamsReadRoot reports whether any template in params reads root, for the
 // executor and validation alike.
 func ParamsReadRoot(eng render.Engine, params map[string]any, root string) bool {
@@ -118,36 +90,6 @@ func ParamsReadRoot(eng render.Engine, params map[string]any, root string) bool 
 	}
 	return false
 }
-
-// ErrDeviceRootLockAll is why a task reading the device root cannot take
-// lock_acquisition: all_at_plan_time: it runs on each device on its own, so
-// its devices' locks cannot all be taken together.
-const ErrDeviceRootLockAll = "a task that reads device runs on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
-
-// ErrIterationLockAll is why a task that loops or retries cannot take
-// lock_acquisition: all_at_plan_time: each device runs its own items and
-// attempts, so the task runs on each device on its own whatever it reads, and
-// its devices' locks cannot all be taken together.
-const ErrIterationLockAll = "a task with loop:, with_items: or until: runs its items and attempts on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
-
-// PerDeviceLockAllReason is why task, a task that runs on each device on its
-// own, cannot take lock_acquisition: all_at_plan_time. It names the cause in
-// the order readsDevice finds it: iteration first, then a read of the device.
-// The run and validation both ask it, so both give one reason for one task.
-func PerDeviceLockAllReason(task *Task) string {
-	if task.iterates() {
-		return ErrIterationLockAll
-	}
-	return ErrDeviceRootLockAll
-}
-
-// ErrRescueLockAll is why a rescue task cannot take lock_acquisition:
-// all_at_plan_time: it runs on each device on its own, reading that device's
-// failure, so its devices' locks cannot all be taken together. The engine
-// alone refuses it, when the run reaches the rescue: validation has no rule
-// for a rescue task as such (it refuses one only for another cause, such as
-// a loop or a read of device).
-const ErrRescueLockAll = "a rescue task runs on each device on its own, reading that device's failure, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
 
 // readsRoot reports whether tmpl has an expression reading root.
 func readsRoot(tmpl render.Template, root string) bool {
@@ -182,14 +124,16 @@ func TargetTemplateProblems(tmpl render.Template, task *Task) []string {
 // runPerDevice runs task nodeID once on each device its target resolves to,
 // each decided and rendered with that device as its device root, or once
 // with an empty device root when it resolves to none. errorRoot, when not
-// nil, is a unit's failure every device reads as error.
-func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, started time.Time, errorRoot map[string]any) []NodeResult {
+// nil, is a unit's failure every device reads as error. cause is why the task
+// runs per device (RunsPerDevice), which is the reason it gives when it
+// refuses lock_acquisition: all_at_plan_time.
+func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, started time.Time, errorRoot map[string]any, cause PerDeviceCause) []NodeResult {
 	fail := func(stage FailureStage, err error) []NodeResult {
 		r.publish(nodeID, task, "", "failed", err.Error())
 		return []NodeResult{failedNode(nodeID, started, stage, err)}
 	}
-	if task.LockAcquisition == AcquisitionAllAtPlanTime {
-		return fail(FailureStageLockAll, fmt.Errorf("%s: %s", taskLabel(nodeID, task), PerDeviceLockAllReason(task)))
+	if err := refuseLockAll(nodeID, task, cause); err != nil {
+		return fail(FailureStageLockAll, err)
 	}
 	if r.x.renderer != nil {
 		// The target may not read device, and what it does read is held to

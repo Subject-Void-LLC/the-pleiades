@@ -41,7 +41,6 @@ import (
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -288,62 +287,6 @@ func deviceVars(d inventory.InventoryItem) map[string]any {
 		return nil
 	}
 	return redact.CleanVars(raw)
-}
-
-// varsNeedDevice reports whether task reads vars and the variables it would
-// read can differ by device (VarsDifferByDevice), the devices being those its
-// target names now. Such a task is decided and rendered on each device, as one
-// reading the device root is.
-func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
-	return VarsDifferByDevice(r.dag, task, r.dag.Conditions[nodeID] != nil, r.x.renderer, func() []inventory.InventoryItem {
-		target := TaskTarget(r.dag, task)
-		if target == "" || HasTemplate(target) {
-			return nil
-		}
-		devices, _ := ResolveTargets(r.x.resolver, target)
-		return devices
-	})
-}
-
-// VarsDifferByDevice reports whether task reads vars and the variables it would
-// read can differ by device: some task of dag sets facts, or one of devices
-// brings variables of its own. It reads vars in its condition (when
-// conditional, the task having a compiled one), its parameters' templates
-// (when eng is not nil) or its rollback: steps, which read what the task ran
-// with on its device. The run decides such a task on each device, and
-// validation refuses what the run would refuse of it (a lock_acquisition:
-// all_at_plan_time), so both ask this one function. devices is called only
-// when the answer depends on it; it returns the devices the task's target
-// names, or none for a target rendered from data.
-func VarsDifferByDevice(dag *DAG, task *Task, conditional bool, eng render.Engine, devices func() []inventory.InventoryItem) bool {
-	reads := false
-	if eng != nil {
-		for i := range task.Rollback {
-			reads = reads || ParamsReadRoot(eng, task.Rollback[i].Params, TemplateRootVars)
-		}
-	}
-	if !reads && conditional {
-		// One whose references cannot be read is taken to read vars, so it
-		// is decided on each device when the variables can differ there.
-		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootVars); err != nil || uses {
-			reads = true
-		}
-	}
-	if !reads && eng != nil {
-		reads = ParamsReadRoot(eng, task.Params, TemplateRootVars)
-	}
-	if !reads {
-		return false
-	}
-	if dag.UsesSetFact {
-		return true
-	}
-	for _, d := range devices() {
-		if len(deviceVars(d)) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // mergedVars returns the variables task sees on the device roots name (or on

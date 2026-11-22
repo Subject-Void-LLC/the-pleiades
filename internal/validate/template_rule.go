@@ -9,7 +9,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
@@ -42,7 +41,9 @@ import (
 //
 // A rendered target is held to the same rules, and to within: besides,
 // which the runbook builder requires beside it. A task's rollback: steps
-// are held to them as its own params are. A set_fact never takes a secret
+// are held to them as its own params are. It also refuses
+// lock_acquisition: all_at_plan_time on a task that runs on each device on
+// its own (lockAllFindings). A set_fact never takes a secret
 // reference, and its refusal says why (errSetFactHoldsAReference).
 func TemplateRule(world WorldView) []Finding {
 	eng := render.New()
@@ -53,23 +54,14 @@ func TemplateRule(world WorldView) []Finding {
 		}
 	}
 
-	var findings []Finding
+	// A task that runs on each device on its own cannot take every device's
+	// lock together, whether or not any parameter holds a template: the
+	// engine says which tasks those are and why (lock_all.go).
+	findings := lockAllFindings(world, eng)
 	// Each task's rollback: steps too: they render when the engine undoes
 	// the task, held by the executor to the same rules (renderTask).
 	for _, pt := range paramTasks(world.DAG) {
 		id, task := pt.id, pt.task
-		// A condition reads device with no template in any parameter, so
-		// this comes before the parameters are looked at. A task reading
-		// variables that differ by device is decided on each device too, and
-		// the run refuses it the same way (engine.VarsDifferByDevice, which
-		// both ask). So is a task that loops or retries, whatever it reads:
-		// each device runs its own items and attempts (Task.Iterates, the
-		// question the run's readsDevice asks first). The reason given is the
-		// one the run gives (engine.PerDeviceLockAllReason).
-		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (task.Iterates() || engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task) ||
-			engine.VarsDifferByDevice(world.DAG, task, world.DAG.Conditional(pt.node) && pt.id == pt.node, eng, func() []inventory.InventoryItem { return varsDevices(world, task) })) {
-			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.PerDeviceLockAllReason(task))})
-		}
 		// A loop written as one expression is rendered before any item exists,
 		// so it may read what a parameter may, except the item.
 		if src, ok := loopExpression(task); ok {
@@ -186,25 +178,6 @@ func loopExpression(task *engine.Task) (string, bool) {
 	}
 	text, ok := src.(string)
 	return text, ok && text != ""
-}
-
-// varsDevices is the devices whose variables task could read: those its
-// target names in the inventory, or none for a target rendered from data, as
-// the run decides (engine's varsNeedDevice).
-func varsDevices(world WorldView, task *engine.Task) []inventory.InventoryItem {
-	target, items := world.taskDevices(task)
-	if target == "" || engine.HasTemplate(target) {
-		return nil
-	}
-	return items
-}
-
-// conditionReadsDevice reports whether task's condition reads the device
-// root. A condition that cannot be read reports false here and is refused by
-// ConditionRule, so the runbook does not pass either way.
-func conditionReadsDevice(task *engine.Task) bool {
-	uses, err := engine.ConditionUsesRoot(task.Conditional, engine.TemplateRootDevice)
-	return err == nil && uses
 }
 
 // taskName is a task's label for a finding: its id and, when it has one,

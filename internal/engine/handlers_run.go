@@ -4,7 +4,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -52,10 +51,11 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		if rescue {
 			errorRoot = r.handlers.errorContext(nodeID, "", r.dag, mask)
 		}
-		// A unit's task that reads device still runs on each device, every
-		// one reading the unit's failure.
-		if r.readsDevice(nodeID, task) {
-			return r.runPerDevice(ctx, nodeID, task, started, errorRoot)
+		// A unit's task that reads device, or runs per device for another
+		// cause, still runs on each device, every one reading the unit's
+		// failure. Being a unit's rescue task is not such a cause.
+		if cause := r.perDevice(nodeID, task); cause != NotPerDevice {
+			return r.runPerDevice(ctx, nodeID, task, started, errorRoot, cause)
 		}
 		prepared, early := r.prepare(ctx, nodeID, task, started, "", errorRoots(errorRoot))
 		if early != nil {
@@ -94,7 +94,10 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		return results
 	}
 
-	if !rescue && !r.readsDevice(nodeID, task) {
+	// Here, outside a unit, being a rescue task is itself a cause
+	// (PerDeviceRescue), so one never takes this path.
+	cause := r.perDevice(nodeID, task)
+	if cause == NotPerDevice {
 		prepared, early := r.prepare(ctx, nodeID, task, started, "", nil)
 		switch {
 		case early != nil && early.Err != nil && len(run) > 0:
@@ -115,20 +118,15 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 	// A rescue task, each device reading its own failure, a task that loops
 	// or retries, or a task reading the device it runs on. Each runs on each
 	// device on its own, so none can take every device's lock together.
-	if task.LockAcquisition == AcquisitionAllAtPlanTime {
-		reason := PerDeviceLockAllReason(task)
-		if rescue {
-			reason = ErrRescueLockAll
-		}
-		wrapped := fmt.Errorf("%s: %s", taskLabel(nodeID, task), reason)
+	if wrapped := refuseLockAll(nodeID, task, cause); wrapped != nil {
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
 		return append(results, failedNode(nodeID, started, FailureStageLockAll, wrapped))
 	}
 	if runsWithNoDevice {
-		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, rescue)...)
+		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, cause)...)
 	}
 	for _, out := range runConcurrently(run, func(d inventory.InventoryItem) []NodeResult {
-		return r.rescueOn(ctx, nodeID, task, d, started, mask, rescue)
+		return r.rescueOn(ctx, nodeID, task, d, started, mask, cause)
 	}) {
 		results = append(results, out...)
 	}
@@ -138,7 +136,9 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 // rescueOn runs task nodeID on d alone (nil for a task with no device),
 // with d as its device root, d's own variables in its vars, as a top-level
 // task has them, and, for a rescue task, d's failure as its error root.
-func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, rescue bool) []NodeResult {
+// cause is why the task runs per device (run.perDevice): outside a unit a
+// rescue task's is always PerDeviceRescue, which is how it is known here.
+func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, cause PerDeviceCause) []NodeResult {
 	key := ""
 	var devices []inventory.InventoryItem
 	if d != nil {
@@ -146,7 +146,7 @@ func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d invento
 		devices = []inventory.InventoryItem{d}
 	}
 	roots := deviceRoots(d)
-	if rescue {
+	if cause == PerDeviceRescue {
 		if e := r.handlers.errorContext(nodeID, key, r.dag, mask); e != nil {
 			roots[TemplateRootError] = e
 		}

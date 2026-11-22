@@ -848,6 +848,12 @@ tasks:
         noop: {}
 ```
 
+A rescue task runs on each device where its block failed, so it cannot take
+`lock_acquisition: all_at_plan_time`: `pleiades validate` refuses it, and so
+does `pleiades run` before its first task. [Running in
+production](10-running-in-production.md) has the one exception and the other
+tasks that cannot take that lock.
+
 ## How long things live
 
 | Thing | Set by | Lives for | Seen by |

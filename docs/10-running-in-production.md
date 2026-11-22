@@ -1609,10 +1609,32 @@ other.
 
 A task that runs on each device on its own cannot take `all_at_plan_time`, because its
 devices' locks are never taken together: a task with `loop:`, `with_items:` or `until:`,
-and a task that reads `device` or variables that differ by device. `pleiades validate`
-refuses each one, naming which it is, and so does a run before its first task. A rescue
-task cannot take it either, but nothing checks that ahead of time: the run refuses it
-when it reaches the rescue.
+a task that reads `device`, a task whose condition reads its device's stored `facts`,
+and a task that reads `vars` when the variables can differ by device (a task of the
+runbook sets a fact, or a device it targets has variables of its own). `pleiades
+validate` refuses each one, naming which it is, and so does a run before its first task.
+For variables, `validate` looks at every device the task's target names in the whole
+inventory, so under `--limit` a run can be refused for variables that a device outside
+the limit brings.
+
+A rescue task cannot take it either, since it runs on each device where its block
+failed. `pleiades validate` refuses it, and `pleiades run` refuses it by the same
+validation before its first task, in `--mode check` too. (Left to itself the engine
+would skip the rescue in a check and refuse it in a real run only on reaching it, after a
+task had failed; validation is what moves the refusal to the front in both.) The one
+exception is a rescue task in a block that runs as one unit: a block one of whose tasks
+runs somewhere other than the runbook's `hosts:`, because it has a `target` that is not
+the runbook's `hosts:`, has a `within:`, or (in a runbook with `hosts:`) makes a call
+that acts on no device. That
+rescue is decided once for the whole block and may take every lock. If a tag selection
+leaves that task out, the block handles failures on each device again, and `validate`
+and `run` refuse the selection before any task runs. A handler cannot take the lock at
+all, and a runbook that asks for it on one does not compile.
+
+On a Controller, launching or scheduling such a runbook is accepted, because the
+Controller runs none of these validation rules. Each Runner then refuses its dispatch by
+the same validation before any task runs, so the job fails on every device without
+changing one.
 
 ### Safety versus dry-run
 
