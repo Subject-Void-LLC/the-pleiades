@@ -3,28 +3,32 @@
 //
 // An RSA key can sign a login three ways: rsa-sha2-512, rsa-sha2-256, or
 // ssh-rsa, which hashes with SHA-1. golang.org/x/crypto/ssh signs with ssh-rsa
-// whenever the server does not say it takes SHA-2: no server-sig-algs
-// extension (OpenSSH before 7.2), one listing ssh-rsa alone (OpenSSH set to
-// PubkeyAcceptedAlgorithms ssh-rsa), or one listing no RSA algorithm at all
-// (client_auth.go's pickSignatureAlgorithm). A machine in the middle can
-// delete that extension on a server without strict key exchange (the Terrapin
-// attack) and talk a client down the same way. So every connection wraps the
-// stored key in a userKeySigner.
-// It offers SHA-2 first, so a server that takes SHA-2 always gets it, and it
-// refuses a legacy signature (ssh-rsa, or a DSA key's ssh-dss) unless the
-// device's record sets ssh_allow_legacy_user_key_signatures, which no other
-// legacy property implies.
+// whenever the server does not advertise SHA-2 (client_auth.go's
+// pickSignatureAlgorithm): no server-sig-algs extension, which OpenSSH before
+// 7.2 and some network devices are said not to send (not measured here), one
+// listing ssh-rsa alone (OpenSSH set to PubkeyAcceptedAlgorithms ssh-rsa,
+// measured on OpenSSH 10.3), or one listing no RSA algorithm at all. A machine
+// in the middle can delete that extension on a server without strict key
+// exchange (the Terrapin attack) and talk a client down the same way. So
+// every connection wraps the stored key in a userKeySigner. It offers SHA-2
+// first, so a server that advertises SHA-2 always gets it, and it refuses a
+// legacy signature (ssh-rsa, or a DSA key's ssh-dss) unless the device's
+// record sets ssh_allow_legacy_user_key_signatures, which no other legacy
+// property implies.
 //
 // The refusal comes at the signature, after the server has said it would
-// accept the key with that algorithm, so it names the property only where
-// setting it would help. A key refused this way beside a password lets the
-// password log in, as a key the server refuses would, and the connection
-// says so in its warnings (Conn.LegacyWarnings) whatever the record allows.
+// take the key with that algorithm, so it names the property only where
+// setting it could help. With no server-sig-algs the library asks only about
+// ssh-rsa, so a refusal never says the server takes the key only that way:
+// it says the server did not advertise SHA-2 for it, which a removed
+// advertisement also explains (userkeyerror.go). A key refused this way beside
+// a password lets the password log in, as a key the server refuses would, and
+// the connection says so in its warnings (Conn.LegacyWarnings) whatever the
+// record allows.
 package remoteexec
 
 import (
 	"crypto/fips140"
-	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -80,14 +84,6 @@ func keyNoun(pub ssh.PublicKey) string {
 	return kind
 }
 
-// describeSignature says what a legacy signature algorithm is, for a message.
-func describeSignature(algorithm string) string {
-	if algorithm == ssh.KeyAlgoRSA {
-		return "an ssh-rsa (SHA-1) signature"
-	}
-	return "an " + algorithm + " (DSA) signature"
-}
-
 // userKeyOutcome is what a stored key did during one login: the algorithm it
 // signed with, or the legacy one it would not sign with and why. It is
 // comparable, so a Conn holds it by value.
@@ -118,7 +114,7 @@ func (o userKeyOutcome) legacySigned() string {
 // nil from the signer itself, or the login's own failure when another method
 // was then tried and failed too.
 func (o userKeyOutcome) refusal(addr string, err error) *LegacySignatureRefusedError {
-	refused := &LegacySignatureRefusedError{Addr: addr, Key: o.key, Algorithm: o.refused, err: err}
+	refused := &LegacySignatureRefusedError{Addr: addr, Key: o.key, Algorithm: o.refused, fips: o.fips, err: err}
 	if !o.fips {
 		refused.Property = LegacyUserKeySignaturesProperty
 	}
@@ -222,81 +218,4 @@ func (s *userKeySigner) SignWithAlgorithm(rand io.Reader, data []byte, algorithm
 	outcome.signed = algorithm
 	s.use.record(outcome)
 	return sig, nil
-}
-
-// LegacySignatureRefusedError is a stored key this side would not sign a
-// login with: the server at Addr accepts the key only with a legacy signature
-// (ssh-rsa or ssh-dss), which the device's record does not allow, or which
-// FIPS 140 mode forbids whatever the record says. It is an answer rather than
-// the network failing: the server offers the same on every attempt.
-type LegacySignatureRefusedError struct {
-	// Addr is the address dialed.
-	Addr string
-	// Key names the stored key: "RSA key", "DSA key", or a certificate.
-	Key string
-	// Algorithm is the legacy signature the server would accept.
-	Algorithm string
-	// Property is the device property that allows it, empty under FIPS 140
-	// mode, where setting it would not help.
-	Property string
-	// err is the login's own failure when another method was tried after the
-	// key and failed too, nil when the key was the only one.
-	err error
-}
-
-// Error says what the server would accept and what would allow it.
-func (e *LegacySignatureRefusedError) Error() string {
-	msg := fmt.Sprintf("the SSH server at %s accepts this %s only with %s, which FIPS 140 mode forbids: log in with an ed25519 or ECDSA key, or upgrade the server to accept rsa-sha2-256",
-		e.Addr, e.Key, describeSignature(e.Algorithm))
-	if e.Property != "" {
-		msg = fmt.Sprintf("the SSH server at %s accepts this %s only with %s, which this device's record does not allow: set %s: true on the device to allow it, knowing it is weak, and it is warned about on every connection",
-			e.Addr, e.Key, describeSignature(e.Algorithm), e.Property)
-	}
-	if e.err != nil {
-		msg += ": " + e.err.Error()
-	}
-	return msg
-}
-
-// Unwrap exposes the login's own failure, when there was one past the key.
-func (e *LegacySignatureRefusedError) Unwrap() error { return e.err }
-
-// signatureRefused reports whether err is the signer's own refusal, the key
-// being the only method: an answer, not the network failing, so it is neither
-// retried nor counted against the address's circuit. A refusal wrapping a
-// later failure is judged by that failure (a refused password is an answer
-// too, a dropped connection is not).
-func signatureRefused(err error) bool {
-	refused, ok := errors.AsType[*LegacySignatureRefusedError](err)
-	return ok && refused.err == nil
-}
-
-// explainLogin returns a failed login's err naming the stored key's refusal
-// when there was one and err does not already: a key refused for a legacy
-// signature beside a password that was then refused too would otherwise leave
-// only the password's refusal, and an operator nothing to act on.
-func explainLogin(err error, addr string, key userKeyOutcome) error {
-	if err == nil || key.refused == "" {
-		return err
-	}
-	if _, ok := errors.AsType[*LegacySignatureRefusedError](err); ok {
-		return err
-	}
-	return key.refusal(addr, err)
-}
-
-// skippedKeyWarnings says, for the named device, that a login did not use its
-// stored key because the server takes the key only with a legacy signature,
-// and logged in with the password instead. It is said whatever the record
-// allows, so a key that never signs is never quietly replaced by a password.
-func skippedKeyWarnings(device string, key userKeyOutcome) []string {
-	if key.refused == "" {
-		return nil
-	}
-	why := fmt.Sprintf("which the record does not allow (%s)", LegacyUserKeySignaturesProperty)
-	if key.fips {
-		why = "which FIPS 140 mode forbids"
-	}
-	return []string{fmt.Sprintf("device %q did not use the stored %s: the SSH server accepts it only with %s, %s; this connection logged in with the password",
-		device, key.key, describeSignature(key.refused), why)}
 }

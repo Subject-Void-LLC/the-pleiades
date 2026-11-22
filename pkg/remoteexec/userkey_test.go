@@ -1,9 +1,12 @@
 // Tests that a stored RSA or DSA key signs a login with SHA-2 unless the
 // device's record allows a legacy signature, against the in-process SSH server
-// set to take a key only with ssh-rsa (or ssh-dss), as IOS 15.2 and OpenSSH
-// before 7.2 do, and that every outcome is warned about. The server reports
-// the algorithm it verified, so each test reads what was signed from the far
-// side rather than from the client's own account.
+// set to take a key only with ssh-rsa (or ssh-dss), as OpenSSH set to
+// PubkeyAcceptedAlgorithms ssh-rsa does (measured on OpenSSH 10.3), and that
+// every outcome is warned about. A server that sends no server-sig-algs at all
+// (OpenSSH before 7.2 and some network devices, by their documentation, not
+// measured here) the in-process server cannot imitate. The server reports the
+// algorithm it verified, so each test reads what was signed from the far side
+// rather than from the client's own account.
 package remoteexec
 
 import (
@@ -176,8 +179,17 @@ func TestRSAKeyRefusesSHA1WithoutProperty(t *testing.T) {
 				if !ok || refused.Property != LegacyUserKeySignaturesProperty || refused.Algorithm != ssh.KeyAlgoRSA || refused.Key != "RSA key" {
 					t.Fatalf("record %+v: %v, want a refusal naming %s", legacy, err, LegacyUserKeySignaturesProperty)
 				}
-				if !strings.Contains(err.Error(), "set "+LegacyUserKeySignaturesProperty+": true") || !strings.Contains(err.Error(), "ssh-rsa (SHA-1)") {
-					t.Errorf("the refusal does not say what the server takes and how to allow it: %v", err)
+				// It says what is known (no SHA-2 advertised), never that the
+				// server takes the key only with ssh-rsa, warns that a removed
+				// advertisement looks the same, and says a Runner needs a
+				// Controller that passes the property on.
+				for _, want := range []string{"did not advertise a SHA-2 signature for this RSA key", "ssh-rsa (SHA-1)", "removed in transit", "set " + LegacyUserKeySignaturesProperty + ": true", "upgrade Controllers before Runners"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("the refusal does not say %q: %v", want, err)
+					}
+				}
+				if strings.Contains(err.Error(), "only with an ssh-rsa") {
+					t.Errorf("the refusal claims the server takes the key only with ssh-rsa, which is not known: %v", err)
 				}
 				dialErr, ok := errors.AsType[*DialError](err)
 				if !ok || !dialErr.Refused() || dialErr.Unreached() {
@@ -235,6 +247,7 @@ func TestKeySkippedForSHA1WarnsBesidePassword(t *testing.T) {
 	}
 	warnings := conn.LegacyWarnings("sw-access-07")
 	if len(warnings) != 1 || !strings.Contains(warnings[0], `device "sw-access-07" did not use the stored RSA key`) ||
+		!strings.Contains(warnings[0], "did not advertise a SHA-2 signature") ||
 		!strings.Contains(warnings[0], LegacyUserKeySignaturesProperty) || !strings.Contains(warnings[0], "logged in with the password") {
 		t.Errorf("warnings %q, want one saying the RSA key was not used", warnings)
 	}
@@ -263,6 +276,11 @@ func TestDSAUserKeyRefusedWithoutProperty(t *testing.T) {
 	_, err := s.connect(auth, Legacy{})
 	if refused, ok := errors.AsType[*LegacySignatureRefusedError](err); !ok || refused.Algorithm != ssh.InsecureKeyAlgoDSA || refused.Key != "DSA key" || refused.Property == "" {
 		t.Fatalf("a DSA key on a record allowing nothing: %v, want a refusal naming the property", err)
+	}
+	// A DSA key has no SHA-2 signature, so there is no advertisement that
+	// could have been removed: the refusal says what the key is instead.
+	if !strings.Contains(err.Error(), "which signs only with an ssh-dss (DSA) signature") || strings.Contains(err.Error(), "removed in transit") {
+		t.Errorf("a DSA refusal says %v", err)
 	}
 	conn, err := s.connect(auth, Legacy{UserKeySignatures: true})
 	if err != nil {
