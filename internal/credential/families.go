@@ -35,7 +35,16 @@ type SaveOptions struct {
 	// uses it warns that it is masked by shape only, and without it such a
 	// community is refused.
 	AllowShortCommunity bool
+	// RefuseStoredLogin refuses the save with ErrLoginStored when the entry
+	// already holds a login, checked while the save holds the credential
+	// file lock, so two commands that each found no login cannot both store
+	// one (add-credential --generate without --replace).
+	RefuseStoredLogin bool
 }
+
+// ErrLoginStored is a save's refusal, under RefuseStoredLogin, of an entry that
+// already holds a login.
+var ErrLoginStored = errors.New("a login is already stored for this device")
 
 // SaveFileStoreWith is SaveFileStore replacing the families opts names and
 // marking the entry as opts says. A family the save does not replace is
@@ -62,6 +71,11 @@ func SaveFileStoreWith(dir string, key []byte, deviceName string, cred Credentia
 		// What is stored now, read for its families only: the zero entry
 		// when the device has none, so a family it never had stays empty.
 		entry := doc.Devices[deviceName]
+		// Read under the lock: a login another command stored after this
+		// one looked is still seen here.
+		if opts.RefuseStoredLogin && entry.loginEntry != (loginEntry{}) {
+			return ErrLoginStored
+		}
 		if families&LoginFamily != 0 {
 			login, err := buildLoginEntry(svc, cred)
 			if err != nil {

@@ -110,7 +110,16 @@ func generateCredential(req generateRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := credential.SaveFileStoreWith(vaultDir(req.dir), key, req.device, cred, req.save); err != nil {
+	// The check above ran before the file lock was held, so without
+	// --replace the save checks again under it: a login another command
+	// stored meanwhile is refused, not discarded.
+	save := req.save
+	save.RefuseStoredLogin = !req.replace
+	err = credential.SaveFileStoreWith(vaultDir(req.dir), key, req.device, cred, save)
+	if errors.Is(err, credential.ErrLoginStored) {
+		return fmt.Errorf("device %q already has a credential, stored while this one was made; --replace discards it, and whatever it logs in to is then out of reach", req.device)
+	}
+	if err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
