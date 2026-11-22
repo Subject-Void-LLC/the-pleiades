@@ -171,7 +171,26 @@ and says so, naming the account and the `remove-credential` command to run if th
 was not meant for that device. A device that arrives another way (an import, a sync, an edit
 to the inventory file) keeps the mark until the first run that uses the credential, which
 says so once. `pleiades list-credentials` lists every stored credential by name, account and
-kind, marks the unbound ones and says how each is bound, and never shows a value.
+kind, marks the unbound ones and says how each is bound, and never shows a secret.
+
+**Which key a credential holds.** When a credential holding a private key is stored (with
+`--key`, `--certificate` and `--key`, or `--generate`), its type and SHA256 fingerprint are
+written beside it in the clear, so `list-credentials` shows them without the master key:
+
+```console
+$ pleiades list-credentials
+web01  root  private_key  key ed25519 SHA256:ZfQpjeGpfm+9ygwX/TtPIiJPTth+JUTRdHvRfGl151g
+```
+
+The fingerprint is the one `ssh-keygen -lf` prints for the key's public half, so it matches a
+line in a machine's `authorized_keys` to the credential that logs in with it, and shows which
+devices share a key. A credential stored before this was recorded reads `key fingerprint not
+recorded`; store it again to record it. A bundle (`--pfx`) is never opened when it is stored,
+so it records nothing. The record is plain text, so anyone who can edit the file can change
+it: every run compares it with the key it decrypts, and a record that does not describe the
+key fails the run before it connects, naming the device and the command that stores it again.
+The fingerprint is shown only here. It is never written to a fact, a task's stats or the
+journal.
 
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a

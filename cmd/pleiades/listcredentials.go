@@ -1,5 +1,6 @@
 // Package main: list-credentials, every device credential in the project's
-// vault by name, account and kind, and which are unbound, never a value.
+// vault by name, account, kind and key fingerprint, and which are unbound,
+// never a secret's value.
 package main
 
 import (
@@ -15,7 +16,9 @@ import (
 
 // runListCredentials lists the device credentials in the project's vault:
 // each name, the account it logs in as, its SNMPv3 user, the kinds of secret
-// it holds, "unbound" for one stored for a name no inventory device had
+// it holds, its private key's type and SHA256 fingerprint as recorded when
+// the key was stored ("key fingerprint not recorded" for a key stored before
+// they were), "unbound" for one stored for a name no inventory device had
 // (add-credential's warning or --no-device), and "short community" for an
 // SNMP community stored allowed short. It needs no master key and decrypts
 // nothing.
@@ -51,6 +54,14 @@ func runListCredentials(args []string) error {
 			line += "  snmp user " + termsafe.EscapeLine(c.SNMPUser)
 		}
 		line += "  " + strings.Join(c.Kinds, ", ")
+		// The key's record is plaintext anyone could edit, so it is escaped
+		// like the name; a run, not this listing, holds it to the key.
+		switch {
+		case c.KeyNotRecorded:
+			line += "  key fingerprint not recorded"
+		case c.KeyType != "" || c.KeyFingerprint != "":
+			line += "  key " + termsafe.EscapeLine(string(c.KeyType)) + " " + termsafe.EscapeLine(c.KeyFingerprint)
+		}
 		switch {
 		case c.Unbound && c.DeviceExists:
 			// A device of the name arrived other than by add-host (an import,

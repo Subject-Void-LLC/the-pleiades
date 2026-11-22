@@ -102,18 +102,9 @@ const (
 // labelled comment. It is not a secret: it is what a machine is given so
 // that the key may log in to it.
 func PublicKey(cred Credential, comment string) (string, error) {
-	if len(cred.PrivateKeyPEM) == 0 {
-		return "", fmt.Errorf("credential: holds no private key")
-	}
-	var signer ssh.Signer
-	var err error
-	if cred.Passphrase != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase(cred.PrivateKeyPEM, []byte(cred.Passphrase))
-	} else {
-		signer, err = ssh.ParsePrivateKey(cred.PrivateKeyPEM)
-	}
+	signer, err := signerOf(cred)
 	if err != nil {
-		return "", fmt.Errorf("credential: reading the private key: %w", err)
+		return "", err
 	}
 	line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
 	if comment != "" {

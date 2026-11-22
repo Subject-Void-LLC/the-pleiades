@@ -229,7 +229,7 @@ var Root = Command{
 		},
 		{
 			Name:     "list-credentials",
-			Synopsis: "list the project's device credentials by name, account and kind, marking unbound ones, never a value",
+			Synopsis: "list the project's device credentials by name, account, kind and key fingerprint, marking unbound ones, never a secret",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},

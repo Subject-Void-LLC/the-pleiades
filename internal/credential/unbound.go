@@ -18,8 +18,9 @@ import (
 )
 
 // CredentialInfo is one stored device credential as a listing shows it:
-// its name, its account, which kinds of secret it holds, and whether it is
-// unbound. Never a value.
+// its name, its account, which kinds of secret it holds, whether it is
+// unbound, and its private key's type and fingerprint. Never a secret's
+// value.
 type CredentialInfo struct {
 	// Name is the device name the credential is stored under.
 	Name string `json:"name"`
@@ -43,6 +44,17 @@ type CredentialInfo struct {
 	// wire.MinSNMPCommunityLength and was stored deliberately, so every run
 	// masks it by shape only.
 	ShortCommunity bool `json:"short_community,omitempty"`
+	// KeyType names its private key's algorithm and size (ed25519,
+	// rsa-3072, ecdsa-p256), as recorded when the key was stored (key_info.go).
+	KeyType KeyType `json:"key_type,omitempty"`
+	// KeyFingerprint is that key's SHA256 fingerprint, as ssh-keygen -l
+	// prints it, recorded beside it. It is not a secret, and it is shown
+	// only here: never in a fact, a stat or a journal.
+	KeyFingerprint string `json:"key_fingerprint,omitempty"`
+	// KeyNotRecorded is set when it holds a private key whose type and
+	// fingerprint were never recorded: one stored before they were, or one
+	// that could not be read when it was stored. Nothing is guessed.
+	KeyNotRecorded bool `json:"key_not_recorded,omitempty"`
 }
 
 // ListCredentials returns every device credential in dir's credential
@@ -75,6 +87,12 @@ func ListCredentials(dir string) ([]CredentialInfo, error) {
 			if kind.set {
 				info.Kinds = append(info.Kinds, kind.name)
 			}
+		}
+		// The key's record, read as stored: only an entry holding a key has
+		// one, and Lookup, not a listing, is what holds it to the key.
+		if e.PrivateKeyEncrypted != "" {
+			info.KeyType, info.KeyFingerprint = e.KeyType, e.KeyFingerprint
+			info.KeyNotRecorded = e.KeyType == "" && e.KeyFingerprint == ""
 		}
 		out = append(out, info)
 	}

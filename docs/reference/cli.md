@@ -174,7 +174,7 @@ store an encrypted credential for a device
 
 ## pleiades list-credentials
 
-list the project's device credentials by name, account and kind, marking unbound ones, never a value
+list the project's device credentials by name, account, kind and key fingerprint, marking unbound ones, never a secret
 
 `pleiades list-credentials [flags]`
 

@@ -146,6 +146,9 @@ func buildLoginEntry(svc crypto.Service, cred Credential) (loginEntry, error) {
 	if err != nil {
 		return loginEntry{}, err
 	}
+	// Every save of a login describes its key here, whichever command made
+	// it, so no path that stores a key can leave the record stale.
+	recordKey(&entry, cred)
 	return entry, nil
 }
 

@@ -189,7 +189,8 @@ func readProblem(c Credential, shortCommunity bool) (Families, error) {
 // UnusableError is Lookup's refusal of a stored credential that breaks a
 // rule it is held to on every write (a plaintext protocol name edited in the
 // file, a short community stored without its mark, a key a save before the
-// certificate check put beside a certificate), so it never reaches a run.
+// certificate check put beside a certificate, a private key that is not the
+// one its recorded fingerprint names), so it never reaches a run.
 // It names the family at fault, which a save replacing that family fixes.
 type UnusableError struct {
 	// Device is the name the credential is stored under.
