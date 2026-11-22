@@ -383,11 +383,13 @@ tasks:
   the store keeps it, so a number compares as a number in the run that gathered it
   and in every run after.
 - **Testing for a fact.** `facts["os.codename"] is defined` (or `is not defined`)
-  asks whether the device has it; in `when_cel` so do `"os.codename" in facts` and
-  `facts[?"os.codename"].hasValue()`, and `facts[?"os.codename"].orValue("none")` gives
-  a value to compare. A name with no dot could be read as `facts.name` and tested
-  with `has(facts.name)`, but every built-in fact's name has one. Each of these
-  compiles in the runbook below, which the documentation's own test validates:
+  asks whether the device has it, and means `facts[?"os.codename"].hasValue()`, which
+  `when_cel` can write itself; `facts[?"os.codename"].orValue("none")` gives a value to
+  compare. `"os.codename" in facts` works too, but reads the root as a whole, so it is
+  unknown whenever any other key the condition names is unknown: prefer the optional
+  form. A name with no dot could be read as `facts.name` and tested with
+  `has(facts.name)`, but every built-in fact's name has one. Each of these compiles in
+  the runbook below, which the documentation's own test validates:
 
 ```yaml
 # Shows each way a condition may test a gathered fact.
@@ -405,41 +407,55 @@ tasks:
   - name: No codename
     when: facts["os.codename"] is not defined
     noop: {}
-  - name: A codename, by in
-    when_cel: '"os.codename" in facts'
-    noop: {}
   - name: A codename, by an optional read
     when_cel: 'facts[?"os.codename"].hasValue()'
     noop: {}
   - name: Bookworm, or no codename
     when_cel: 'facts[?"os.codename"].orValue("none") in ["bookworm", "none"]'
     noop: {}
+  - name: A codename, by in
+    when_cel: '"os.codename" in facts'
+    noop: {}
 ```
 
 - **Present, absent or unknown.** A key is present when this run emitted it or the
-  store holds it. It is absent only when an earlier task of this run asked the device
-  for it and got nothing: a method that declares the key by name (`pleiades doc
-  <method>` lists them), called with no parameter that could narrow what it gathers
-  (`facts.gather: {}` on a host with no codename); a test for it answers false. Every
-  other key the device has no value for is unknown, and that includes some you might
-  expect to be absent:
+  store holds it, and a present value is used whatever its age (a policy on how old a
+  value may be comes later). It is absent only when an earlier task of this run asked
+  the device for it and got nothing, and only for a key whose method claims that its
+  silence proves the device lacks it (`absent_when_not_emitted` in the method's facts,
+  which `pleiades doc <method>` shows), called with no parameter that could narrow what
+  it gathers. No built-in method claims it for any key in this release: `facts.gather`
+  reads several facts with commands whose failure it cannot tell from an empty answer
+  (a non-root login reads no `hardware.serial` on a device that has one, a container
+  hides `os.machine_id`, a missing `systemd-detect-virt` gives no
+  `hardware.virtualization`), so its silence never means "not there". Every key the
+  device has no value for is therefore unknown, including:
   - an item of a family (`package.nginx`, `service.sshd`, `file./etc/hosts`), which a
     gather names only when the device has it, so its not being named proves nothing:
     the gather may not have looked (the default `facts.gather` gathers no packages),
     and one `pkg.install curl` says nothing about nginx;
+  - a key a method declares and did not emit, since it may not have been able to read
+    it;
   - a key of a narrowed call (`filter:`, `gather_subset:`, `files:`, or any parameter
-    at all), since what it was asked is not checked key by key;
+    at all);
   - a key only the store could answer: the store keeps what each gather found, not
-    what it looked for, so a later run reads a key an earlier gather did not find as
-    unknown, never absent;
+    what it looked for;
   - a value the facts guard refused (one holding a secret this run knows, or of the
     wrong type), which the device does have.
+- **Unknown in a condition.** A condition is three-valued: a key with no answer is
+  unknown, CEL decides what it can without it, and the task fails only when the
+  condition's result is unknown. The failure names the task, the keys the result
+  depended on and the methods that would gather them. A result CEL decides without the
+  key stands, so a false item of a `when` list, or a true item of a `when_or`, decides
+  the task whatever the other items read. Nothing turns an unknown into an answer:
+  `is defined`, `has()`, `in`, `facts[?"k"].hasValue()`, `.orValue(...)`, a ternary,
+  `type()`, a comprehension and a function of the key all stay unknown.
 
-  An unknown key fails the task, naming the task and the key, whatever the condition
-  would have come to: `is defined`, `has()`, `facts[?"key"].orValue(...)` and a
-  `true || ...` that never needed it do not turn it into an answer. Gather it first,
-  in an earlier task of the same run, with nothing narrowing the call, when the
-  answer must be able to be "not there".
+  | Expression | Result |
+  |---|---|
+  | `true \|\| unknown` | true: the task runs |
+  | `false && unknown` | false: the task is skipped |
+  | `unknown && true` | unknown: the task fails |
 - **A project with no master key** has no stored facts it can read, since every
   stored fact is sealed under that key. `pleiades validate` and `pleiades run` refuse a
   condition reading a fact that no earlier task of the run gathers, naming
@@ -467,13 +483,54 @@ tasks:
   again when the task runs. To use a gathered value in a parameter, register the
   gather and read `result.<name>["<key>"]`.
 - **A stored value can be old.** It is what the device said the last time it was
-  gathered, and this release does not refuse an old one. Gather in the same run when
-  the value must be fresh.
-- **In a check.** A check stores nothing. A checked task whose condition reads a fact
-  that an earlier checked task would emit (its method declares the fact, by name or
-  by family such as `package.`) is reported unchecked with that reason, and the check
-  exits 3; this holds even when the earlier task predicts no change, since a real run
-  would still store the fact. `pleiades validate` and `pleiades run --mode check` warn
+  gathered, and it is used whatever its age: this release has no policy on how old a
+  value may be, which comes later. Gather in the same run when the value must be
+  fresh.
+- **What a family key cannot answer.** Whether a package is installed, a user
+  exists, a service is present or a port is listening is a question about an item of a
+  family, which a stored fact can never answer "no" to. Register the gather that lists
+  the family and test its result instead: the result holds each item the gather found,
+  so a test of it is exact. A file's fact answers through its value's `state`
+  (`present`, `absent` or `unreadable`), which the gather sets for the path it was
+  given. Each of these compiles in the runbook below:
+
+```yaml
+# Answers questions about a host's packages, users, services, ports and a file.
+# Blast radius: the web servers, read only.
+# Changes: nothing on the hosts.
+# Undo: nothing to undo.
+id: family-questions
+hosts: web
+tasks:
+  - name: Gather packages, users, services, ports and one file
+    register: g
+    facts.gather:
+      gather_subset: [packages, users, services, ports]
+      files: [/etc/hosts]
+  - name: When nginx is installed
+    when_cel: '"package.nginx" in nodes.g[device.id]'
+    noop: {}
+  - name: When the deploy user exists
+    when_cel: '"user.deploy" in nodes.g[device.id]'
+    noop: {}
+  - name: When sshd is a service
+    when_cel: '"service.sshd" in nodes.g[device.id]'
+    noop: {}
+  - name: When something listens on TCP port 22
+    when_cel: 'nodes.g[device.id].exists(k, k.startsWith("port.tcp:") && k.endsWith(":22"))'
+    noop: {}
+  - name: When /etc/hosts is there
+    when_cel: 'nodes.g[device.id]["file./etc/hosts"].state == "present"'
+    noop: {}
+```
+
+- **In a check.** A check stores nothing. A fact that an earlier checked task would
+  emit (its method declares the fact, by name or by family such as `package.`) is
+  unknown to a later checked task, even when the earlier task predicts no change,
+  since a real run would still store it. By the three-valued rule, a checked task
+  whose result depends on such a fact is reported unchecked with that reason, and the
+  check exits 3; one whose result is decided without it is checked, or skipped, as the
+  real run would decide it. `pleiades validate` and `pleiades run --mode check` warn
   about each such task. The exception is a built-in method that only reads and whose
   check is its own run, such as `facts.gather`: its check reads the device, so what it
   emits during the check is read by later checked tasks. Those values are never stored
