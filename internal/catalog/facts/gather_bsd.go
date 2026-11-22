@@ -15,11 +15,14 @@ func bsdHostProbes(platform string) []gatherProbe {
 	probes := []gatherProbe{}
 	for _, p := range gatherHostProbes() {
 		// uname answers alike on all three; the distribution is FreeBSD's
-		// own os-release, or sw_vers on a Mac below.
-		if p.subset == gatherSubsetMin && (strings.HasPrefix(p.command, "uname") || platform == platformFreeBSD) {
+		// own os-release, or sw_vers on a Mac below. Linux's machine id read
+		// is left out: its container guard cannot see a jail, so FreeBSD's
+		// own read (gather_identity_bsd.go) replaces it.
+		if p.subset == gatherSubsetMin && p.command != gatherMachineIDCommand && (strings.HasPrefix(p.command, "uname") || platform == platformFreeBSD) {
 			probes = append(probes, p)
 		}
 	}
+	probes = append(probes, bsdIdentityProbes(platform)...)
 	if platform == platformDarwin {
 		probes = append(probes, gatherProbe{
 			subset:  gatherSubsetMin,

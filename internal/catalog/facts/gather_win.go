@@ -57,6 +57,7 @@ $node = [string]$cs.DNSHostName
 if ($cs.PartOfDomain -and $cs.Domain) { $node = $node + '.' + $cs.Domain }
 $arch = [string]$env:PROCESSOR_ARCHITEW6432
 if (-not $arch) { $arch = [string]$env:PROCESSOR_ARCHITECTURE }
+$guid = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
 $out = [ordered]@{
   'host.name' = [string]$env:COMPUTERNAME
   'host.nodename' = $node
@@ -66,6 +67,7 @@ $out = [ordered]@{
   'os.family' = 'windows'
   'os.version' = $v
   'os.edition' = ([string]$os.Caption).Trim()
+  'os.machine_id' = [string]$guid
   'processor_architecture' = $arch
 }` + windowsJSONOut
 
@@ -94,6 +96,7 @@ function N($v) { if ($null -eq $v) { $null } else { [int64]$v } }
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
+$product = Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue
 $mem = $null
 if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
 $cores = $null
@@ -106,6 +109,11 @@ $out = [ordered]@{
   'hardware.cpu.threads' = N $cs.NumberOfLogicalProcessors
   'hardware.cpu.cores' = N $cores
   'host.uptime_seconds' = N $up
+  'hardware.system_uuid' = [string]$product.UUID
+  'hardware.serial' = [string]$product.IdentifyingNumber
+  'computer_manufacturer' = [string]$cs.Manufacturer
+  'computer_model' = [string]$cs.Model
+  'hypervisor_present' = $cs.HypervisorPresent
 }` + windowsJSONOut
 
 // windowsPackagesScript prints every program the machine's Uninstall keys
@@ -180,16 +188,16 @@ func windowsProbes() []gatherProbe {
 		{
 			subset: gatherSubsetMin,
 			keys: []string{gatherFactHostName, gatherFactHostNodename, gatherFactKernelName, gatherFactKernelRelease, gatherFactArchitecture,
-				gatherFactDistribution, gatherFactFamily, gatherFactVersion, gatherFactVersionMajor, gatherFactEdition},
+				gatherFactDistribution, gatherFactFamily, gatherFactVersion, gatherFactVersionMajor, gatherFactEdition, gatherFactMachineID},
 			command: windowsMinScript,
 			parse:   parseWindowsMin,
 		},
 		{
 			subset: gatherSubsetHardware,
 			keys: []string{gatherFactMemoryMB, gatherFactCPUSockets, gatherFactCPUThreads, gatherFactCPUCores,
-				gatherFactHostUptime},
+				gatherFactHostUptime, gatherFactSystemUUID, gatherFactSerial, gatherFactVirtualization},
 			command: windowsHardwareScript,
-			parse:   parseWindowsObject,
+			parse:   parseWindowsHardware,
 		},
 		{
 			subset:  gatherSubsetPackages,
@@ -235,6 +243,10 @@ func parseWindowsMin(out string) []gatherFact {
 			if major, ok := versionMajor(s); ok {
 				extra = append(extra, gatherFact{key: gatherFactVersionMajor, value: major})
 			}
+		case gatherFactMachineID:
+			// The MachineGuid as a machine id, or nothing.
+			extra = append(extra, windowsMachineID(s)...)
+			continue
 		}
 		kept = append(kept, f)
 	}

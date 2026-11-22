@@ -71,8 +71,8 @@ func TestWindowsParsers_ReadTheScriptsJSON(t *testing.T) {
 
 // TestWindowsScripts_PrintNativeKeys holds the scripts to the keys their
 // probes declare: each key the min and hardware scripts print is a native
-// fact key its probe lists (or the raw architecture, which the parser
-// consumes), and the hardware script truncates memory and prints no swap.
+// fact key its probe lists (or a raw value a parser consumes, windowsRawKeys),
+// and the hardware script truncates memory and prints no swap.
 func TestWindowsScripts_PrintNativeKeys(t *testing.T) {
 	printed := regexp.MustCompile(`(?m)^  '([^']+)' = `)
 	for _, p := range windowsProbes()[:2] {
@@ -81,7 +81,7 @@ func TestWindowsScripts_PrintNativeKeys(t *testing.T) {
 			t.Fatalf("%s prints no keys", p.name())
 		}
 		for _, k := range keys {
-			if k[1] != windowsArchitectureKey && !gatherWanted(p.keys, k[1]) {
+			if !windowsRawKeys[k[1]] && !gatherWanted(p.keys, k[1]) {
 				t.Errorf("%s prints %q, which its probe does not declare (%v)", p.name(), k[1], p.keys)
 			}
 		}
