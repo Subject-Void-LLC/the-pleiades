@@ -22,7 +22,9 @@ import (
 type scanner struct {
 	// gosec is the gosec program, by name on PATH or by path.
 	gosec string
-	// shortBase is the directory the short path's link is made in.
+	// shortBase is the directory the short path's link is made in; empty
+	// means defaultShortBase, found only once a package needs the link, so
+	// a checkout that needs none works with no cache directory at all.
 	shortBase string
 	// stop, once closed, stops the scan.
 	stop <-chan struct{}
@@ -58,11 +60,17 @@ func (s scanner) scan(root string) (*gosecReport, error) {
 		return s.run(root, gosecArgs(excludeDirs, "./..."))
 	}
 
+	base := s.shortBase
+	if base == "" {
+		if base, err = defaultShortBase(); err != nil {
+			return nil, fmt.Errorf("%s, and %w; scan from a checkout with a shorter path", describeLong(root, long), err)
+		}
+	}
 	// Check the short path rescues every long package before making it.
-	if err := fitsFrom(shortLinkPath(s.shortBase, root), root, long); err != nil {
+	if err := fitsFrom(shortLinkPath(base, root), root, long); err != nil {
 		return nil, err
 	}
-	short, err := stableShortRoot(s.shortBase, root)
+	short, err := stableShortRoot(base, root)
 	if err != nil {
 		return nil, fmt.Errorf("%s, and %w; scan from a checkout with a shorter path", describeLong(root, long), err)
 	}
@@ -130,9 +138,19 @@ func (s scanner) run(dir string, args []string) (*gosecReport, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	runErr := runGroup(cmd, s.stop, s.deadline, s.log)
-	if errors.Is(runErr, errStopped) || errors.Is(runErr, errTimeLimit) {
+	// A nil channel never fires, which is what no deadline means.
+	var expired <-chan time.Time
+	if !s.deadline.IsZero() {
+		timer := time.NewTimer(time.Until(s.deadline))
+		defer timer.Stop()
+		expired = timer.C
+	}
+	runErr := runGroup(cmd, s.stop, expired, s.log)
+	if errors.Is(runErr, errStopped) {
 		return nil, runErr
+	}
+	if errors.Is(runErr, errTimeLimit) {
+		return nil, fmt.Errorf("%w, %s", runErr, s.deadline.Format(time.RFC3339))
 	}
 
 	report, err := decodeReport(stdout.Bytes())

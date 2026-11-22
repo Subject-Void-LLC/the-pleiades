@@ -122,3 +122,47 @@ func TestScan_RefusesWhatTheShortPathCannotRescue(t *testing.T) {
 		t.Errorf("a link that could not help was made in %s (%v)", base, err)
 	}
 }
+
+// TestRun_AShortCheckoutNeedsNoCacheDirectory: with neither HOME nor
+// XDG_CACHE_HOME set, so there is no user cache directory to put a link in,
+// a checkout with no package over the limit is still scanned and passes. The
+// directory used to be looked up before every scan, and failed this one.
+func TestRun_AShortCheckoutNeedsNoCacheDirectory(t *testing.T) {
+	requireGosec(t)
+	// The Go toolchain finds its own caches from HOME too, so name them
+	// first.
+	out, err := exec.Command("go", "env", "GOCACHE", "GOPATH", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(dirs) != 3 {
+		t.Fatalf("go env printed %q", out)
+	}
+	for i, name := range []string{"GOCACHE", "GOPATH", "GOMODCACHE"} {
+		t.Setenv(name, dirs[i])
+	}
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	if _, err := os.UserCacheDir(); err == nil {
+		t.Fatal("a user cache directory was found with HOME and XDG_CACHE_HOME unset")
+	}
+
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod":             "module example.com/clean\n\ngo 1.22\n",
+		"clean/clean.go":     "// Package clean has nothing for gosec to find.\npackage clean\n\n// Two is two.\nfunc Two() int { return 2 }\n",
+		"gosec-waivers.json": `{"waivers": [], "skips": []}` + "\n",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := run(root, time.Minute, ""); err != nil {
+		t.Fatalf("run from a short checkout with no cache directory: %v", err)
+	}
+}

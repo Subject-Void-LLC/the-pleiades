@@ -77,49 +77,43 @@ type waiverKey struct {
 
 // main parses the flags and runs the check.
 func main() {
-	timeout := flag.Duration("timeout", 30*time.Minute, "stop gosec, and everything it started, after this long (0 for no limit)")
+	timeout := flag.Duration("timeout", defaultTimeout, "stop gosec, and what it started, after this long (0 for no limit)")
 	reportPath := flag.String("report", "", "also write the joined gosec report, as JSON, to this file")
 	flag.Parse()
-	if err := run(*timeout, *reportPath); err != nil {
+	root, err := os.Getwd()
+	if err == nil {
+		err = run(root, *timeout, *reportPath)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "gosec-check:", err)
 		os.Exit(1)
 	}
 }
 
-// run loads the waivers, runs gosec over the module, stopping it on an
-// interrupt or after timeout, and judges what it reported (judge).
-func run(timeout time.Duration, reportPath string) error {
-	repoRoot, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getwd: %w", err)
-	}
+// defaultTimeout is how long a scan may run before it is stopped: about five
+// times the slowest run measured here (127 s, from a checkout whose build
+// cache was cold; warm runs take 17 to 60 s), so a cold CI runner has room,
+// and far inside the ci job's own 45 minutes, which runs every static check.
+// It is not measured on a CI runner. A gate's gosec stage once hung for 27
+// minutes (FAILURE_PATTERNS 1337).
+const defaultTimeout = 10 * time.Minute
 
-	waivers, skips, err := loadWaivers(filepath.Join(repoRoot, "gosec-waivers.json"))
+// run loads the waivers of the module at root, the working directory, runs
+// gosec over it, stopping it on an interrupt or after timeout, and judges
+// what it reported (judge).
+func run(root string, timeout time.Duration, reportPath string) error {
+	waivers, skips, err := loadWaivers(filepath.Join(root, "gosec-waivers.json"))
 	if err != nil {
 		return fmt.Errorf("loading gosec-waivers.json: %w", err)
 	}
-	shortBase, err := defaultShortBase()
-	if err != nil {
-		return err
-	}
 
-	// An interrupt stops the scan, which stops gosec and what it started,
-	// rather than ending gosec-check and leaving them running.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(signals)
-	stop := make(chan struct{})
-	go func() {
-		if _, ok := <-signals; ok {
-			close(stop)
-		}
-	}()
-
-	s := scanner{gosec: "gosec", shortBase: shortBase, stop: stop, log: os.Stderr}
+	stop, release := interruptions()
+	defer release()
+	s := scanner{gosec: "gosec", stop: stop, log: os.Stderr}
 	if timeout > 0 {
 		s.deadline = time.Now().Add(timeout)
 	}
-	report, err := s.scan(repoRoot)
+	report, err := s.scan(root)
 	if err != nil {
 		return err
 	}
@@ -128,7 +122,22 @@ func run(timeout time.Duration, reportPath string) error {
 			return err
 		}
 	}
-	return judge(report, waivers, skips, repoRoot, os.Stdout, os.Stderr)
+	return judge(report, waivers, skips, root, os.Stdout, os.Stderr)
+}
+
+// interruptions returns a channel closed at the first interrupt, SIGTERM or
+// SIGHUP, so the scan stops gosec and what it started rather than gosec-check
+// ending and leaving them running, and a function that stops listening.
+func interruptions() (<-chan struct{}, func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	stop := make(chan struct{})
+	go func() {
+		if _, ok := <-signals; ok {
+			close(stop)
+		}
+	}()
+	return stop, func() { signal.Stop(signals) }
 }
 
 // writeReport writes report to path as indented JSON.

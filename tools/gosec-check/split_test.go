@@ -162,10 +162,15 @@ func TestExactDirPattern_MatchesThatDirectoryOnly(t *testing.T) {
 	}
 }
 
+// representativeBase is the link directory the guard reckons with: a CI
+// runner's user cache directory, so the guard does not depend on the length
+// of the home directory of whoever runs it.
+const representativeBase = "/home/runner/.cache/" + shortLinkDir
+
 // TestThisCheckout_FitsThroughTheShortPath is the guard: from this checkout,
 // every package gosec would load in pieces is one gosec-check finds (so the
 // workaround is on for it), internal/ent first among them when it is over,
-// and every package fits through the short path the scan would use. It
+// and every package fits through a short path in representativeBase. It
 // fails as soon as a package grows past what the short path can rescue,
 // before gosec itself fails anywhere.
 func TestThisCheckout_FitsThroughTheShortPath(t *testing.T) {
@@ -189,11 +194,7 @@ func TestThisCheckout_FitsThroughTheShortPath(t *testing.T) {
 		t.Errorf("internal/ent's list is %d characters from %s, over %d, and gosec-check would not rescue it", listLength(ent), root, goPackagesArgMax)
 	}
 
-	base, err := defaultShortBase()
-	if err != nil {
-		t.Fatal(err)
-	}
-	short := shortLinkPath(base, root)
+	short := shortLinkPath(representativeBase, root)
 	shortEnt := gosecFiles(root, filepath.Join("internal", "ent"))
 	for i, f := range shortEnt {
 		shortEnt[i] = filepath.Join(short, strings.TrimPrefix(f, root))

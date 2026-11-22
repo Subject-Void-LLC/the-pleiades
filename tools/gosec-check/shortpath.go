@@ -12,9 +12,12 @@
 // 38 s the second, at one unchanged path.
 //
 // So the link is named after the checkout and kept. It lives in a directory
-// of its own under the user's cache directory (os.UserCacheDir), made private
-// and refused when it is a symlink or writable by anyone else, so no other
-// user can put a link of their own where gosec-check looks. Two checkouts get
+// of its own under the user's cache directory (os.UserCacheDir), made private.
+// That directory is refused when it is a symlink, and on Linux and macOS also
+// when another user owns it or a group or other users may write in it
+// (shortpath_unix.go), so no other user can put a link of their own where
+// gosec-check looks, even with XDG_CACHE_HOME naming a shared directory. On
+// Windows only the symlink is checked. Two checkouts get
 // two names; two runs of one checkout share one link, and the first to make
 // it wins, since both would make the same one. A link whose checkout is gone
 // is removed by the next run that needs the directory.
@@ -27,7 +30,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // shortLinkDir is the directory under the user's cache directory that holds
@@ -84,8 +86,8 @@ func stableShortRoot(base, root string) (string, error) {
 	return link, nil
 }
 
-// privateDir refuses base when it is a symlink rather than a directory, or,
-// outside Windows, when a group or other users may write in it.
+// privateDir refuses base when it is a symlink rather than a directory, or
+// when ownedPrivately refuses it.
 func privateDir(base string) error {
 	info, err := os.Lstat(base)
 	if err != nil {
@@ -94,10 +96,7 @@ func privateDir(base string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a directory (a symlink is refused), so gosec-check will not put a link to the checkout in it", base)
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("%s may be written by other users (mode %v), so gosec-check will not put a link to the checkout in it", base, info.Mode().Perm())
-	}
-	return nil
+	return ownedPrivately(base, info)
 }
 
 // pruneDanglingLinks removes each link in base that leads nowhere, which is
