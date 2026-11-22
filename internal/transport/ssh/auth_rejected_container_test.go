@@ -80,16 +80,24 @@ func failedPasswords(t *testing.T) int {
 	return n
 }
 
-// settledFailedPasswords waits for the count to reach at least want and
-// then to stop moving, because s6-log writes the log a moment after sshd
-// emits each line. Every attempt a task makes has happened by the time
-// Exec returns, so a count that holds still for half a second is final.
+// settledFailedPasswords is settledCount over the shared container's failed
+// passwords.
 func settledFailedPasswords(t *testing.T, want int) int {
+	t.Helper()
+	return settledCount(t, want, func() int { return failedPasswords(t) })
+}
+
+// settledCount waits for count to reach at least want and then to stop
+// moving, because s6-log writes sshd's log a moment after sshd emits each
+// line. Every attempt a task makes has happened by the time Exec returns, so
+// a count that holds still for half a second is final. It returns the last
+// count read.
+func settledCount(t *testing.T, want int, count func() int) int {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	last, stableSince := -1, time.Now()
 	for time.Now().Before(deadline) {
-		n := failedPasswords(t)
+		n := count()
 		if n != last {
 			last, stableSince = n, time.Now()
 		}

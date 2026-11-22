@@ -12,6 +12,7 @@ import (
 	"crypto/rsa"
 	"encoding/pem"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,15 +92,25 @@ func TestSSHContainer_AnRSAKeySignsSHA1OnlyWhereTheRecordAllowsIt(t *testing.T) 
 	}
 
 	// The server's own account: one login by key, and it takes a key only
-	// with ssh-rsa, and one by password.
-	log, err := srv.RootExec(ctx, "cat /config/logs/openssh/current")
+	// with ssh-rsa, and one by password. Each count is read once the log
+	// holds still, since s6-log writes it a moment late (settledCount).
+	for _, line := range []string{"Accepted publickey for ", "Accepted password for "} {
+		if got := settledCount(t, 1, func() int { return logCount(t, srv, line+testsupport.SSHDUser) }); got != 1 {
+			t.Errorf("sshd logged %q %d times, want 1", line+testsupport.SSHDUser, got)
+		}
+	}
+}
+
+// logCount returns how many lines of srv's sshd log hold text.
+func logCount(t *testing.T, srv *testsupport.SSHD, text string) int {
+	t.Helper()
+	out, err := srv.RootExec(context.Background(), "grep -c -F '"+text+"' "+sshdLog+" || true")
 	if err != nil {
 		t.Fatalf("reading sshd's log: %v", err)
 	}
-	if got := strings.Count(log, "Accepted publickey for "+testsupport.SSHDUser); got != 1 {
-		t.Errorf("sshd accepted %d key logins, want 1:\n%s", got, log)
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("the sshd log count %q is not a number: %v", out, err)
 	}
-	if got := strings.Count(log, "Accepted password for "+testsupport.SSHDUser); got != 1 {
-		t.Errorf("sshd accepted %d password logins, want 1:\n%s", got, log)
-	}
+	return n
 }
