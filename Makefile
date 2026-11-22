@@ -924,8 +924,12 @@ WIN_CHECK_PARALLELISM ?= 0
 # back, which run one at a time.
 OS_CHECKS := mac
 LAB_CHECKS := bsd win
+# PR_CHECK_ALWAYS run whatever the branch changes. internal/testsupport/need
+# is one because its registry test reads every Require call in the module, so
+# a test file changed anywhere can fail it while its own package is unchanged.
 PR_CHECK_ALWAYS := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
+	github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need \
 	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
 # PR_CHECK_PARTS are the parts of pr-check that leave a record, each named
 # as its record is, and the names LEGS takes. LEGS_RUN is what LEGS selects,

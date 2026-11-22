@@ -60,7 +60,7 @@ func TestRollbackJob_ARunbookTheSourceCannotReadNamesNoPath(t *testing.T) {
 	}
 	f.touchLater(t)
 	_, readErr := os.ReadFile(path)
-	testsupport.Require(t, "an unprivileged user", readErr != nil, "this user reads a file whatever its mode, so the source cannot fail to read one")
+	testsupport.Require(t, "posix-modes", readErr != nil, "a file's mode does not stop this user reading it (root, or a system with no POSIX modes), so the source cannot fail to read one")
 
 	status, body := f.rollbackOverHTTP(t)
 	if strings.Contains(body, f.dir) || strings.Contains(body, "rb-1.yaml") {
