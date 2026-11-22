@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"net"
@@ -91,12 +92,19 @@ func seenOn(t *testing.T, servers ...*httptest.Server) (devicetls.Settings, *dev
 // of its own (httptest's built-in one is shared by every server).
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newServerWithSerial(t, big.NewInt(time.Now().UnixNano()))
+}
+
+// newServerWithSerial is newServer with serial as its certificate's serial
+// number.
+func newServerWithSerial(t *testing.T, serial *big.Int) *httptest.Server {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: "device.lab.invalid"},
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "device.lab.invalid"},
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
@@ -125,6 +133,7 @@ func TestRecord_OneCertificateIsRecordedAsStatsAndFacts(t *testing.T) {
 	for key, want := range map[string]any{
 		tlsfacts.FactFingerprint: devicetls.Fingerprint(cert), tlsfacts.FactKeyFingerprint: devicetls.KeyFingerprint(cert),
 		tlsfacts.FactSubject: cert.Subject.String(), tlsfacts.FactIssuer: cert.Issuer.String(), tlsfacts.FactNotAfter: cert.NotAfter.UTC().Format(time.RFC3339),
+		tlsfacts.FactSerial: hex.EncodeToString(cert.SerialNumber.Bytes()),
 	} {
 		if rc.stats[key] != want || rc.facts[key] != want {
 			t.Errorf("%s: stat %v, fact %v, want %v", key, rc.stats[key], rc.facts[key], want)

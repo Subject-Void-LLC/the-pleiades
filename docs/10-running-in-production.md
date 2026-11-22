@@ -2556,7 +2556,10 @@ reached over TLS: `generic_http`, `generic_restconf`, `generic_gnmi`, `generic_g
 neither does a device reached over plain HTTP or plaintext gRPC. `net.gnmi.facts`,
 `net.restconf.facts`, `net.gnmi.config` and `net.restconf.config` record the same as stable facts
 (`tls.certificate.*`), so a changed certificate is a change in the device's fact history; no other
-method records them. They come from the connection the read already makes, never from one of their
+method records them. Those methods also record the certificate's serial number,
+`tls.certificate.serial`, in lowercase hex, which onboarding does not. A serial is unique only among
+one issuer's certificates, so look a certificate up by its serial together with its issuer, never by
+the serial alone. They come from the connection the read already makes, never from one of their
 own, and only from a handshake that completed, so a server that presents a certificate whose key it
 does not hold is never recorded as presenting it. A read that saw more than one certificate at the
 device's address records none.

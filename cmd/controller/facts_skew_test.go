@@ -88,6 +88,8 @@ func certificateBatch(t *testing.T) ([]byte, int, entstore.SubscriberOption) {
 	observed := map[string]any{
 		"gnmi.version": "0.7.0", tlsfacts.FactFingerprint: c.Fingerprint, tlsfacts.FactKeyFingerprint: c.KeyFingerprint,
 		tlsfacts.FactSubject: c.Subject, tlsfacts.FactIssuer: c.Issuer, tlsfacts.FactNotAfter: c.NotAfterText(),
+		// The vector's serial, as tlsfacts records it and OpenSSL prints it.
+		tlsfacts.FactSerial: "7264fb1a0bd9a9e5806469100d6bed4b4e08a337",
 	}
 	if len(observed) != len(tlsfacts.FactKeys)+1 {
 		t.Fatalf("the batch holds %d certificate facts, tlsfacts records %d", len(observed)-1, len(tlsfacts.FactKeys))

@@ -28,10 +28,11 @@ const (
 	FactSubject        = "tls.certificate.subject"
 	FactIssuer         = "tls.certificate.issuer"
 	FactNotAfter       = "tls.certificate.not_after"
+	FactSerial         = "tls.certificate.serial"
 )
 
 // FactKeys are the tls.certificate.* facts in the order a read records them.
-var FactKeys = []string{FactFingerprint, FactKeyFingerprint, FactSubject, FactIssuer, FactNotAfter}
+var FactKeys = []string{FactFingerprint, FactKeyFingerprint, FactSubject, FactIssuer, FactNotAfter, FactSerial}
 
 // Returned is when the tls.certificate.* facts are recorded, for their
 // documentation.
@@ -46,6 +47,7 @@ func Returns() []collection.ReturnField {
 		{Name: FactSubject, Type: "string", Returned: Returned, Description: "The certificate's subject, as text, with no control or format character and at most 512 bytes."},
 		{Name: FactIssuer, Type: "string", Returned: Returned, Description: "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."},
 		{Name: FactNotAfter, Type: "string", Returned: Returned, Description: "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."},
+		{Name: FactSerial, Type: "string", Returned: Returned + ", unless its serial number is negative or longer than 40 hex digits", Description: "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."},
 	}
 }
 
@@ -56,7 +58,8 @@ func Returns() []collection.ReturnField {
 // pin of a list nothing presented. A read that saw no certificate (plaintext,
 // or no handshake) records nothing, and one that saw more than one records
 // none, saying why, since facts from an address more than one server answers
-// would flap between them.
+// would flap between them. A serial number serialText will not record is left
+// out of the others, with its warning.
 func Record(rc sdk.RunbookContext, device string, settings devicetls.Settings, seen *devicetls.Presented, now time.Time) ([]string, error) {
 	certs, more := seen.Certificates()
 	switch {
@@ -70,7 +73,17 @@ func Record(rc sdk.RunbookContext, device string, settings devicetls.Settings, s
 		FactFingerprint: c.Fingerprint, FactKeyFingerprint: c.KeyFingerprint,
 		FactSubject: c.Subject, FactIssuer: c.Issuer, FactNotAfter: c.NotAfterText(),
 	}
+	var warnings []string
+	if serial, warning := serialText(device, certs[0]); warning != "" {
+		warnings = append(warnings, warning)
+	} else {
+		values[FactSerial] = serial
+	}
 	for _, key := range FactKeys {
+		// A key with no value (a serial left out) is recorded neither way.
+		if _, ok := values[key]; !ok {
+			continue
+		}
 		if err := rc.SetStat(key, values[key]); err != nil {
 			return nil, err
 		}
@@ -78,7 +91,6 @@ func Record(rc sdk.RunbookContext, device string, settings devicetls.Settings, s
 			return nil, err
 		}
 	}
-	var warnings []string
 	if w := settings.ExpiryWarning(device, certs[0], now); w != "" {
 		warnings = append(warnings, w)
 	}
