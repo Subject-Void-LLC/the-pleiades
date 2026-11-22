@@ -1,23 +1,24 @@
 // Package engine: the facts root as one evaluation of one condition reads
-// it, a CEL map that answers each key from the run's knowledge of the
-// device (facts_overlay.go) and records every key it was asked for.
+// it, a CEL map over the keys the condition names, each answered before CEL
+// runs from the run's knowledge of the device (facts_overlay.go).
 //
-// An unknown key (a device never gathered for it, a store that cannot be
-// read, a run with no store) is an outcome, never a value: the map answers it
-// as missing, so the expression evaluates as CEL would, and the condition's
-// evaluation is then failed whatever it came to (factsView.failure). Nothing
-// in the expression can turn it into an answer: has(), "k" in facts, the is
-// defined test and facts[?"k"].orValue(...) all touch the key, and once CEL
-// is done every key the condition names and did not reach (a
-// short-circuiting || or &&, a later item of a when list) is asked too
-// (settle), so an unknown key fails the task whether or not the evaluation
-// needed it. An absent key, on a device a method that emits it has observed,
-// is missing in the ordinary way, so a test for it is honest.
+// The condition is three-valued (facts_condition.go). A present key holds
+// its value, an absent one is missing in the ordinary way, so a test for it
+// is honest, and a key with no answer (a device never gathered for it, a
+// store that cannot be read, a run with no store, or in a check a key an
+// earlier checked task would emit) is a CEL unknown: CEL decides what it can
+// without it (false && unknown is false, true || unknown is true) and leaves
+// the rest unknown, and nothing can turn an unknown into an answer: has(),
+// in, facts[?"k"].hasValue(), .orValue(), a ternary, type(), a comprehension
+// and a function of it all stay unknown. A task fails only when its
+// condition's result is unknown, naming the keys the result depended on, and
+// a result that is known never fails for a key it did not need.
 //
 // The map is consulted only through the methods CEL calls on a map value
 // (Find, Contains, Get), each implemented here with nothing embedded, so no
-// read can reach a value without being recorded. Anything treating the root
-// as a whole (iterating, counting, comparing, converting) is refused when the
+// read can reach a value without being recorded; an unknown key never reaches
+// them, since CEL meets it as unknown first. Anything treating the root as a
+// whole (iterating, counting, comparing, converting) is refused when the
 // runbook is built; reaching it anyway fails the evaluation.
 package engine
 
@@ -49,14 +50,19 @@ type factsView struct {
 	// named are the keys the condition names, the only ones it may read.
 	named map[string]bool
 
+	// answers are the named keys' answers, unknown each key with no answer
+	// and why (nil for a key nothing holds), and tainted each key a check
+	// cannot know, with the reason, all settled by resolve before CEL runs.
+	answers map[string]FactAnswer
+	unknown map[string]error
+	tainted map[string]string
+
 	// What the evaluation touched. Each evaluation has its own view and
 	// CEL evaluates on one goroutine, so these need no lock.
 	misses  []factMiss
 	absent  []string
 	present bool
 	whole   bool
-	// asked is every key looked up, so settle asks the rest.
-	asked map[string]bool
 }
 
 var _ traits.Mapper = (*factsView)(nil)
@@ -76,49 +82,55 @@ func (v *factsView) used() bool {
 	return v.present || v.whole || len(v.misses) > 0 || len(v.absent) > 0
 }
 
-// settle asks every key the condition names that its evaluation did not
-// reach, and records each with no answer: a short-circuiting ||, && or list
-// item that never needed a key does not make an unknown one known, so the
-// condition fails as surely as one that read it. What settle finds present or
-// absent is not recorded, since the evaluation did not read it.
-func (v *factsView) settle() {
-	keys := make([]string, 0, len(v.named))
-	for k := range v.named {
-		if !v.asked[k] {
-			keys = append(keys, k)
+// resolve answers every key the condition names, once, before CEL runs: the
+// run's snapshot is read for all of them together anyway, and an answer is
+// only looked up here; whether the condition needed it is CEL's to decide. A
+// tainted key is unknown whatever is stored for it.
+func (v *factsView) resolve() {
+	v.answers, v.unknown = map[string]FactAnswer{}, map[string]error{}
+	for _, key := range sortedKeys(v.named) {
+		switch {
+		case v.tainted[key] != "":
+		case v.device == "":
+			v.unknown[key] = errNoFactDevice
+		case v.r.knowledge == nil:
+			v.unknown[key] = ErrNoFactReader
+		default:
+			a, err := v.r.knowledge.answer(v.ctx, v.r, v.device, key, v.checked)
+			if err != nil || a.State == FactUnknown {
+				v.unknown[key] = err
+				continue
+			}
+			v.answers[key] = a
 		}
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		present, absent := v.present, len(v.absent)
-		v.lookup(k)
-		v.present, v.absent = present, v.absent[:absent]
 	}
 }
 
-// lookup answers key, recording what it was.
-func (v *factsView) lookup(key string) (ref.Val, bool) {
-	if v.asked == nil {
-		v.asked = map[string]bool{}
+// unknowns are the keys CEL meets as unknown: every named key with no
+// answer, and every tainted one.
+func (v *factsView) unknowns() []UnknownRegister {
+	var out []UnknownRegister
+	for _, key := range sortedKeys(v.named) {
+		if _, unknown := v.unknown[key]; unknown || v.tainted[key] != "" {
+			out = append(out, UnknownRegister{Name: key, Fact: true})
+		}
 	}
-	v.asked[key] = true
+	return out
+}
+
+// lookup answers key from what resolve settled, recording what it was.
+func (v *factsView) lookup(key string) (ref.Val, bool) {
 	if !v.named[key] {
 		// Never expected: the condition names every key it reads.
 		v.misses = append(v.misses, factMiss{key: key, err: fmt.Errorf("the condition does not name it as a literal key")})
 		return nil, false
 	}
-	if v.device == "" {
-		v.misses = append(v.misses, factMiss{key: key, err: errNoFactDevice})
-		return nil, false
-	}
-	if v.r.knowledge == nil {
-		v.misses = append(v.misses, factMiss{key: key, err: ErrNoFactReader})
-		return nil, false
-	}
-	a, err := v.r.knowledge.answer(v.ctx, v.r, v.device, key, v.checked)
+	a, answered := v.answers[key]
 	switch {
-	case err != nil:
-		v.misses = append(v.misses, factMiss{key: key, err: err})
+	case !answered:
+		// Never expected either: CEL meets a key with no answer as unknown
+		// before it asks the map.
+		v.misses = append(v.misses, factMiss{key: key, err: v.unknown[key]})
 		return nil, false
 	case a.State == FactPresent:
 		v.present = true
@@ -127,11 +139,8 @@ func (v *factsView) lookup(key string) (ref.Val, bool) {
 		// otherwise, so facts["mem_mb"] > 4000 compares the same in the
 		// run that gathered it and in every run after.
 		return types.DefaultTypeAdapter.NativeToValue(a.Value), true
-	case a.State == FactAbsent:
-		v.absent = append(v.absent, key)
-		return nil, false
 	}
-	v.misses = append(v.misses, factMiss{key: key})
+	v.absent = append(v.absent, key)
 	return nil, false
 }
 

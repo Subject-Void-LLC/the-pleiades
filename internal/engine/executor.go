@@ -1153,35 +1153,66 @@ func (r *run) prepare(ctx context.Context, nodeID string, task *Task, started ti
 				condVars[k] = v
 			}
 		}
-		// The stored facts of the device this evaluation decides on, which
-		// record what the condition read (facts_view.go).
+		// The stored facts of the device this evaluation decides on, each
+		// answered before CEL runs, a key with no answer left a CEL unknown
+		// (facts_view.go). In a check, a key an earlier checked task would
+		// emit is unknown too (facts_check.go).
 		checked := r.modeFor(task) == collection.ModeCheck
 		factRoot := r.newFactsView(ctx, task, device, checked)
+		if checked {
+			factRoot.tainted = r.taintedKeys(nodeID, device)
+		}
+		factRoot.resolve()
 		condVars[TemplateRootFacts] = factRoot
+		unknownFacts := factRoot.unknowns()
 		var res ConditionResult
 		var undecided string
-		if checked {
-			// A stored fact an earlier checked task would emit is not known
-			// to a check: the task is a gap in it, neither checked nor
-			// skipped (facts_check.go).
-			if reason := r.factTaint(nodeID, device); reason != "" {
-				return nil, r.uncheckedOn(nodeID, task, started, device, reason)
-			}
+		var deps unknownDeps
+		known := true
+		switch {
+		case checked:
 			// A condition the unchecked tasks before it leave undecided is
 			// a gap in the check, not a failed run: it is named, nothing
 			// is registered for it, and the walk carries on. One they do
 			// not decide is answered, and one that is wrong fails as the
 			// real run would (check_conditions.go).
-			res, undecided, err = r.checkCondition(task, cp, condVars, tree)
-		} else {
+			res, undecided, deps, known, err = r.checkCondition(task, cp, condVars, tree, unknownFacts)
+		case len(unknownFacts) > 0:
+			// Three-valued: CEL decides what it can without the keys that
+			// have no answer (facts_condition.go).
+			res, known, deps, err = cp.evalPartialDeps(condVars, unknownFacts)
+			if err == nil && !known && len(deps.facts) == 0 {
+				deps.allFacts = true
+			}
+		default:
 			res, err = cp.Eval(condVars)
 		}
-		// A fact read with no answer fails the task whatever the condition
-		// came to, so no test in it can turn unknown into an answer.
-		if fail := factRoot.failure(nodeID, task, deviceNameOf(roots, device)); fail != nil {
+		// A result left unknown by a key with no answer fails the task; one
+		// that is known stands, whatever keys it did not need.
+		if fail := factRoot.failure(nodeID, task, deviceNameOf(roots, device), deps); fail != nil {
 			failed := failedNode(nodeID, started, FailureStageConditionEval, fail)
 			failed.Device = device
 			return nil, &failed
+		}
+		if checked && err == nil && !known {
+			// In a check, a result that depends on a key an earlier checked
+			// task would emit is a gap of its own (facts_check.go); any other
+			// unknown is the undecided condition of the rule above.
+			if gap := factRoot.checkGap(deps); gap != "" {
+				return nil, r.uncheckedOn(nodeID, task, started, device, gap)
+			}
+			if undecided == "" {
+				undecided = "its condition depends on the result of a task that could not be checked"
+			}
+			if factRoot.used() {
+				undecided = factsUndecided
+			}
+			r.markUnchecked(task, "", true)
+			r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
+			skipped := finish(NodeResult{
+				NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
+			})
+			return nil, &skipped
 		}
 		if checked && err == nil && undecided != "" {
 			if factRoot.used() {
@@ -1193,6 +1224,13 @@ func (r *run) prepare(ctx context.Context, nodeID string, task *Task, started ti
 				NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
 			})
 			return nil, &skipped
+		}
+		if err == nil && !known {
+			// Never expected: an unknown with no key behind it in a real run.
+			failed := failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to evaluate condition for %s: its result could not be decided", taskLabel(nodeID, task)))
+			failed.Device = device
+			return nil, &failed
 		}
 		// CEL's message about a stored value can quote it.
 		err = factRoot.sanitize(err)

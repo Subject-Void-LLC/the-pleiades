@@ -307,3 +307,40 @@ tasks:
 		}
 	}
 }
+
+// TestFactsCheck_AResultDecidedWithoutATaintedKeyIsChecked: a key an earlier
+// checked task would emit is unknown to a check by the same three-valued
+// rule, so a reader whose result CEL decides without it is checked or skipped
+// as decided, as the real run would decide it; only a result that depends on
+// it is a gap.
+func TestFactsCheck_AResultDecidedWithoutATaintedKeyIsChecked(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cond               string
+		unchecked, skipped bool
+	}{
+		"depends on the tainted key": {`when: facts["tfx.pkg.nginx"] is defined`, true, true},
+		"a false item decides":       {"when:\n      - \"false\"\n      - facts[\"tfx.pkg.nginx\"] is defined", false, true},
+		"a true alternative decides": {`when_cel: 'true || facts[?"tfx.pkg.nginx"].hasValue()'`, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := registerFactsRead(t)
+			runbook := strings.Replace(installThenRead, `    when: facts["tfx.pkg.nginx"] is defined`, "    "+tc.cond, 1)
+			result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(storedNginx()), engine.WithMode(collection.ModeCheck)).Run(context.Background(), factsDAG(t, runbook))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for device, n := range resultsOf(result, "tasks[1]") {
+				if n.Unchecked != tc.unchecked || n.Skipped != tc.skipped || n.Err != nil {
+					t.Errorf("on %s: %s, want unchecked=%v skipped=%v", device, describe(n), tc.unchecked, tc.skipped)
+				}
+			}
+			if want := int32(0); !tc.skipped {
+				if m.probeChecks.Load() != 2 {
+					t.Errorf("the reader was checked %d times, want once on each device", m.probeChecks.Load())
+				}
+			} else if m.probeChecks.Load() != want {
+				t.Errorf("the reader was checked %d times, want none", m.probeChecks.Load())
+			}
+		})
+	}
+}

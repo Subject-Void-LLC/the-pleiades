@@ -88,8 +88,13 @@ func registerFactsRead(t *testing.T) *factsRead {
 				{Key: "tfx.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"},
 				{Key: "tfx.mem_mb", Kind: collection.FactStable, Type: collection.FactInteger, Description: "the memory"},
 				{Key: "tfx.load", Kind: collection.FactVolatile, Type: collection.FactNumber, Description: "the load"},
-				{Key: "tfx.codename", Kind: collection.FactStable, Type: collection.FactString, Description: "the codename"},
+				// The one key a test fixture claims a bare call's silence
+				// proves absent, so absence has a key to be read of.
+				{Key: "tfx.codename", Kind: collection.FactStable, Type: collection.FactString, Description: "the codename", AbsentWhenNotEmitted: true},
 				{Key: "tfx.note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note"},
+				// Declared and never emitted, with no claim that silence is
+				// absence: as a serial a login cannot read.
+				{Key: "tfx.serial", Kind: collection.FactStable, Type: collection.FactString, Description: "a serial only root reads"},
 				{Key: "tfx.svc.", Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "a service"},
 			}}},
 		{Name: "tfx.install", Invoke: install,

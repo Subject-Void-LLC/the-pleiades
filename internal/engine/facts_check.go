@@ -181,14 +181,20 @@ func (t FactTaint) Reason() string {
 		strconv.Quote(t.Key), t.EmitterLabel, t.Method, t.Declared)
 }
 
-// factTaint is the reason the check reports task nodeID unchecked on device,
-// or "" when it may be checked: an earlier checked task would emit a key it
-// reads, or one that would observe it did not run its check here.
-func (r *run) factTaint(nodeID, device string) string {
+// taintedKeys is, for checked task nodeID on device, each fact key its
+// condition reads that the check cannot know, with why: an earlier checked
+// task would emit it, or one that would observe it did not run its check
+// here. Each is a CEL unknown to the condition, so the task is a gap in the
+// check only when its result depends on one (facts_condition.go).
+func (r *run) taintedKeys(nodeID, device string) map[string]string {
+	out := map[string]string{}
 	for _, t := range r.factTaints[nodeID] {
+		if _, seen := out[t.Key]; seen {
+			continue
+		}
 		if !t.Observes || r.knowledge.didNotRun(t.Emitter, device) {
-			return t.Reason()
+			out[t.Key] = t.Reason()
 		}
 	}
-	return ""
+	return out
 }

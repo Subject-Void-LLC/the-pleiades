@@ -30,9 +30,11 @@ const (
 	// answer is unknown, never absent.
 	FactUnknown FactState = iota
 	// FactAbsent says an observation known to have looked for the key found
-	// none: this run's own call of a method declaring the key by name, with
-	// nothing narrowing it (facts_overlay.go). A store answers it only once
-	// it keeps what an observation looked for, which none does yet.
+	// none: this run's own call, with nothing narrowing it, of a built-in
+	// that declares the key by name and claims its silence proves absence
+	// (collection.FactSpec.AbsentWhenNotEmitted; facts_answer.go). A store
+	// answers it only once it keeps what an observation looked for, which
+	// none does yet.
 	FactAbsent
 	// FactPresent says the store holds a value.
 	FactPresent
@@ -142,18 +144,22 @@ func methodDeclaresFact(method, key string) bool {
 	return declared
 }
 
-// methodDeclaresExactly reports whether method declares key by name, never
-// only as an item of a family: a call that emitted a family's items says
-// nothing of an item it did not emit, since what it listed was the device's
-// answer, or a narrowed part of it.
-func methodDeclaresExactly(method, key string) bool {
-	m, ok := collection.ManifestOf(method)
-	if !ok {
+// methodClaimsAbsence reports whether method, a built-in, declares key by
+// name and claims that a call not emitting it has established the device
+// lacks it (collection.FactSpec.AbsentWhenNotEmitted). A family's item never
+// is (Register refuses the claim on one), nor a key the method declares
+// without the claim: its silence may mean it could not read the key (a root-
+// only file, a missing tool, a value over a bound), not that the device lacks
+// it. A program's declaration is third-party text nothing holds to its code,
+// and its claim is refused when it registers.
+func methodClaimsAbsence(method, key string) bool {
+	m, builtin := collection.BuiltinManifest(method)
+	if !builtin {
 		return false
 	}
 	for _, spec := range m.Facts {
 		if !spec.Prefix && spec.Key == key {
-			return true
+			return spec.AbsentWhenNotEmitted
 		}
 	}
 	return false

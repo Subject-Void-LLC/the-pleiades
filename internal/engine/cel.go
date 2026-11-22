@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"cel.dev/cel-go/cel"
@@ -62,6 +63,20 @@ type UnknownRegister struct {
 	Name   string
 	Device string
 	Whole  bool
+	// Fact marks Name as a key of the facts root rather than a register: a
+	// key of the evaluating device with no answer (facts_view.go), marked
+	// under that root alone.
+	Fact bool
+}
+
+// unknownDeps is what an unknown result depended on: the fact keys it
+// reached, whether it reached the facts root whole (as "k" in facts does,
+// which then depends on every unknown fact), and whether it reached anything
+// else unknown (a register a check could not produce).
+type unknownDeps struct {
+	facts    []string
+	allFacts bool
+	other    bool
 }
 
 // celEvaluator is a Facade over cel-go's env/ast/issues/program machinery
@@ -269,14 +284,25 @@ func (p *celProgram) Eval(vars map[string]interface{}) (bool, error) {
 // EvalPartial implements Program. Each unknown register is marked under
 // both variables that reach the register tree (registerVariables), since
 // runNode binds stat and nodes to the same snapshot and a condition may
-// read it through either.
+// read it through either; an unknown fact is marked under the facts root.
 func (p *celProgram) EvalPartial(vars map[string]interface{}, unknown []UnknownRegister) (bool, bool, error) {
+	value, known, _, err := p.evalPartialDeps(vars, unknown)
+	return value, known, err
+}
+
+// evalPartialDeps is EvalPartial, saying what an unknown result depended on,
+// read off the unknown's attribute trails.
+func (p *celProgram) evalPartialDeps(vars map[string]interface{}, unknown []UnknownRegister) (bool, bool, unknownDeps, error) {
 	prg, err := p.partial()
 	if err != nil {
-		return false, false, fmt.Errorf("failed to create partial CEL program: %w", err)
+		return false, false, unknownDeps{}, fmt.Errorf("failed to create partial CEL program: %w", err)
 	}
 	patterns := make([]*cel.AttributePatternType, 0, 2*len(unknown))
 	for _, u := range unknown {
+		if u.Fact {
+			patterns = append(patterns, cel.AttributePattern(TemplateRootFacts).QualString(u.Name))
+			continue
+		}
 		for variable := range registerVariables {
 			pattern := cel.AttributePattern(variable).QualString(u.Name)
 			// result holds a register's stats directly, with no device
@@ -290,18 +316,59 @@ func (p *celProgram) EvalPartial(vars map[string]interface{}, unknown []UnknownR
 	}
 	activation, err := cel.PartialVars(vars, patterns...)
 	if err != nil {
-		return false, false, fmt.Errorf("failed to build partial CEL activation: %w", err)
+		return false, false, unknownDeps{}, fmt.Errorf("failed to build partial CEL activation: %w", err)
 	}
 	out, _, err := prg.Eval(activation)
 	if err != nil {
-		return false, false, fmt.Errorf("CEL evaluation failed: %w", err)
+		return false, false, unknownDeps{}, fmt.Errorf("CEL evaluation failed: %w", err)
+	}
+	if u, ok := out.(*types.Unknown); ok {
+		return false, false, depsOf(u), nil
 	}
 	if types.IsUnknown(out) {
-		return false, false, nil
+		return false, false, unknownDeps{allFacts: true, other: true}, nil
 	}
 	result, ok := out.Value().(bool)
 	if !ok {
-		return false, false, fmt.Errorf("CEL expression did not return a boolean")
+		return false, false, unknownDeps{}, fmt.Errorf("CEL expression did not return a boolean")
 	}
-	return result, true, nil
+	return result, true, unknownDeps{}, nil
+}
+
+// depsOf reads what u reached from its attribute trails: a facts trail with
+// a string first qualifier names a key, one without reaches the root whole,
+// and any other trail (or an unknown function) is something else.
+func depsOf(u *types.Unknown) unknownDeps {
+	var deps unknownDeps
+	seen := map[string]bool{}
+	for _, id := range u.IDs() {
+		trails, _ := u.GetAttributeTrails(id)
+		if len(trails) == 0 {
+			deps.other = true
+		}
+		for _, trail := range trails {
+			if trail.Variable() != TemplateRootFacts {
+				deps.other = true
+				continue
+			}
+			path := trail.QualifierPath()
+			key, ok := "", len(path) > 0
+			if ok {
+				key, ok = path[0].(string)
+			}
+			if !ok {
+				deps.allFacts = true
+				continue
+			}
+			if !seen[key] {
+				seen[key] = true
+				deps.facts = append(deps.facts, key)
+			}
+		}
+	}
+	if u.HasUnknownFunction() {
+		deps.other = true
+	}
+	sort.Strings(deps.facts)
+	return deps
 }

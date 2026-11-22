@@ -2,9 +2,14 @@
 // (facts_overlay.go holds what it is read from).
 //
 // Present comes from this run's newest emission of the key, else from the
-// store. Absent comes only from this run: a call of a method that declares
-// the key by name, with nothing narrowing it, emitted on the device and did
-// not emit the key. Everything else is unknown: a family's item nobody listed,
+// store. Absent comes only from this run: a call, with nothing narrowing it,
+// of a built-in that declares the key by name and claims that not emitting
+// it proves the device lacks it (collection.FactSpec.AbsentWhenNotEmitted),
+// emitted on the device and did not emit the key. No built-in claims it yet:
+// facts.gather reads with commands whose failure it cannot tell from an empty
+// answer (a root-only file read as `cat ... 2>/dev/null; true`). Everything
+// else is unknown: a key a method declares without the claim, a family's item
+// nobody listed,
 // a key a narrowed call did not emit, a key only the store could speak for
 // (it keeps what was emitted, not what was looked for), a key the facts guard
 // withheld. Unknown fails the reading task (facts_view.go).
@@ -75,17 +80,17 @@ func (d *deviceFacts) newest(key string, checked bool) (overlaid, bool) {
 }
 
 // lookedFor reports whether a call this run made on the device, with nothing
-// narrowing it, was of a method declaring key by name: that call asked the
-// device for key, so its not emitting key means the device lacks it.
+// narrowing it, was of a built-in claiming key's absence when it does not
+// emit it, so its not emitting key means the device lacks it.
 func (d *deviceFacts) lookedFor(key string, checked bool) bool {
 	for method := range d.real.askedBy {
-		if methodDeclaresExactly(method, key) {
+		if methodClaimsAbsence(method, key) {
 			return true
 		}
 	}
 	if checked {
 		for method := range d.observed.askedBy {
-			if methodDeclaresExactly(method, key) {
+			if methodClaimsAbsence(method, key) {
 				return true
 			}
 		}

@@ -23,6 +23,10 @@ func TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent(t *testing.T) {
 		"a family key after a gather of the defaults": {"tfx.gather: {}", `facts["tfx.svc.nginx"] is not defined`},
 		"another package after an install":            {"tfx.install: {name: curl}", `facts["tfx.pkg.nginx"] is not defined`},
 		"another key after a narrowed gather":         {"tfx.gather: {only: [tfx.kernel]}", `facts["tfx.codename"] is not defined`},
+		// A bare gather that does not emit a key it declares, with no claim
+		// that its silence is absence, may simply not have been able to read
+		// it (a serial only root reads).
+		"a declared key without the claim after a bare gather": {"tfx.gather: {}", `facts["tfx.serial"] is not defined`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := registerFactsRead(t)
@@ -32,7 +36,7 @@ func TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			for device, n := range resultsOf(result, "tasks[1]") {
-				if n.Err == nil || !strings.Contains(n.Err.Error(), "no stored answer") {
+				if n.Err == nil || !strings.Contains(n.Err.Error(), "cannot be decided without it") {
 					t.Errorf("on %s: %s, want the task failed with the key unknown", device, describe(n))
 				}
 			}

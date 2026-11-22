@@ -61,7 +61,7 @@ func TestFactsView_TheWholeRootFailsAnEvaluationThatBypassedTheBuilder(t *testin
 		if !v.whole {
 			t.Errorf("%s did not mark the root used whole", src)
 		}
-		if err := v.failure("tasks[0]", &Task{}, `"web1"`); err == nil || !strings.Contains(err.Error(), "used the facts root as a value") {
+		if err := v.failure("tasks[0]", &Task{}, `"web1"`, unknownDeps{}); err == nil || !strings.Contains(err.Error(), "used the facts root as a value") {
 			t.Errorf("%s: failure = %v", src, err)
 		}
 	}
@@ -100,10 +100,11 @@ func TestFactsView_EachReadWithNoAnswerSaysWhy(t *testing.T) {
 		"a reader of nothing": {viewOver(nilReader{}, "dev-1", "a.b"), "a.b", "says whether the device has it"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			tc.view.resolve()
 			if val := tc.view.Get(types.String(tc.key)); !types.IsError(val) {
 				t.Fatalf("Get = %v, want no such key", val)
 			}
-			err := tc.view.failure("tasks[0]", task, deviceNameOf(nil, tc.view.device))
+			err := tc.view.failure("tasks[0]", task, deviceNameOf(nil, tc.view.device), unknownDeps{facts: []string{tc.key}})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("failure = %v, want %q", err, tc.want)
 			}
@@ -111,8 +112,9 @@ func TestFactsView_EachReadWithNoAnswerSaysWhy(t *testing.T) {
 	}
 	noKnowledge := viewOver(nilReader{}, "dev-1", "a.b")
 	noKnowledge.r.knowledge = nil
-	if _, found := noKnowledge.Find(types.String("a.b")); found || !errors.Is(noKnowledge.misses[0].err, ErrNoFactReader) {
-		t.Errorf("a run with no knowledge: %+v", noKnowledge.misses)
+	noKnowledge.resolve()
+	if _, found := noKnowledge.Find(types.String("a.b")); found || !errors.Is(noKnowledge.unknown["a.b"], ErrNoFactReader) {
+		t.Errorf("a run with no knowledge: %+v", noKnowledge.unknown)
 	}
 	if got := deviceNameOf(map[string]any{TemplateRootDevice: map[string]any{"name": "web1"}}, "dev-1"); got != `"web1"` {
 		t.Errorf("deviceNameOf with a device root = %s", got)
@@ -126,6 +128,7 @@ func TestFactsView_EachReadWithNoAnswerSaysWhy(t *testing.T) {
 // a present key's value, as Find does.
 func TestFactsView_APresentKeyReadsThroughGetAndContains(t *testing.T) {
 	v := viewOver(everyKeyPresent{}, "dev-1", "a.b")
+	v.resolve()
 	if val := v.Get(types.String("a.b")); types.IsError(val) {
 		t.Errorf("Get of a present key = %v", val)
 	}

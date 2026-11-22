@@ -68,6 +68,7 @@ func FuzzConditionFactReads(f *testing.F) {
 		x := NewExecutor(nil, nil, nil, nil, nil, 0, WithFactReader(everyKeyPresent{}))
 		r := &run{x: x, secrets: newStringSet(), knowledge: &factKnowledge{keys: reads.Keys, devices: map[string]*deviceFacts{}, missed: map[string]map[string]bool{}}}
 		view := &factsView{ctx: context.Background(), r: r, device: "dev-1", named: named}
+		view.resolve()
 		vars := map[string]any{TemplateRootFacts: view, "vars": map[string]any{"k": "a.b"}, "stat": map[string]any{}, "nodes": map[string]any{},
 			"result": map[string]any{}, "device": map[string]any{}, "loop": map[string]any{}, "error": map[string]any{}, "item": 1}
 		_, _ = prg.Eval(vars)

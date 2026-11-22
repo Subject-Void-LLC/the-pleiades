@@ -33,9 +33,9 @@ var factReference = regexp.MustCompile(`^facts(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s
 // failed_when: or that: item means: an item that is wholly "vars.<name> is
 // defined" (or "is not undefined") is has(vars.<name>), one that is
 // "vars.<name> is not defined" (or "is undefined") is !has(vars.<name>), one
-// asking it of a stored fact (facts["<key>"], facts.<name>) is "<key>" in
-// facts or its negation, and any other item is its own CEL, returned as
-// written. when_cel: is never read here: it is CEL as written.
+// asking it of a stored fact (facts["<key>"], facts.<name>) is
+// facts[?"<key>"].hasValue() or its negation, and any other item is its own
+// CEL, returned as written. when_cel: is never read here: it is CEL as written.
 //
 // The test is asked only of a run variable, where has() answers as Ansible
 // does. Every other root is refused when the runbook is built, rather than
@@ -53,10 +53,12 @@ func ansibleTest(expr string) (string, error) {
 		return expr, nil
 	}
 	subject, negated, word := m[1], m[2] != "", m[3]
-	// A stored fact is asked as "key" in facts, which the facts root answers
-	// from the store, and fails on a key it has no answer for.
+	// A stored fact is asked as facts[?"key"].hasValue(), which is exact
+	// whatever other key has no answer: "key" in facts reads the root whole,
+	// so one unknown key anywhere would leave every in test unknown
+	// (facts_condition.go).
 	if f := factReference.FindStringSubmatch(subject); f != nil {
-		test := strconv.Quote(f[1]+f[2]+f[3]) + " in " + TemplateRootFacts
+		test := TemplateRootFacts + "[?" + strconv.Quote(f[1]+f[2]+f[3]) + "].hasValue()"
 		if (word == "defined") == negated {
 			return "!(" + test + ")", nil
 		}

@@ -174,54 +174,6 @@ tasks:
 	}
 }
 
-// TestFactsRoot_ANeverGatheredDeviceIsUnknownAndFailsTheTask: a key on a
-// device no method that emits it has observed is unknown, which fails the
-// task naming it and saying to gather first, whatever the condition would
-// have answered: no test, default or short circuit launders it.
-func TestFactsRoot_ANeverGatheredDeviceIsUnknownAndFailsTheTask(t *testing.T) {
-	for name, cond := range map[string]string{
-		"a comparison":           `when: facts["tfx.kernel"] == "6.1"`,
-		"is defined":             `when: facts["tfx.kernel"] is defined`,
-		"is not defined":         `when: facts["tfx.kernel"] is not defined`,
-		"in":                     `when_cel: '!("tfx.kernel" in facts)'`,
-		"has":                    `when_cel: '!has(facts.uptime)'`,
-		"an optional default":    `when_cel: 'facts[?"tfx.kernel"].orValue("none") == "none"'`,
-		"an optional field":      `when_cel: '!facts.?uptime.hasValue()'`,
-		"a short circuit or":     `when_cel: 'true || facts["tfx.kernel"] == "x"'`,
-		"a short circuit and":    `when_cel: 'false && facts["tfx.kernel"] == "x"'`,
-		"a when_or":              "when_or:\n      - \"true\"\n      - facts[\"tfx.kernel\"] == \"x\"",
-		"a later item of a when": "when:\n      - facts[\"tfx.kernel\"] is not defined\n      - \"true\"",
-	} {
-		t.Run(name, func(t *testing.T) {
-			m := registerFactsRead(t)
-			result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(&fakeReader{})).Run(context.Background(),
-				factsDAG(t, "id: unknown\nhosts: fleet\ntasks:\n  - name: read\n    "+cond+"\n    tfx.probe: {}\n"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			runs := resultsOf(result, "tasks[0]")
-			if len(runs) != 2 {
-				t.Fatalf("results %v, want one per device", runs)
-			}
-			for device, n := range runs {
-				if n.Err == nil || n.Skipped {
-					t.Fatalf("on %s: %s, want the task failed", device, describe(n))
-				}
-				msg := n.Err.Error()
-				if !strings.Contains(msg, `tasks[0] (name "read")`) || !strings.Contains(msg, "gather it") || !strings.Contains(msg, "the task did not run") {
-					t.Errorf("on %s the failure says %q, want it to name the task, say to gather and that nothing ran", device, msg)
-				}
-				if !strings.Contains(msg, `facts["tfx.kernel"]`) && !strings.Contains(msg, `facts["uptime"]`) {
-					t.Errorf("on %s the failure says %q, want it to name the key", device, msg)
-				}
-			}
-			if got := m.probeRuns.Load(); got != 0 {
-				t.Errorf("the probe ran %d times on an unknown fact", got)
-			}
-		})
-	}
-}
-
 // TestFactsRoot_AnAbsentKeyOnAGatheredDeviceIsHonestlyAbsent: a key a method
 // that emits it looked for and did not find reads as absent, from the store
 // (another run gathered) and from this run's own gather, so a test for it
