@@ -277,7 +277,10 @@ func connectionWarnings(device string, l Legacy, algs ssh.NegotiatedAlgorithms, 
 	add(l.KeyExchange, use.keyExchange, LegacyKeyExchangeProperty, "key exchange", "SHA-1 Diffie-Hellman is open to known attacks")
 	add(l.HostKeys, use.hostKey, LegacyHostKeysProperty, "host key algorithm", "an ssh-rsa (SHA-1) or DSA signature is a weaker proof of the device's identity")
 	add(l.Ciphers, strings.Join(use.ciphers, ", "), LegacyCiphersProperty, "cipher", "CBC, 3DES and RC4 ciphers and hmac-sha1-96 are broken or weak")
-	add(l.UserKeySignatures, key.legacySigned(), LegacyUserKeySignaturesProperty, "user key signature", userKeySignatureWhy)
+	// A key refused while the record allowed the signature (FIPS 140 mode)
+	// needed the property and could not use it: skippedKeyWarnings says so,
+	// and "did not need it, remove it" would be false beside it.
+	add(l.UserKeySignatures && key.refused == "", key.legacySigned(), LegacyUserKeySignaturesProperty, "user key signature", userKeySignatureWhy)
 	return out
 }
 

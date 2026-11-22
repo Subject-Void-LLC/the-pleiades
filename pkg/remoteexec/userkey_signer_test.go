@@ -238,6 +238,45 @@ func certLogin(t *testing.T, ca ssh.PublicKey, auth Auth, legacy Legacy) ([]stri
 	return verified, err
 }
 
+// fipsKeyAndPasswordWarnsOnce logs in, under FIPS 140 mode, with a key and
+// password to a server that takes the key only with ssh-rsa, on a record that
+// allows it: the password logs in, and the one warning says FIPS refused the
+// key, never that the property was not needed.
+func fipsKeyAndPasswordWarnsOnce(t *testing.T) {
+	t.Helper()
+	keyPEM, pub := rsaKeyPEM(t, "")
+	s := startKeyServer(t, pub, []string{ssh.KeyAlgoRSA}, false)
+	auth, err := AuthFrom(s.srv.Username, s.srv.Password, keyPEM, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := s.connect(auth, Legacy{UserKeySignatures: true})
+	if err != nil {
+		t.Fatalf("the password should log in under FIPS 140 mode: %v", err)
+	}
+	defer conn.Close()
+	warnings := conn.LegacyWarnings("fips-box")
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "FIPS 140 mode forbids whatever the record says") {
+		t.Fatalf("warnings %q, want only the FIPS refusal", warnings)
+	}
+}
+
+// TestLegWarnings_ARefusedKeyIsNotCalledUnneeded proves a record allowing the
+// signature whose key was refused anyway (what the signer records under FIPS
+// 140 mode) warns only that the key was not used, while a record whose key
+// signed with SHA-2 is still told the property was not needed.
+func TestLegWarnings_ARefusedKeyIsNotCalledUnneeded(t *testing.T) {
+	allowed := Legacy{UserKeySignatures: true}
+	refused := legWarnings("fips-box", allowed, userKeyOutcome{key: "RSA key", refused: ssh.KeyAlgoRSA, fips: true}, nil)
+	if len(refused) != 1 || strings.Contains(refused[0], "did not need it") || !strings.Contains(refused[0], "FIPS 140 mode forbids") {
+		t.Errorf("a refused key on a record allowing it warned %q", refused)
+	}
+	signed := legWarnings("db-new", allowed, userKeyOutcome{key: "RSA key", signed: ssh.KeyAlgoRSASHA512}, nil)
+	if len(signed) != 1 || !strings.Contains(signed[0], "did not need it") {
+		t.Errorf("a SHA-2 login on a record allowing ssh-rsa warned %q", signed)
+	}
+}
+
 // fipsChild names the environment variable that runs
 // TestUserKeySigner_FIPSModeRefusesByName's body in the child process.
 const fipsChild = "REMOTEEXEC_TEST_FIPS_CHILD"
@@ -261,6 +300,7 @@ func TestUserKeySigner_FIPSModeRefusesByName(t *testing.T) {
 		if _, err := signer.SignWithAlgorithm(rand.Reader, []byte("data"), ssh.KeyAlgoRSASHA512); err != nil {
 			t.Fatalf("rsa-sha2-512 under FIPS 140 mode: %v", err)
 		}
+		fipsKeyAndPasswordWarnsOnce(t)
 		return
 	}
 	if fips140.Enabled() {

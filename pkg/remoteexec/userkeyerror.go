@@ -124,7 +124,7 @@ func skippedKeyWarnings(device string, key userKeyOutcome) []string {
 	}
 	why := fmt.Sprintf("which the record does not allow (%s)", LegacyUserKeySignaturesProperty)
 	if key.fips {
-		why = "which FIPS 140 mode forbids"
+		why = "which FIPS 140 mode forbids whatever the record says"
 	}
 	return []string{fmt.Sprintf("device %q did not use the stored %s: the SSH server %s, %s; this connection logged in with the password",
 		device, key.key, serverTook(key.key, key.refused), why)}
