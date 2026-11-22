@@ -73,6 +73,19 @@ func TestCLI_FactsInConditionsReleaseGate(t *testing.T) {
 		t.Errorf("after a gather then a read: the linux marker %v, the windows marker %v; want only linux", exists("fw-gathered"), exists("fw-wrong"))
 	}
 
+	// A bare gather by this login reads no serial (DMI's is root's to read,
+	// and a container hides it): its silence is no proof the device has
+	// none, so a test of it fails the task, naming the method that gathers
+	// it, and the task does not run.
+	serial := write("serial", factsWhenRunbook("serial", "  - name: gather\n    facts.gather: {}\n"+marker("fw-serial", `facts["hardware.serial"] is not defined`)))
+	if out, code := g.pleiades(t, "run", serial); code == 0 || !strings.Contains(out, `facts["hardware.serial"]`) ||
+		!strings.Contains(out, "cannot be decided without it") || !strings.Contains(out, "through facts.gather") {
+		t.Errorf("a serial a bare gather could not read: exit %d\n%s", code, out)
+	}
+	if exists("fw-serial") {
+		t.Error("the task testing a serial nobody could read ran as if the device had none")
+	}
+
 	// The next run, with no gather, reads the stored values; a number
 	// compares as a number. Its report, text and journal carry no value,
 	// a condition that fails on one included.
