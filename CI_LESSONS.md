@@ -88,6 +88,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     need registered in `need.Names` (rule 32); the reason goes in the message, not the name. The list is kept by
     hand: no rule yet finds the other module-wide readers outside it, and they have not been counted. A case of
     rule 1 that no import shows. FAILURE_PATTERNS 631, 756, 1047, 1368.
+43. **A `pr-check` pass is read leg by leg, since a leg with no machine set up does not fail it.** A leg whose
+    settings file is missing (`tests/mac/.env`, `tests/bsd/.env`, `tests/win/.env`) records `not-run` at its
+    `settings` step, and the run's verdict is still `pass`, so the tool does not hold rule 4. Before trusting a pass
+    for a branch that changes code a machine leg covers, read the legs (`go run ./tools/prreport -leg mac`, or
+    `-json`), and say in the pull request which legs did not run. CI tests nothing on FreeBSD or Windows.
+    FAILURE_PATTERNS 1380; LESSONS_LEARNED 417, 464.
 
 ## Tests that do not fail by luck
 
