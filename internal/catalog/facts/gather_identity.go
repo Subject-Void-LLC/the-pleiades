@@ -19,7 +19,9 @@ const (
 
 // identityPlaceholders are the values firmware and OEM tools write where a
 // real serial or UUID belongs. Compared lowercased and trimmed. Measured per OS
-// is the owner's rule; this is the set seen on Linux DMI tables.
+// is the owner's rule; this is the set seen on Linux DMI tables, applied to
+// FreeBSD's, macOS's and Windows's readings of the same firmware too, where no
+// placeholder has been measured yet (their lab guests reported real values).
 var identityPlaceholders = map[string]bool{
 	"to be filled by o.e.m.":               true,
 	"0":                                    true,
@@ -49,15 +51,29 @@ const (
 )
 
 // gatherIdentityValue reads one line of firmware text as a stable identity
-// fact under key, or nothing when the text is empty or a placeholder.
+// fact under key, or nothing when the text is empty or a placeholder. A
+// hardware UUID is lowercased: Linux and FreeBSD print it lowercase and
+// Windows and macOS uppercase, and the one UUID must read alike from each.
 func gatherIdentityValue(key string) func(string) []gatherFact {
 	return func(stdout string) []gatherFact {
-		value := strings.TrimSpace(stdout)
-		if value == "" || identityPlaceholders[strings.ToLower(value)] {
-			return nil
+		if fact, ok := identityFact(key, stdout); ok {
+			return []gatherFact{fact}
 		}
-		return []gatherFact{{key: key, value: value}}
+		return nil
 	}
+}
+
+// identityFact is text as key's identity fact, trimmed (and lowercased for
+// the hardware UUID), and false when it is empty or a placeholder.
+func identityFact(key, text string) (gatherFact, bool) {
+	value := strings.TrimSpace(text)
+	if value == "" || identityPlaceholders[strings.ToLower(value)] {
+		return gatherFact{}, false
+	}
+	if key == gatherFactSystemUUID {
+		value = strings.ToLower(value)
+	}
+	return gatherFact{key: key, value: value}, true
 }
 
 // gatherMachineID reads /etc/machine-id: 32 lowercase hexadecimal digits. Any
@@ -85,7 +101,21 @@ const gatherVirtualizationCommand = "systemd-detect-virt --vm 2>/dev/null; echo 
 // cloud instance: the instance's provider, not a hypervisor the owner runs.
 // microsoft is left out on purpose: an Azure instance and a Hyper-V host both
 // report it, and systemd-detect-virt cannot tell them apart, so it reads as a VM.
-var cloudProviders = map[string]bool{"amazon": true, "google": true, "oracle": true, "alibaba": true}
+// oracle is left out too: systemd-detect-virt names VirtualBox oracle, so a
+// VirtualBox guest on the owner's own host read as cloud:oracle until a lab
+// guest showed it (an Oracle Cloud instance is KVM, and reads as vm:kvm).
+var cloudProviders = map[string]bool{"amazon": true, "google": true, "alibaba": true}
+
+// hypervisorOther is the hypervisor of a virtual machine whose hypervisor the
+// device does not name: vm:other. systemd-detect-virt prints vm-other for one.
+const hypervisorOther = "other"
+
+// vmFact is hardware.virtualization for a virtual machine of hypervisor, one
+// of systemd-detect-virt's names (oracle for VirtualBox, microsoft for
+// Hyper-V), which every platform's reader maps its own names onto.
+func vmFact(hypervisor string) []gatherFact {
+	return []gatherFact{{key: gatherFactVirtualization, value: "vm:" + hypervisor}}
+}
 
 // gatherVirtualization maps the two answers to one native value: container:<engine>
 // for a container, cloud:<provider> for a cloud instance, vm:<hypervisor> for a
@@ -109,8 +139,10 @@ func gatherVirtualization(stdout string) []gatherFact {
 		value = "physical"
 	case cloudProviders[vm]:
 		value = "cloud:" + vm
+	case vm == "vm-other":
+		return vmFact(hypervisorOther)
 	default:
-		value = "vm:" + vm
+		return vmFact(vm)
 	}
 	return []gatherFact{{key: gatherFactVirtualization, value: value}}
 }
