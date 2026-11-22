@@ -383,27 +383,81 @@ tasks:
   the store keeps it, so a number compares as a number in the run that gathered it
   and in every run after.
 - **Testing for a fact.** `facts["os.codename"] is defined` (or `is not defined`)
-  asks whether the device has it; in `when_cel` so do `has(facts.name)`,
-  `"os.codename" in facts` and `facts[?"os.codename"]`. A name with no dot can also
-  be read as `facts.name`.
-- **Present, absent or unknown.** A key is absent when a method that emits it has
-  looked at the device and stored no value for it (`facts.gather` on a host with no
-  codename); a test for it answers false. It is unknown when no method that emits it
-  has observed the device, in this run or one before, or when the device's stored
-  facts cannot be read. An unknown key fails the task, naming the task and the key,
-  whatever the condition would have come to: `is defined`, `has()`,
-  `facts[?"key"].orValue(...)` and a `true || ...` that never needed it do not turn it
-  into an answer. Gather it first, in an earlier task or an earlier run.
+  asks whether the device has it; in `when_cel` so do `"os.codename" in facts` and
+  `facts[?"os.codename"].hasValue()`, and `facts[?"os.codename"].orValue("none")` gives
+  a value to compare. A name with no dot could be read as `facts.name` and tested
+  with `has(facts.name)`, but every built-in fact's name has one. Each of these
+  compiles in the runbook below, which the documentation's own test validates:
+
+```yaml
+# Shows each way a condition may test a gathered fact.
+# Blast radius: the web servers, read only.
+# Changes: nothing on the hosts.
+# Undo: nothing to undo.
+id: fact-tests
+hosts: web
+tasks:
+  - name: Gather
+    facts.gather: {}
+  - name: A codename is known
+    when: facts["os.codename"] is defined
+    noop: {}
+  - name: No codename
+    when: facts["os.codename"] is not defined
+    noop: {}
+  - name: A codename, by in
+    when_cel: '"os.codename" in facts'
+    noop: {}
+  - name: A codename, by an optional read
+    when_cel: 'facts[?"os.codename"].hasValue()'
+    noop: {}
+  - name: Bookworm, or no codename
+    when_cel: 'facts[?"os.codename"].orValue("none") in ["bookworm", "none"]'
+    noop: {}
+```
+
+- **Present, absent or unknown.** A key is present when this run emitted it or the
+  store holds it. It is absent only when an earlier task of this run asked the device
+  for it and got nothing: a method that declares the key by name (`pleiades doc
+  <method>` lists them), called with no parameter that could narrow what it gathers
+  (`facts.gather: {}` on a host with no codename); a test for it answers false. Every
+  other key the device has no value for is unknown, and that includes some you might
+  expect to be absent:
+  - an item of a family (`package.nginx`, `service.sshd`, `file./etc/hosts`), which a
+    gather names only when the device has it, so its not being named proves nothing:
+    the gather may not have looked (the default `facts.gather` gathers no packages),
+    and one `pkg.install curl` says nothing about nginx;
+  - a key of a narrowed call (`filter:`, `gather_subset:`, `files:`, or any parameter
+    at all), since what it was asked is not checked key by key;
+  - a key only the store could answer: the store keeps what each gather found, not
+    what it looked for, so a later run reads a key an earlier gather did not find as
+    unknown, never absent;
+  - a value the facts guard refused (one holding a secret this run knows, or of the
+    wrong type), which the device does have.
+
+  An unknown key fails the task, naming the task and the key, whatever the condition
+  would have come to: `is defined`, `has()`, `facts[?"key"].orValue(...)` and a
+  `true || ...` that never needed it do not turn it into an answer. Gather it first,
+  in an earlier task of the same run, with nothing narrowing the call, when the
+  answer must be able to be "not there".
 - **A project with no master key** has no stored facts it can read, since every
   stored fact is sealed under that key. `pleiades validate` and `pleiades run` refuse a
   condition reading a fact that no earlier task of the run gathers, naming
   `PLEIADES_MASTER_KEY` and `.pleiades/master.key`; a gather then a read in one run
-  needs no key. A project that stored facts and has lost its key cannot read any
-  device's, so every task reading one fails, the same way for every device.
+  needs no key, and its first stored fact makes one. A project that stored facts and
+  has lost its key cannot read any device's, so every task reading one fails, the
+  same way for every device, and no fact is stored again (no new key is made beside
+  the old facts) until the key is restored. A key file another account may read, or
+  a value that is not a key, is named as that, not as a missing key. A project with
+  its key and no stored facts passes `validate`; the reading task fails when the run
+  reaches it, since whether a device has been gathered is known only then.
 - **What is refused, and why.** A fact is text the device sent. The only thing a run
   takes from it is whether a condition held, so no fact's value reaches a method, a
   variable, the journal, a report or a log, and when a condition fails to evaluate on
-  a fact's value, CEL's own message (which could quote the value) is not shown. When
+  a fact's value, CEL's own message (which could quote the value) is not shown: the
+  failure names the item of the condition that failed, and says the cause may be any
+  part of it. A fact's key, which the condition names, is runbook text and does
+  appear in a failure, a refusal and the check's ledger; only values are kept out. When
   the runbook is built, these are refused, each saying what is allowed: the root used
   as a value (`size(facts)`, comparing it, looping over it, handing it to a function),
   a key computed while the run goes (`facts[item]`, `facts[vars.key]`), another
@@ -420,14 +474,16 @@ tasks:
   by family such as `package.`) is reported unchecked with that reason, and the check
   exits 3; this holds even when the earlier task predicts no change, since a real run
   would still store the fact. `pleiades validate` and `pleiades run --mode check` warn
-  about each such task. The exception is a built-in method that only reads, such as
-  `facts.gather`: its check reads the device, so what it emits during the check is
-  read by later checked tasks. Those values are never stored and never read by a real
-  task. A real task reads the store and what real tasks emitted, whatever was checked
-  before it.
+  about each such task. The exception is a built-in method that only reads and whose
+  check is its own run, such as `facts.gather`: its check reads the device, so what it
+  emits during the check is read by later checked tasks. Those values are never stored
+  and never read by a real task. A block's `rescue` reading a fact is not predicted in
+  a check at all, as no rescue is. A real task reads the store and what real tasks
+  emitted, whatever was checked before it.
 - **On the Controller.** A Runner cannot read stored facts in this release, and no
-  fact rides a dispatch. The Controller refuses a job whose runbook reads one before
-  it dispatches anything, naming the task, and a Runner refuses one again before its
+  fact rides a dispatch. The Controller refuses a runbook that reads one before it
+  accepts the job: a launch, a check, a relaunch and a schedule's write each answer a
+  refusal naming the task and the key, and a Runner refuses one again before its
   first task. There, gather in the same run and read the registered result. A
   rollback job is never refused for this: its steps read no fact.
 
