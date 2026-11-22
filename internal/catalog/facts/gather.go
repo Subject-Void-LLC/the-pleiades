@@ -563,7 +563,7 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	// The host key the session verified, read once the probes are done
 	// (gather_hostkeys.go), and what that session says about it.
-	hostFacts, warnings := choice.hostKeyFacts(way, device.Name())
+	hostFacts, warnings := choice.hostKeyFacts(way, device.Name(), len(probes))
 	if emitted += len(hostFacts); emitted > collection.MaxFactsPerObservation {
 		return collection.Result{}, fmt.Errorf("%s: %s lists more than the %d facts one task may record; gather less with %s or %s",
 			fqcn, device.Name(), collection.MaxFactsPerObservation, gatherParamSubset, gatherParamFilter)
