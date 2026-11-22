@@ -1629,10 +1629,12 @@ that acts on no device. That
 rescue is decided once for the whole block and may take every lock. If a tag selection
 leaves that task out, the block handles failures on each device again, and `validate`
 and `run` refuse the selection before any task runs. A handler cannot take the lock at
-all, and a runbook that asks for it on one does not compile.
+all, and a runbook that asks for it on one does not compile. A Controller refuses to
+launch or schedule a runbook that does not compile, with the builder's message.
 
-On a Controller, launching or scheduling such a runbook is accepted, because the
-Controller runs none of these validation rules. Each Runner then refuses its dispatch by
+A runbook that validation refuses and the builder accepts is another matter: a rescue
+task taking every lock is one. On a Controller, launching or scheduling that runbook is
+accepted, because the Controller runs none of these validation rules. Each Runner then refuses its dispatch by
 the same validation before any task runs, so the job fails on every device without
 changing one.
 

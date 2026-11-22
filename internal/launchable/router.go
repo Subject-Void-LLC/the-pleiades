@@ -41,6 +41,17 @@ type Request struct {
 	// for the target's own defaults. A type that takes none refuses a
 	// non-zero value rather than ignoring it.
 	SavedConfigID int
+
+	// Standing says a Preflight is asked about a write that leaves standing
+	// what already launches: an edit of a saved schedule that keeps its
+	// target and its saved configuration and does not turn the schedule on
+	// (it may change when the schedule fires, not what it launches). A type
+	// may let through an objection that the write did not cause and that
+	// refusing would not cure (a job template whose runbook has stopped
+	// compiling), so the schedule can still be renamed or paused; the
+	// objection is then made when the schedule fires. It is never set on a
+	// Launch, and a type that reads it makes every other refusal regardless.
+	Standing bool
 }
 
 // Launched is what a launch produced.

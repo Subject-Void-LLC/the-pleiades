@@ -358,7 +358,7 @@ var GetRunbook = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The runbook.", Schema: runbookResponseSchema},
-		{Status: http.StatusBadRequest, Description: "id is malformed, or the runbook does not compile.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "id is malformed, or the runbook does not compile, in which case the message is the builder's own.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No runbook with that id exists.", Schema: errorSchema("")},
 	},
 }

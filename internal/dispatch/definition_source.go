@@ -102,9 +102,21 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		// carry a filesystem path or another storage-layer detail
 		// (runbook.Source.Get's own doc comment), and Job.failure_reason
 		// is a caller-readable audit field, not a server log.
+		//
+		// A runbook that was read and does not compile is the one exception,
+		// told apart by its kind: the builder is given the file's bytes and
+		// no directory, so its message names what the runbook's author wrote
+		// and nothing of this server's, and it is the one sentence that lets
+		// the author fix it (runbook.CompileError). A launch refuses such a
+		// runbook before the job exists; this is the runbook that stopped
+		// compiling between the launch and the fan-out.
 		reason := fmt.Sprintf("runbook %q could not be resolved", definition)
-		if errors.Is(err, runbook.ErrNotFound) {
+		var notCompiled *runbook.CompileError
+		switch {
+		case errors.Is(err, runbook.ErrNotFound):
 			reason = fmt.Sprintf("runbook %q not found", definition)
+		case errors.As(err, &notCompiled):
+			reason = notCompiled.Message()
 		}
 		return PreparedDefinition{}, reason, err
 	}

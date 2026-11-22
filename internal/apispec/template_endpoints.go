@@ -323,7 +323,7 @@ var CreateTemplate = Endpoint{
 	RequestSchema:      templateWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created template.", Schema: templateSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, names a definition that does not exist or a runbook that does not compile (the message is the builder's own), declares a default or a prompt the kind has no field for, or carries a survey nobody could answer.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The named inventory belongs to another organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A template with that name already exists in that organization.", Schema: errorSchema("")},
@@ -489,7 +489,7 @@ var LaunchTemplate = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The body is malformed, or id is not a positive integer.", Schema: errorSchema("")},
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No template with that id, or no such saved configuration on it.", Schema: errorSchema("")},
-		{Status: http.StatusUnprocessableEntity, Description: "A survey answer violates its question's schema, or this controller does not register the template's kind.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "A survey answer violates its question's schema, this controller does not register the template's kind, or the template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created.", Schema: errorSchema("")},
 		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
 	},
 }
@@ -521,7 +521,7 @@ var CheckTemplate = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The body is malformed, or id is not a positive integer.", Schema: errorSchema("")},
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No template with that id, or no such saved configuration on it.", Schema: errorSchema("")},
-		{Status: http.StatusUnprocessableEntity, Description: "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, or this controller does not register the template's kind.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The template's kind cannot run as a check, the overrides ask for a mode other than check, a survey answer violates its question's schema, this controller does not register the template's kind, or the template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created.", Schema: errorSchema("")},
 		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
 	},
 }
@@ -609,7 +609,7 @@ var RelaunchJob = Endpoint{
 		{Status: http.StatusBadRequest, Description: "id is not a UUID.", Schema: errorSchema("")},
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No job with that id.", Schema: errorSchema("")},
-		{Status: http.StatusUnprocessableEntity, Description: "The job was not launched from a template, its template or configuration is gone, or it answered a question this platform will not replay.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The job was not launched from a template, its template or configuration is gone, it answered a question this platform will not replay, or its template's runbook cannot be launched as it is now: it does not compile (the message is the builder's own), it seeds a device's login, or a condition in it reads a stored fact. No job is created.", Schema: errorSchema("")},
 		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
 	},
 }

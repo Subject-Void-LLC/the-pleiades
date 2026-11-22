@@ -4,29 +4,39 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-21. Branch `feat/41-facts-in-when` at `fce5dce5`, rebased on `main` at `f7324fa5` (the #220 merge). No pull
-request is open for it yet. Merged since the last handoff: #210 to #220. This handoff was written by the records pass,
-which ran no test and no gate; the test names below are the branch's own proof and were read, not run again.**
+**2026-11-22. Branch `fix/walk-launch-compile-error` at `db940fb8`, ten commits on `main` at `ae9cfa2b` (the #225
+merge). No pull request was reported open for it. Merged since the last handoff: #221 to #225. This handoff was
+written by the records pass, which ran no test and no gate; the test names below are the branch's own proof and were
+read, not run again.**
 
 ### What works
 
-- Facts in conditions, Crawl tier: a task's `when`, `when_or` and `when_cel` read the evaluating device's own stored
-  facts through the new `facts` root, by a literal key. The stored snapshot is overlaid with what earlier levels of the
-  run emitted. An unknown key fails the task, and `is defined`, `default()` and `has()` do not hide it. Proof:
-  `TestCLI_FactsInConditionsReleaseGate` (`cmd/pleiades`, a real sshd container), `internal/engine/facts_when_test.go`,
-  `FuzzConditionFactReads` (`internal/engine/facts_root_fuzz_test.go`).
-- A store answers present or unknown; absent only from a call of this run that asked for the key by exact name
-  (`TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent`, FAILURE_PATTERNS 1342).
-- `validate` refuses `facts` in params, rollback step params, computed keys, the whole root and another device's
-  facts, and a no-key project for a key no earlier task gathers (`internal/validate/facts_rule_test.go`).
-- Check mode reports a tainted reader unchecked (exit 3), with the observation exemption for read-only built-ins
-  (`internal/engine/facts_when_check_test.go`, `TestReadOnlyFactEmittersObserveOnlyWhenTheirCheckIsTheirRun`).
-- Walk tier: a fact-reading runbook is refused at launch, check, relaunch, the schedule's write, admission and in the
-  Runner before its first task (`internal/api/dispatcher_fact_reads_test.go`, `internal/dispatch/facts_test.go`,
-  `internal/adapters/native/facts_refusal_test.go`). A refused relaunch answers 422.
-- The engine names no fact store or key (`TestEngineNamesNoFactStoreOrKey`).
-- Records: FAILURE_PATTERNS 1342 to 1352, LESSONS 469 to 471, four changelog fragments. No CI lesson: nothing failed
-  in pr-check or in Actions.
+- A runbook that does not compile is refused on the Walk tier at a launch, a check and a relaunch (422, no job) and
+  at a schedule's write, with the builder's message; fan-out records the message as the failure reason of a job whose
+  runbook broke after launch (FAILURE_PATTERNS 1360, resolved). Proof: `internal/api/dispatcher_compile_error_test.go`,
+  `TestWorker_HandleJobRequested_ACompileErrorIsTheFailureReason` (`internal/dispatch`).
+- The message is masked by shape, escaped and cut at 2048 bytes on the escaped text
+  (`TestCompileError_MessageMasksASecretShapedLiteral`, `TestCompileError_MessageIsCutBetweenEscapes`; 1363).
+- A rollback no longer answers with the source's raw error: compile gives the message, gone gives a sentence, and a
+  storage error is logged and answers 500 (`TestRollbackJob_ARunbookTheSourceCannotReadNamesNoPath`,
+  `TestRollbackJob_ARunbookThatDoesNotCompileSaysWhy`, `TestRollbackJob_ARunbookThatIsGoneSaysSo`; 1361).
+- A template create over such a runbook answers 400 with the message, and `GET /runbooks/{id}` gives it
+  (`TestTemplates_CreatingOneOverARunbookThatDoesNotCompileIs400`, `TestRunbookCatalog_TellsTheKindsApart`,
+  `TestRunbookHandler_GetSaysWhyARunbookDoesNotCompile`; 1362).
+- A schedule whose runbook broke can still be renamed or paused (`launchable.Request.Standing`), and that edit is
+  written only onto the row it was judged against (`TestUpdate_AConcurrentPauseDoesNotMakeAnEnableLookStanding`,
+  SQLite only; 1363).
+- Records: FAILURE_PATTERNS 1361 to 1367, LESSONS 476 to 480. No CI lesson: no pr-check or Actions failure was
+  reported. The branch's changelog fragment already exists.
+
+### Not proven
+
+- Nothing ran against a real Controller and Runner. `tests/e2e` and `cmd/runner` were not run.
+- The `cmd/controller` wiring of `api.RunbookCatalog` is covered by `cmd/controller`'s tests, which passed once
+  locally without `-race`, and by CI.
+- The views' `Submit` paths are untested; only the extracted `launchRefusal` and `relaunchErrors` mappings are.
+- `internal/api` coverage is 98.5 against a floor of 98.4.
+- That nothing which used to run is now refused was read from code by the reviewer, not executed.
 
 ### Blocker
 
@@ -34,39 +44,40 @@ which ran no test and no gate; the test names below are the branch's own proof a
 
 ### Open
 
-- FAILURE_PATTERNS 1344, in part: the credentials path still makes a new master key in a project that lost its key
-  beside sealed fact files, and the fact store then ends up mixed.
-- FAILURE_PATTERNS 1351 (on `main`): `parseEnv` in `internal/engine/condition_refs.go` has no optional syntax, so a
-  `.?` or `[?` condition reading `device` is not decided per device and fails at run time. No test yet.
-- Phase 41's read item stays open (12 of 14 done): the Walk tier's reads through the claim-time fetch; a coverage
-  record per observation, so a family's key can read absent; `inventory:read` for a run that reads facts on the Walk
-  tier.
-- No test holds every launch route to every refusal function (LESSONS 470); no guard keeps `fqcn:` out of test
-  fixtures (1348).
-- Carried from the last handoff and not re-checked here: identity facts on FreeBSD, macOS and Windows; 41c's
-  read-backs; 41d to 41g; 41h's Release Gate; FAILURE_PATTERNS 1267, 1291 and 1292.
+- FAILURE_PATTERNS 1365: `GET /runbooks/{id}` answers 400 "invalid runbook id" for a storage error, and
+  `internal/ui/resources/runbooks/runbooks.go` (near line 168) hands the source's raw error to the view layer; whether
+  a path reaches a page is not traced.
+- FAILURE_PATTERNS 1366: a runbook file caught mid-write is classed as a compile error, and a scheduled firing at
+  that instant is skipped and not retried.
+- FAILURE_PATTERNS 1356, untouched: the Controller still runs no `validate` rule.
+- A template edit still does not verify its runbook (noted in 1362).
+- Masking of the compile message is by shape only; `docs/09-control-plane-and-api.md` says so.
+- Carried from the last handoff and not re-checked here: Phase 41's read item (the Walk tier's reads, a coverage
+  record per observation); no test holds every launch route to every refusal function (LESSONS 470); no guard keeps
+  `fqcn:` out of test fixtures (1348, 1357); FAILURE_PATTERNS 1085, 1267, 1291 and 1292. 1344 and 1351, open in the
+  last handoff, are both marked resolved 2026-11-22 in the index.
 
 ### Next steps
 
 1. Commit these records on the branch.
-2. `make pr-check` on the committed, clean tree, then push, then `make branch-containers`.
-3. Open the pull request when both pass; put its number in the tracker note under Phase 41 ("PR number pending") and
-   refresh the local PR log in the same command (LESSONS 455).
-4. Then the open items above, 1344's credentials path first.
+2. `make pr-check` on the committed, clean tree, then push, then `make branch-containers` (the branch changes
+   `cmd/controller`, a container package).
+3. Open the pull request when both pass, and refresh the local PR log in the same command (LESSONS 455).
+4. Then 1365: trace the view layer's handling of a reader error, and give `GET /runbooks/{id}` a 500 for a storage
+   error.
+5. Run the schedule write's concurrency test on PostgreSQL.
 
 ### Files changed
 
-The branch (64 files before the records): `internal/engine` (the `facts` root, the view, overlay, answer, check and
-condition files and their tests), `internal/validate/facts_rule.go`, `internal/dispatch/facts.go` and
-`worker_devices.go`, `internal/api/dispatcher.go` and `dispatcher_launchable.go`, `internal/adapters/native/validate.go`,
-`internal/facts/file_lookup.go` and `file_store.go`, `internal/runbook`, `pkg/wire/dispatch_version.go`,
-`cmd/pleiades` (`facts_dir.go`, `facts_reader.go`, `run_pipeline.go`, `validate.go`, the release gate),
-`internal/archtest`, `docs/04-writing-runbooks.md`, `docs/reference/task-keys.md`, `tools/gendocs/taskkeys.go`.
-Records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md`,
-`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, `changelog/facts-in-conditions.added.md` (edited),
-`changelog/condition-not-true-or-false-refused.breaking.md`, `changelog/relaunch-refused-422.fixed.md`,
-`changelog/facts-lost-master-key-not-replaced.fixed.md`. `.SPECIFICATION/IMPLEMENTATION.md` (git-ignored, main clone)
-has a dated note under Phase 41's read item, not ticked.
+The branch (34 files before these records): `internal/runbook` (`compile_error.go`, `dir_source.go`, `runbook.go`),
+`internal/api` (`dispatcher.go`, `dispatcher_compile.go`, `dispatcher_launchable.go`, `dispatcher_rollback.go`,
+`runbooks.go` and their tests), `internal/dispatch/definition_source.go`, `internal/launchable/router.go`,
+`internal/schedule` (`admit.go`, `ent_store.go`, `admit_test.go`, `launchable_gate_test.go`),
+`internal/ui/resources/jobs/relaunch.go`, `internal/ui/resources/templates/actions.go`, `cmd/controller/main.go`,
+`internal/apispec`, the generated OpenAPI documents, `docs/09-control-plane-and-api.md`,
+`docs/10-running-in-production.md`, `changelog/walk-launch-compile-error.breaking.md`.
+Records in this pass: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+`LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`. No roadmap item was ticked.
 
-Lab: no change was reported for this branch; its gate runs in containers and names no lab VM. The lab state is as the
-previous handoff left it, not re-checked.
+Lab: no change was reported for this branch, and it names no lab VM. The lab state is as the previous handoff left
+it, not re-checked.

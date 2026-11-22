@@ -20,12 +20,14 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -178,5 +180,38 @@ func TestRelaunchRefusal_CarriesTheDispatchersOwnSentence(t *testing.T) {
 	// actually raises, or the refusal renders as a 500.
 	if !errors.Is(api.ErrNotRelaunchable, api.ErrNotRelaunchable) {
 		t.Error("the sentinel is not its own identity")
+	}
+}
+
+// TestRelaunchErrors_PutsARefusalOnTheFormAndLeavesAFaultAnError covers the
+// mapping Submit applies to what the dispatcher returned: a job that cannot
+// be relaunched and a runbook that no longer compiles are each a message on
+// the form, in the dispatcher's or the builder's own words, and anything
+// else stays an error.
+func TestRelaunchErrors_PutsARefusalOnTheFormAndLeavesAFaultAnError(t *testing.T) {
+	notCompiled := fmt.Errorf("resolve: %w", &runbook.CompileError{ID: "patch", Err: errors.New(`handler "restart": cannot take the lock`)})
+	for name, tc := range map[string]struct {
+		err  error
+		want string
+	}{
+		"a job that cannot be relaunched": {fmt.Errorf("%w: it was not launched from a template", api.ErrNotRelaunchable), "not launched from a template"},
+		"a runbook that does not compile": {notCompiled, `runbook "patch" does not compile: handler "restart"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			errs, err := relaunchErrors(tc.err)
+			if err != nil {
+				t.Fatalf("relaunchErrors = fault %v, want a refusal on the form", err)
+			}
+			if messages := errs[""]; len(messages) != 1 || !strings.Contains(messages[0], tc.want) {
+				t.Errorf("the form holds %q, want one message saying %q", messages, tc.want)
+			}
+		})
+	}
+	fault := errors.New("the job store is down")
+	if errs, err := relaunchErrors(fault); errs != nil || !errors.Is(err, fault) {
+		t.Errorf("a fault = %v, %v; want it returned as the error", errs, err)
+	}
+	if errs, err := relaunchErrors(nil); errs != nil || err != nil {
+		t.Errorf("an accepted relaunch = %v, %v; want neither", errs, err)
 	}
 }

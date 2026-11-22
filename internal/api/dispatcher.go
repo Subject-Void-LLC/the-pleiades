@@ -439,6 +439,10 @@ func (d *Dispatcher) RelaunchJob(w http.ResponseWriter, r *http.Request) {
 			// The runbook as it is now is refused on every launch, a relaunch
 			// included; the message is the runbook's own text.
 			RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
+		case compileMessage(err) != "":
+			// So is a runbook that no longer compiles, with the builder's
+			// message.
+			RespondError(w, r, http.StatusUnprocessableEntity, compileMessage(err))
 		default:
 			loggerFrom(r).ErrorContext(r.Context(), "failed to relaunch job",
 				slog.String("job_id", jobID),
@@ -520,6 +524,10 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 		// which is a deployment fact rather than a caller's mistake, so it
 		// says so instead of reporting the template as malformed.
 		RespondError(w, r, http.StatusUnprocessableEntity, "this controller cannot run that kind of template")
+	case compileMessage(err) != "":
+		// The runbook does not compile: the builder's own message, which
+		// names what its author wrote and nothing of this server's.
+		RespondError(w, r, http.StatusUnprocessableEntity, compileMessage(err))
 	default:
 		loggerFrom(r).ErrorContext(r.Context(), "failed to launch template",
 			slog.Int("template_id", templateID),
@@ -585,10 +593,16 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 		return "", ignored, ErrWindowedPrompt
 	}
 	if d.runbooks != nil && launch.ResolveKind(resolved.Kind) == launch.DefaultKind {
-		// A runbook that cannot be resolved is left to fan-out, which fails the
-		// job naming it (and refuses a seeding one again, whatever started
-		// it); only what a resolved runbook says is refused here.
-		if rb, err := d.runbooks.Get(ctx, resolved.Definition); err == nil {
+		// A runbook the source cannot find or read is left to fan-out, which
+		// fails the job naming it (and refuses a seeding one again, whatever
+		// started it). One that was read and does not compile is refused here,
+		// with the builder's message: the job could only fail, and its author
+		// is the one reader who can fix it (refuseUncompiled).
+		rb, err := d.runbooks.Get(ctx, resolved.Definition)
+		if err := refuseUncompiled(err); err != nil {
+			return "", ignored, err
+		}
+		if err == nil {
 			if len(prompted) > 0 && len(rb.Serial) > 0 {
 				return "", ignored, ErrSerialPrompt
 			}

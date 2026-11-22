@@ -102,17 +102,8 @@ func relaunchAction(runner Relauncher) view.RecordAction {
 			}
 
 			newJobID, _, err := runner.Relaunch(ctx, identity.Subject, id)
-			switch {
-			case errors.Is(err, api.ErrNotRelaunchable):
-				// Reachable even though the control is gated: the job can
-				// finish, or its template can gain a prompted credential,
-				// between the page rendering and the button being pressed.
-				// The dispatcher's own sentence says which of the reasons
-				// applies, and it is more specific than anything this
-				// layer could reconstruct.
-				return "", view.FieldErrors{"": {relaunchRefusal(err)}}, nil
-			case err != nil:
-				return "", nil, err
+			if errs, err := relaunchErrors(err); errs != nil || err != nil {
+				return "", errs, err
 			}
 
 			// Straight to the job that was just started, because the next
@@ -121,6 +112,31 @@ func relaunchAction(runner Relauncher) view.RecordAction {
 			return "/ui/jobs/" + newJobID, nil, nil
 		},
 	}
+}
+
+// relaunchErrors maps what Relaunch returned onto the form: a refusal a
+// person can act on as a message for the form as a whole, or the error itself
+// when it is a fault. Both are nil for a relaunch that was accepted.
+//
+// It is a function of the error alone so it can be tested without a request
+// identity, which Submit needs and this package cannot build.
+func relaunchErrors(err error) (view.FieldErrors, error) {
+	switch {
+	case errors.Is(err, api.ErrNotRelaunchable):
+		// Reachable even though the control is gated: the job can finish,
+		// or its template can gain a prompted credential, between the page
+		// rendering and the button being pressed. The dispatcher's own
+		// sentence says which of the reasons applies, and it is more
+		// specific than anything this layer could reconstruct.
+		return view.FieldErrors{"": {relaunchRefusal(err)}}, nil
+	case api.CompileMessage(err) != "":
+		// The runbook no longer compiles: the builder's own message, which
+		// its author can act on, in place of a fault page.
+		return view.FieldErrors{"": {api.CompileMessage(err)}}, nil
+	case err != nil:
+		return nil, err
+	}
+	return nil, nil
 }
 
 // relaunchRefusal is the dispatcher's own explanation, which names the

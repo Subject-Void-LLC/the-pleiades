@@ -33656,3 +33656,337 @@ refused), and which errors are safe to show (a build error, as against a storage
 
 **Lesson.** LESSONS 470 covers the placement. For the text: an error is withheld from a caller by what kind it is,
 not by where it was caught. The author's own build error is shown; a storage detail is not.
+
+**Resolved 2026-11-22 (fixed on `fix/walk-launch-compile-error`, `ef49d89c` and `0d30cc43`; on main until it
+merges).** The symptom was exercised before the fix: a launch answered 202 and made a job, a schedule's write
+answered 201, a saved schedule fired a job, and fan-out recorded `runbook "pb-1" could not be resolved`. One premise
+was false. A template create did not show the real message either: the Controller's catalog adapter returned a plain
+error, which the handler answered with 500 and "internal error".
+
+**Why the launch tolerated the error.** No reason was recorded. The launch read no runbook at all until `6e8ba355`
+(2026-10-31) added a read to refuse `serial:` with prompted inputs, written `err == nil` because fan-out was already
+the place a runbook was resolved. `e708daa6`, `fb80fdf2` and `a7cbdb0d` added refusals inside the same guard.
+
+**Fix.** The directory source returns a build failure as `*runbook.CompileError` (`internal/runbook/compile_error.go`),
+reached with `errors.As`. Its `Message` is the builder's text on one line, escaped with `termsafe.EscapeLine` and
+cut at 2048 bytes. The source builds from the file's bytes with no directory (`BuildFromYAML`), so the builder opens
+nothing and names no path. A launch, a check and a relaunch answer 422 with it and make no job; a schedule's write
+is refused through `Preflight`; fan-out records it as the failure reason of a job whose runbook broke after its
+launch; a template create answers 400 with it (`api.RunbookCatalog`). A missing or unreadable runbook is still left
+to fan-out, with its text withheld.
+
+**A saved schedule.** It fires into the same refusal, a `launchable.Refusal`, which `Scanner.fire` records as
+skipped with `launch_failed`, logs, and does not retry. The message is in the Controller's log, not in the row: the
+occurrence's reason is a closed vocabulary. A schedule's edit admits its target again, so the refusal would have
+made such a schedule impossible to rename or pause. `launchable.Request.Standing` says an edit keeps the target and
+the saved configuration and does not turn the schedule on, and the Dispatcher lets the compile refusal through for
+that write alone. Where the runbook compiles, the seeded-login and fact-read refusals still refuse such an edit. Where
+it does not, they are not asked, on any write, since they read a compiled runbook: that is as it was before the
+branch.
+
+**Tests.** `internal/api`: `TestLaunchTemplate_RefusesARunbookThatDoesNotCompile`,
+`TestLaunchRoutes_ARunbookThatDoesNotCompileIs422`, `TestSchedules_ARunbookThatDoesNotCompileIsRefusedAtTheWrite`,
+`TestSchedules_OneSavedBeforeItsRunbookBrokeSkipsAndStaysEditable`,
+`TestTemplates_CreatingOneOverARunbookThatDoesNotCompileIs400` and
+`TestWorker_HandleJobRequested_ACompileErrorIsTheFailureReason` (`internal/dispatch`) were each seen failing first.
+`TestLaunchTemplate_ARunbookTheSourceCannotGiveIsStillLeftToFanOut` and
+`TestWorker_HandleJobRequested_AStorageErrorKeepsItsTextOutOfTheReason` hold the other kind to its old behavior.
+
+**Fixed in review, same branch (`6a16536f`, `3221c5d0`, `fc5cf0de`, `235745c6`).**
+
+- The message was cut on the raw text and then escaped, so 2048 escape characters gave 8 KB. It is cut on the escaped
+  text now, and the whole sentence is at most 2048 bytes. It also goes through the shape masker (`redact.Text`), so a
+  credential-shaped value an author wrote into a condition is not repeated.
+- A rollback of a job whose runbook could not be read answered 422 with the source's own error, which for a storage
+  failure named the server's runbook path (exercised: the body held the temp directory's path). By kind now
+  (`unreadableRunbook`): compile, the message; gone, a sentence; anything else, logged and 500.
+- A standing edit was judged from the row as read and written unconditionally, so a concurrent pause could be
+  overwritten and the schedule turned on unasked. The write now carries the stored `enabled`, target and saved
+  configuration it was judged against, and an edit that finds them changed is judged again.
+- `GET /runbooks/{id}` said `invalid runbook id` for a runbook that does not compile. It gives the message now.
+- The launch form had no case for `dispatch.ErrFactReads`. It has one, and both form mappings are functions of the
+  error with tests (`launchRefusal`, `relaunchErrors`).
+
+**Not proven.** Nothing ran against a real Controller and Runner: `tests/e2e` and the `cmd/controller` gates were
+not run here. The masking is by shape only: a secret that looks like an ordinary word, written into a runbook, is
+shown in a refusal or a failure reason. The schedule write's condition was run on SQLite, not PostgreSQL.
+
+## 1361. `POST /jobs/{id}/rollback` answered 422 with the runbook source's raw error: the server's absolute runbook path for an unreadable file, and the builder's unescaped, unbounded text for a compile error (fixed on `fix/walk-launch-compile-error`, `3221c5d0`; on main since 27f72c8f, 2026-09-28, until it merges; security; a sibling of 1360; in kind of 1109 and 1148)
+
+**Symptom.** Found 2026-11-22 on branch `fix/walk-launch-compile-error` by the author of 1360's fix, and confirmed
+by the branch's review. Exercised before the fix: a rollback of a job whose runbook file the Controller could not
+read answered 422, and the body held the server's own path (`open /tmp/.../rb-1.yaml: permission denied`). For a
+runbook that did not compile the body held the builder's text as it was: not escaped, not masked, with no bound on
+its length. The rollback action in the server-rendered views (`internal/ui/resources/jobs/rollback.go`) prints the
+same error, so it showed the same text.
+
+**Who could see it.** A caller allowed to roll back a job in their organization, when the runbook file is
+unreadable on the Controller. That caller need not be a system administrator, and the path is the server's.
+
+**Root cause.** `internal/api/dispatcher_rollback.go` wrapped `GetDAG`'s error with `%w` into
+`ErrNotRollbackable`, and the handler printed `err.Error()`. `ErrNotRollbackable` is a refusal meant to be read by
+the caller, so everything wrapped into it is shown. Nothing asked what kind of error the source had returned.
+
+**Why earlier entries did not prevent it.** The defect is older than the rule: it has been on `main` since the
+rollback route landed (27f72c8f, 2026-09-28). 1360's lesson ("an error is withheld from a caller by what kind it
+is, not by where it was caught") was written the same day, on the branch before this one, as a sentence in an
+entry. It was applied to fan-out, the one place the review had named. Fan-out already withheld the text. The
+rollback route read the same source and did not, and nobody had listed the other readers of that source. 1109 (a
+refusal quoting a secret into a failure reason or an API error) and 1148 (error text copied past a masking
+boundary) are the same class from other sources; neither names a storage path. Searched by symptom (a path in an
+answer) and by cause (a wrapped error printed whole): no earlier entry for this route. The vuln-corpus has no class
+for error-text disclosure (CWE-209); C7 is the nearest.
+
+**Fix.** `3221c5d0`. `unreadableRunbook` (`internal/api/dispatcher_compile.go`) splits by the error's kind. A
+compile error gives the escaped, masked, bounded message, still 422. A runbook that is gone gives "the runbook it
+ran cannot be read: it no longer exists", still 422. Anything else is returned without `ErrNotRollbackable`, so the
+route logs it and answers 500 "internal error". The rollback is refused in all three cases, as before.
+
+**Tests.** Through the real route, each seen failing first (`internal/api/dispatcher_rollback_runbook_test.go`):
+`TestRollbackJob_ARunbookTheSourceCannotReadNamesNoPath`, `TestRollbackJob_ARunbookThatDoesNotCompileSaysWhy` and
+`TestRollbackJob_ARunbookThatIsGoneSaysSo`.
+
+**Not proven.** Nothing ran against a real Controller and Runner. The view's rollback action has no test of its
+own here; it prints what the Dispatcher returns, which is what the three tests hold.
+
+**Lesson.** LESSONS 476. 1360's rule, applied to a sibling. When one site learns to split a source's errors by
+kind, every other site that shows that source's error is listed and given the same split.
+
+## 1362. Creating a job template over a runbook that does not compile answered 500 "internal error", and `GET /runbooks/{id}` answered 400 "invalid runbook id" for one (fixed on `fix/walk-launch-compile-error`; on main until it merges; the 500 in kind of 1058 and 1070, the wrong cause in kind of 270 and 1051)
+
+**Symptom.** Found 2026-11-22 on branch `fix/walk-launch-compile-error`, while checking a premise of 1360. Both
+are older than the branch. Two routes gave a wrong answer about a runbook that does not compile.
+
+- `POST /templates` over such a runbook answered 500 "internal error". The author's own mistake was reported as a
+  server fault, with no message.
+- `GET /runbooks/{id}` for such a runbook answered 400 "invalid runbook id". The id was valid. The runbook was
+  read and did not build.
+
+A template edit never verifies the runbook at all, so it shows nothing either way. That is unchanged.
+
+**Root cause.** For the create: the catalog adapter in `cmd/controller/main.go` wrapped the compile error as a
+plain error, and `respondStoreError` (`internal/api/templates.go`) answers 500 for an error it does not know. For
+the read: the handler had one answer for every error from the source.
+
+**Why 1058, 1070, 270 and 1051 did not prevent it.** 1058 and 1070 each fixed the 500 of one write (an edit of a
+record that was not stored, a store bound with no validator), and their lesson (LESSONS 426) is about store
+bounds. 270 and 1051 each fixed the messages they were found in. None gives the runbook source's errors a kind.
+Until 1360's fix there was no kind to split on: a build failure and a storage failure were both plain errors.
+
+**Fix.** `api.RunbookCatalog` (`internal/api/dispatcher_compile.go`) is the runbook kind's catalog, and
+`cmd/controller` wires it. A missing runbook is `launch.ErrDefinitionNotFound`, as before. One that does not
+compile is `launch.ErrInvalidTemplate` with the builder's message, so the create answers 400. Any other error is
+returned for the caller to log and not show. `GET /runbooks/{id}` gives the compile message.
+
+**Tests.** `TestTemplates_CreatingOneOverARunbookThatDoesNotCompileIs400` and
+`TestRunbookCatalog_TellsTheKindsApart` (`internal/api/templates_compile_error_test.go`), and
+`TestRunbookHandler_GetSaysWhyARunbookDoesNotCompile` (`internal/api/runbooks_test.go`).
+
+**Not proven.** The composition-root wiring in `cmd/controller` is covered only by `cmd/controller`'s tests,
+which passed once locally without `-race`, and by CI. A template edit still does not verify its runbook.
+`GET /runbooks/{id}` still names a storage error as an invalid id (1365).
+
+**Lesson.** LESSONS 476. The same list that found 1361 found these: the routes that show the runbook source's
+error.
+
+## 1363. The first version of 1360's compile message showed a secret-shaped literal from the author's runbook to new readers, was cut before it was escaped, and a schedule's "standing" edit was judged from a row read outside the write (fixed before push; caught in review; never on main; the first in kind of 1109, the third a repeat in kind of 45, 1085 and 1309)
+
+**Symptom.** 2026-11-22, branch `fix/walk-launch-compile-error`. Caught in review before push; never on `main`.
+The first version of the fix for 1360 had three defects.
+
+1. **Unmasked.** The message quotes the author's runbook text, and the fix sent it to readers who had not seen
+   that text before: a caller with only `runbook:check`, a schedule's writer, anyone reading a job's
+   `failure_reason`, and the Controller's log on every refused firing. A secret-shaped literal in a `when:` that
+   failed to compile was shown to all of them.
+2. **Bounded too early.** The 2048-byte cut was made on the raw text, and the text was escaped afterwards. 2048
+   ESC bytes came out as 8222 bytes.
+3. **Judged outside the write.** `launchable.Request.Standing` says an edit keeps the schedule's target and saved
+   configuration and does not turn it on; for that edit alone the compile refusal is skipped. It was computed from
+   a row read before the write, and the write was unconditional. A pause landing between the two could make an
+   edit that turns the schedule on look standing. The consequence was bounded: a firing clears `Standing`, so the
+   result was a skipped occurrence, never a job.
+
+**Root cause.** For 1: the message was treated as the author's own text shown back to the author. It was that
+only on the launch route. For 2: the bound was put where the text was first held, before the last step that
+changes its length. For 3: the decision and the write it permits were two statements with nothing tying them.
+
+**The design conflict behind `Standing`.** Two rules met. "Refuse at every write that can be refused" (LESSONS
+470) puts the compile refusal on a schedule's edit, since an edit admits its target again. "A schedule that
+exists must stay editable" means the owner of a schedule whose runbook broke must still be able to rename it or
+pause it. Refusing every edit would leave a schedule that fires into a refusal and cannot be turned off.
+`Standing` is the exception that settles it, and an exception to a refusal is a new decision that needs the same
+care as the refusal.
+
+**Why earlier entries did not prevent it.** 1109 fixed refusals that quoted secret inputs, in the credential
+code; this message is built in `internal/runbook`, which had shown no caller text before. 45, 1085 and 1309 are
+each a write with no compare-and-swap, and LESSONS 46 is worded for a maintenance or rotation write; an ordinary
+edit that reads a flag first was not read as one. 1085 is still open for the same shape in partial PATCH. For the
+bound: searched by "escape", "cut" and "bound"; no earlier entry.
+
+**Fix.** `6a16536f`: the message goes through `redact.Text`, masking by shape, and is cut on the escaped text, so
+the whole sentence is at most 2048 bytes and no escape is cut in half. `fc5cf0de`: the schedule's write is
+conditional on the stored `enabled`, target and saved configuration the edit was judged against; an edit that
+finds them changed is judged again, at most 5 tries.
+
+**Tests.** `TestCompileError_MessageMasksASecretShapedLiteral` (seen failing first) and
+`TestCompileError_MessageIsCutBetweenEscapes` (`internal/runbook/compile_error_test.go`);
+`TestUpdate_AConcurrentPauseDoesNotMakeAnEnableLookStanding` (`internal/schedule/admit_test.go`, seen failing
+first).
+
+**Not proven, and a limit.** The masking is by shape only. A literal with no recognisable shape is still shown;
+`docs/09-control-plane-and-api.md` says so. The conditional write ran on SQLite only, not PostgreSQL.
+
+**Lesson.** LESSONS 479 and 480. Text shown to a caller is masked, then escaped, then bounded, the bound last.
+An exception to a refusal is judged inside the write it permits.
+
+## 1364. `TestC1Gate_OneSweepFiresATemplateAndAProjectSync` had been passing with a fixture runbook that does not compile (`hosts: []`): the launch made a job that could only fail, and the gate checks that a job row exists (fixed on `fix/walk-launch-compile-error`; test only; in kind of 436 and 440; LESSONS 235)
+
+**Symptom.** Found 2026-11-22 when 1360's fix made a schedule's firing refuse a runbook that does not compile.
+The scheduler's gate in `internal/schedule/launchable_gate_test.go` went red. Its fixture runbook was
+`hosts: []` with no tasks, which the builder refuses. The gate had passed with it since it was written.
+
+**Root cause.** The gate asserts that the sweep made a job row for the template. Before 1360's fix a launch of a
+runbook that does not compile made a job, and fan-out failed it later. The gate never looks at fan-out, so a job
+that could only fail satisfied it. The fixture was never held to what a user's runbook must pass.
+
+**Why 436, 440 and LESSONS 235 did not prevent it.** 436 and 440 are checks that passed against a fixture
+missing the thing checked, and 235 says to break what a test protects and see it fail. The gate does fail when
+the sweep fires nothing (as read from its assertion; not re-run here), so that control would pass. What it lacked is
+the other direction: nothing asked whether
+the fixture was one the product would accept.
+
+**Fix.** The fixture has one task (`noop`) and no empty `hosts:` list, with a comment saying why it has to
+compile.
+
+**Not proven.** The gate still asserts a job row and not a fan-out. It now proves a launch the product accepts;
+it does not prove the job runs.
+
+**Lesson.** LESSONS 477. A gate that asserts "a job was made" passes on a job that can only fail.
+
+## 1365. A storage error reading a runbook is still shown or misnamed in two places: `GET /runbooks/{id}` answers 400 "invalid runbook id" for it, and the runbooks view's reader hands the source's raw error to the view layer (open; on main; found and not fixed; the view half unproven; in kind of 1361 and 1121)
+
+**Symptom.** Found 2026-11-22 on branch `fix/walk-launch-compile-error`, while listing the readers of the runbook
+source for 1361 and 1362. Not fixed there.
+
+- `GET /runbooks/{id}` answers 400 "invalid runbook id" when the source fails with a storage error. The error is
+  logged and no path is shown. The answer names a server fault as the caller's mistake.
+- `reader.Get` in `internal/ui/resources/runbooks/runbooks.go` (near line 168) returns the source's error as it
+  is to the view layer. Whether a storage error's path can reach a rendered page from there was not traced. This
+  half is unproven.
+
+**Root cause.** The same as 1361 and 1362: these sites predate the split of the source's errors by kind, and the
+branch gave the split to the routes it could test.
+
+**Status.** Open. The first half is a wrong status and message, not a disclosure. The second half needs the view
+layer's handling of a reader error traced before it is called a defect.
+
+**Lesson.** LESSONS 476 covers it. These two are what is left of the list it asks for.
+
+## 1366. A runbook file read while it is being written is classed as a compile error, so a scheduled firing at that instant is skipped and not retried (open; found and not fixed; no worse than before 1360's fix)
+
+**Symptom.** Found 2026-11-22 on branch `fix/walk-launch-compile-error`. Not fixed. The directory source builds
+a runbook from the file's bytes as it finds them. A file caught partly written does not build, and that failure
+is a `runbook.CompileError` like any other. A schedule firing at that instant gets the refusal, which
+`Scanner.fire` records as skipped with `launch_failed` and does not retry. A launch by hand at that instant
+answers 422 with a message about a file its author has not finished saving.
+
+**Severity.** Unchanged from before the branch. Then the launch made a job, and fan-out failed it for good. Now
+no job is made and the occurrence is skipped. Either way that one occurrence does not run.
+
+**Root cause.** The source cannot tell a file that is wrong from one that is not yet whole. A compile error is
+taken as a lasting fact about the runbook, and for this case it lasts a moment.
+
+**Searched.** By "mid-write", "half-written" and "partly written": no earlier entry for a runbook file. 88 is a
+directory caught mid-delete by a test's listing, a different defect.
+
+**Status.** Open. Whether it was exercised or read from code was not given to this records pass. No fix is
+chosen. How the runbook directory is written in a deployment (in place, or by rename) decides how often it can
+happen, and that was not examined.
+
+## 1367. A subagent was briefed that "only a template create or edit shows the real message" of a runbook that does not compile; the create answered 500 and an edit never verifies the runbook (process; the third occurrence of 1352 in two days, after 1357; LESSONS 471 and 472)
+
+**Symptom.** 2026-11-22, the orchestrating session, briefing the fix for 1360. The brief said that only a
+template create or edit shows the real compile message. Both halves were false. A create answered 500 "internal
+error" (1362). An edit never verifies the runbook, so it shows no message at all.
+
+**What limited the cost.** The brief told the subagent to check its premises first, as LESSONS 472 asks. It did,
+found the 500, and the fix grew to cover it (1362). The check also turned up 1361.
+
+**Root cause.** A sentence about what code does was written into a brief without the code being read. The same
+sentence closes the Symptom of 1360's archive entry, written on the branch before this one, and that entry says
+of itself that it was read from code and not exercised. Whether the brief took the sentence from the entry was
+not given to this records pass.
+
+**Why 1352, 1357, LESSONS 471 and LESSONS 472 did not prevent it.** 471 and 472 say to check each premise in the
+code before a brief is sent. Nothing makes the sender do it, and a sentence that reads like a known fact is not
+seen as a premise. 472 was written the same day. Its second half, the instruction to the receiver, held for the
+second time; its first half failed for the third.
+
+**A premise that was checked and held.** The branch's reviewer checked the claim that nothing which used to run
+is now refused. It is true: the Controller and the Runner both build through `runbook.NewDirSource`, and fan-out
+already required the Controller's build. This was read from code, not executed.
+
+**Fix.** None in code. The practice is LESSONS 478.
+
+**Lesson.** LESSONS 478. A brief states what code does only with a file and line read in this session. Anything
+else is written as a question for the receiver to answer first.
+
+## 1368. A test's `Require` call named a need that is not in `need.Names`, and pull request #226's `fast` job failed after `make pr-check` and `make branch-containers` passed: the registry test reads every `Require` call in the module, and its package was neither changed nor in `PR_CHECK_ALWAYS` (a repeat of 631; in kind of 756, 1311 and 1322; CI_LESSONS 1, 32 and 42) (fixed on `fix/walk-launch-compile-error`, `b31dd05d`; the rerun's result not known when written)
+
+**Symptom.** 2026-11-22, pull request #226, branch `fix/walk-launch-compile-error`, commit `f6d49012`. The
+required `fast` job failed (run 45032180209, job 137237967463). `make pr-check` and `make branch-containers` had
+both passed at that commit. There was one failure, and it failed again when re-run alone:
+`internal/testsupport/need` `TestEveryRequireCallNamesAKnownNeed`:
+
+    internal/api/dispatcher_rollback_runbook_test.go:63: Require is given need "an unprivileged user", which is not in need.Names
+
+The ci-triager classed it as real, not contention, and new: no ledger entry held this test.
+
+**Root cause.** Two things, one in the change and one in the gate.
+
+The change. Commit `3221c5d0` on this branch added the line. A subagent wrote a test that makes a file
+unreadable with mode 000 and skips where that cannot work, and it gave `Require` a free-text reason as the need's
+name. A need is a registered name (`need.Names`), not a sentence. pr-check ran `internal/api` with the line in it and passed, so nothing
+refused the name where the test ran; the registry test is what refuses it, by reading the module's source (1047,
+1190).
+
+The gate. `TestEveryRequireCallNamesAKnownNeed` lives in `internal/testsupport/need` and reads every `Require`
+call in the module. pr-check runs the packages a branch changes, the packages that directly import them, a fixed
+census, and `PR_CHECK_ALWAYS`. The branch changed `internal/api`, not `internal/testsupport/need`, and that
+package was not in `PR_CHECK_ALWAYS`. So the one test that could fail on this line never ran before the push.
+`make branch-containers` covers the branch's changed container packages only, so it could not reach it either.
+
+**Why 631's fix did not hold.** 631 was fixed by prscope's direct-importer rule: a package that imports a changed
+one runs too. That rule follows imports. This test does not depend on `internal/api` by import; it parses the
+module's Go files. A test that reads source has every package as its input and none as its import, so no import
+rule selects it. 756 is the same hole from the other side: a module-wide check (`internal/archtest`) that the
+gate stopped running. `PR_CHECK_ALWAYS` was the fix there, and it is a hand-kept list that this package was never
+added to when its registry test was written (1047).
+
+**Why the written rules did not prevent it.** CI_LESSONS 32 says to register a new need in `need.Names` when a
+test first calls `Require` with it. LESSONS 462 says to run the whole of every package a change touches and all
+of `internal/archtest` before handing work back; this checker is in neither, so following 462 to the letter
+would still have passed. LESSONS 465 and CI_LESSONS 39 list the checkers that sit outside the packages a change
+touches (schemacompat, docs-gen-check, the help golden); the need registry was not on that list. Whether the
+subagent's brief named the need registry was not given to this records pass.
+
+**Fix.** Commit `b31dd05d`, two files. The call in `internal/api/dispatcher_rollback_runbook_test.go` names the
+registered `posix-modes` need. `internal/testsupport/need` is added to `PR_CHECK_ALWAYS` in the `Makefile`, with a
+comment saying why: its registry test reads every `Require` call in the module, so a test file changed anywhere
+can fail it while its own package is unchanged. The package ran in 7.5 s locally.
+
+**Not done, and not known.**
+
+- The rerun of the pull request's checks at `b31dd05d` had no result when this was written.
+- No `internal/archtest` rule and no prscope rule was added. `PR_CHECK_ALWAYS` is still a list kept by hand.
+- Open question: which other tests read the whole module's source and live outside `PR_CHECK_ALWAYS`? They were
+  not enumerated. Each one has this same hole until it is listed or selected by a rule.
+- The Actions ledger was not annotated: it held no entry for this run when this was written.
+
+**Searched.** By the test's name, `need.Names`, `testsupport/need` and `PR_CHECK_ALWAYS`, and by the class (a
+failure only CI showed because pr-check did not run the package): 559, 631, 755, 756, 1047, 1190, 1311, 1322. No
+earlier entry is this test failing in CI.
+
+**Lesson.** CI_LESSONS 42. A test that reads the whole module's source runs on every pr-check, whatever the
+branch changes, because no import ties it to the file that breaks it. And a skip names a registered need; its
+reason goes in the skip's message, not in the name.

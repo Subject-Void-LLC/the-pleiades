@@ -307,7 +307,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	}
 	dag, err := d.runbooks.GetDAG(ctx, job.RunbookID)
 	if err != nil {
-		return nil, none, fmt.Errorf("%w: the runbook it ran cannot be read: %w", ErrNotRollbackable, err)
+		return nil, none, unreadableRunbook(job.RunbookID, err)
 	}
 	if dag.Version != version {
 		return nil, none, &RollbackRefusedError{Problems: []RollbackProblem{{Reason: fmt.Sprintf(

@@ -196,7 +196,7 @@ var CreateSchedule = Endpoint{
 	RequestSchema:      scheduleWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created schedule.", Schema: scheduleSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, the recurrence is not supported, the zone is unknown, or the recurrence names no real instant.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the recurrence is not supported, the zone is unknown, the recurrence names no real instant, or what it would launch cannot run unattended: for a job template, one whose runbook does not compile (the message is the builder's own), seeds a device's login or reads a stored fact, or that needs a value nobody will be there to give.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The caller may not launch what the schedule names, or it belongs to another organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "Nothing launchable with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A schedule with that name already exists in that organization.", Schema: errorSchema("")},
@@ -222,7 +222,7 @@ var UpdateSchedule = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated schedule.", Schema: scheduleSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed or the recurrence is not valid.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the recurrence is not valid, or what it would launch cannot run unattended, as on a create. An edit that keeps what the schedule launches and does not turn it on is not refused because its job template's runbook has stopped compiling, so such a schedule can still be renamed or paused.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No schedule with that id in this organization.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "Another schedule in this organization already has that name.", Schema: errorSchema("")},
 	},

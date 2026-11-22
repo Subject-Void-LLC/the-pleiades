@@ -90,10 +90,14 @@ func newGate(t *testing.T) *gate {
 	org := client.Organization.Create().SetName("gate").SaveX(ctx)
 	inv := client.Inventory.Create().SetName("gate-inventory").SetOrganization(org).SaveX(ctx)
 
-	// The runbook the template runs, on disk, read by the real source.
+	// The runbook the template runs, on disk, read by the real source. It has
+	// to compile: a schedule of a template whose runbook does not is refused at
+	// the write (FAILURE_PATTERNS 1360). This fixture used to hold an empty
+	// hosts: list, which the builder refuses, and the gate passed anyway
+	// because the launch made a job that could only fail at fan-out.
 	runbookDir := t.TempDir()
 	const runbookID = "gate-runbook"
-	body := "id: " + runbookID + "\nhosts: []\ntasks: []\n"
+	body := "id: " + runbookID + "\ntasks:\n  - name: step\n    noop: {}\n"
 	if err := os.WriteFile(filepath.Join(runbookDir, runbookID+".yaml"), []byte(body), 0o600); err != nil {
 		t.Fatalf("writing the gate runbook: %v", err)
 	}

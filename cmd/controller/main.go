@@ -1312,18 +1312,10 @@ func main() {
 	// RUNS picker offers exactly this set, so what can be chosen and what
 	// can be saved are one list.
 	kindCatalogs := map[string]launch.KindCatalog{
-		launch.DefaultKind: launch.KindCatalogFuncs{
-			ListFunc: runbooks.List,
-			VerifyFunc: func(ctx context.Context, definition string) error {
-				if _, err := runbooks.Get(ctx, definition); err != nil {
-					if errors.Is(err, runbook.ErrNotFound) {
-						return fmt.Errorf("%w: no runbook %q", launch.ErrDefinitionNotFound, definition)
-					}
-					return fmt.Errorf("resolving runbook %q: %w", definition, err)
-				}
-				return nil
-			},
-		},
+		// api.RunbookCatalog refuses a runbook that does not compile with
+		// the builder's own message, where this adapter used to hand back
+		// an error the handler could only answer with a 500.
+		launch.DefaultKind: api.RunbookCatalog(runbooks),
 	}
 	kindCatalogs["playbook"] = launch.KindCatalogFuncs{
 		ListFunc: playbooks.List,
