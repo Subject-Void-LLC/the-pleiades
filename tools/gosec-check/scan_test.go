@@ -142,7 +142,11 @@ func TestRun_AShortCheckoutNeedsNoCacheDirectory(t *testing.T) {
 	for i, name := range []string{"GOCACHE", "GOPATH", "GOMODCACHE"} {
 		t.Setenv(name, dirs[i])
 	}
+	// Every variable a platform reads for a home or a cache directory, so
+	// the check below holds on Windows (USERPROFILE, LocalAppData) too.
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("LocalAppData", "")
 	t.Setenv("XDG_CACHE_HOME", "")
 	if _, err := os.UserCacheDir(); err == nil {
 		t.Fatal("a user cache directory was found with HOME and XDG_CACHE_HOME unset")
