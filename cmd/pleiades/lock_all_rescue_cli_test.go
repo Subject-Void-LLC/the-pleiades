@@ -11,12 +11,14 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
-// TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun: validate and run
-// both refuse the runbook when it is built, in the same words, and no task
-// runs. In a block that runs as one unit the rescue may take the lock, so
-// validate passes it and the run is rescued; under a tag selection that
-// leaves the block handling failures per device, validate and run refuse it
-// again, before any task runs.
+// TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun: validate refuses
+// the runbook, and run refuses it by the same validation before its first
+// task, in a real run and in a check alike, in the same words. In a block
+// that runs as one unit (here, one whose task names a target other than the
+// runbook's hosts) the rescue may take the lock, so validate passes it and
+// the run is rescued; under a tag selection that leaves the block handling
+// failures per device, validate and run refuse it again, before any task
+// runs.
 func TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun(t *testing.T) {
 	const header = `# What this does: fails on purpose, with a rescue that sets a fact.
 # Blast radius: none (engine actions only, no device is contacted).
@@ -39,15 +41,19 @@ tasks:
           fixed: true
         lock_acquisition: all_at_plan_time
 `})
-	for _, command := range []string{"validate", "run"} {
-		out, err := runPleiades(t, dir, command, "runbooks/check.yaml")
-		if err == nil || !strings.Contains(out, `(name "fix it"): `+engine.ErrRescueLockAll) || strings.Contains(out, "on purpose") {
-			t.Errorf("%s: %v\n%s", command, err, out)
+	for _, args := range [][]string{{"validate"}, {"run"}, {"run", "--mode", "check"}} {
+		out, err := runPleiades(t, dir, append(args, "runbooks/check.yaml")...)
+		if err == nil || !strings.Contains(out, `(name "fix it"): `+engine.ErrRescueLockAll) || strings.Contains(out, "on purpose") || strings.Contains(out, "executing:") {
+			t.Errorf("%v: %v\n%s", args, err, out)
+		}
+		if args[0] == "run" && !strings.Contains(out, "validation failed") {
+			t.Errorf("%v was not refused by validation:\n%s", args, out)
 		}
 	}
 
-	// One task of the block has a target of its own, so the block runs as one
-	// unit and its rescue is decided once: it may take every lock.
+	// One task of the block names a target other than the runbook's hosts, so
+	// the block runs as one unit and its rescue is decided once: it may take
+	// every lock.
 	writeProject(t, dir, map[string]string{"runbooks/check.yaml": header + `id: rescue_lock_all_unit
 hosts: web
 tasks:
@@ -77,7 +83,7 @@ tasks:
 	// rescue cannot take the lock: both commands say so before anything runs.
 	for _, command := range []string{"validate", "run"} {
 		out, err := runPleiades(t, dir, command, "runbooks/check.yaml", "--skip-tags", "other")
-		if err == nil || !strings.Contains(out, `(name "fix it"): `+engine.ErrRescueLockAll) || strings.Contains(out, "on purpose") {
+		if err == nil || !strings.Contains(out, `(name "fix it"): `+engine.ErrRescueLockAll) || strings.Contains(out, "on purpose") || strings.Contains(out, "executing:") {
 			t.Errorf("%s --skip-tags other: %v\n%s", command, err, out)
 		}
 	}

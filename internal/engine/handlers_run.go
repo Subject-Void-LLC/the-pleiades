@@ -123,10 +123,10 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		return append(results, failedNode(nodeID, started, FailureStageLockAll, wrapped))
 	}
 	if runsWithNoDevice {
-		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, rescue)...)
+		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, cause)...)
 	}
 	for _, out := range runConcurrently(run, func(d inventory.InventoryItem) []NodeResult {
-		return r.rescueOn(ctx, nodeID, task, d, started, mask, rescue)
+		return r.rescueOn(ctx, nodeID, task, d, started, mask, cause)
 	}) {
 		results = append(results, out...)
 	}
@@ -136,7 +136,9 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 // rescueOn runs task nodeID on d alone (nil for a task with no device),
 // with d as its device root, d's own variables in its vars, as a top-level
 // task has them, and, for a rescue task, d's failure as its error root.
-func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, rescue bool) []NodeResult {
+// cause is why the task runs per device (run.perDevice): outside a unit a
+// rescue task's is always PerDeviceRescue, which is how it is known here.
+func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, cause PerDeviceCause) []NodeResult {
 	key := ""
 	var devices []inventory.InventoryItem
 	if d != nil {
@@ -144,7 +146,7 @@ func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d invento
 		devices = []inventory.InventoryItem{d}
 	}
 	roots := deviceRoots(d)
-	if rescue {
+	if cause == PerDeviceRescue {
 		if e := r.handlers.errorContext(nodeID, key, r.dag, mask); e != nil {
 			roots[TemplateRootError] = e
 		}

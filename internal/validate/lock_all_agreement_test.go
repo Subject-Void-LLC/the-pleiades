@@ -81,7 +81,7 @@ type lockAllCase struct {
 	// given, as run --skip-tags gives it.
 	skipTags []string
 	// after, when set, changes the built runbook into one the builder would
-	// not produce: the lock on a task the builder refuses it on, or a
+	// not produce: the lock on a handler, which the builder refuses, or a
 	// condition that cannot be read. It is how the engine's and validate's
 	// backstops are reached; every other case is the runbook as written.
 	after func(t *testing.T, dag *engine.DAG)
@@ -107,21 +107,23 @@ func lockOn(node string) func(*testing.T, *engine.DAG) {
 	}
 }
 
-// lockAllCases is every case. The rescue and handler runbooks the builder
-// refuses outright are in TestLockAllTheBuilderRefuses; here the same two
-// causes are reached the ways a built runbook still can reach them.
+// lockAllCases is every case. A handler's lock is refused by the builder
+// (TestLockAll_TheBuilderRefusesOnlyAHandler), so that one cause is reached
+// by setting the lock after the build.
 func lockAllCases() []lockAllCase {
 	const lock = "    lock_acquisition: all_at_plan_time\n"
 	const deviceRead = "    when: [\"device.name != ''\"]\n"
 	// A block that runs as one unit while its task with a target of its own
 	// is kept, and per device once --skip-tags leaves that task out.
 	const unitBlock = "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n      - name: elsewhere\n        noop: {target: web1}\n        tags: [other]\n    rescue:\n      - name: " + lockAllTask + "\n        noop: {}\n        lock_acquisition: all_at_plan_time\n"
-	const rescued = "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n    rescue:\n      - name: " + lockAllTask + "\n        noop: {}\n"
+	const rescued = "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n    rescue:\n      - name: " + lockAllTask + "\n        noop: {}\n        lock_acquisition: all_at_plan_time\n"
+	const nested = "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n    rescue:\n      - name: inner\n        block:\n          - name: " + lockAllTask + "\n            noop: {}\n            lock_acquisition: all_at_plan_time\n"
 	const notified = "id: h\nhosts: web\ntasks:\n  - name: changes\n    noop: {}\n    notify: " + lockAllTask + "\nhandlers:\n  - name: " + lockAllTask + "\n    noop: {}\n"
 	const setFact = "id: v\nhosts: web\ntasks:\n  - name: set it\n    set_fact:\n      x: 1\n  - name: " + lockAllTask + "\n    noop: {}\n" + lock
 	return []lockAllCase{
 		{name: "a rescue task, its block per device under a tag selection", cause: engine.PerDeviceRescue, runbook: unitBlock, skipTags: []string{"other"}},
-		{name: "a rescue task locked after the build", cause: engine.PerDeviceRescue, runbook: rescued, after: lockOn("tasks[0].rescue[0]")},
+		{name: "a rescue task", cause: engine.PerDeviceRescue, runbook: rescued},
+		{name: "a task of a block inside a rescue", cause: engine.PerDeviceRescue, runbook: nested},
 		{name: "a loop", cause: engine.PerDeviceIteration, runbook: oneTask(lock + "    loop: [a, b]\n")},
 		{name: "with_items", cause: engine.PerDeviceIteration, runbook: oneTask(lock + "    with_items: [a, b]\n")},
 		{name: "a loop written as an expression", cause: engine.PerDeviceIteration, runbook: strings.Replace(oneTask(lock+"    loop: \"{{ vars.names }}\"\n"), "tasks:\n", "vars:\n  names: [a, b]\ntasks:\n", 1)},
@@ -198,12 +200,12 @@ func TestLockAll_ValidateAndTheRunAgreeForEveryCause(t *testing.T) {
 
 			// The engine's answer, asked as validate asks it.
 			world := validate.WorldView{DAG: dag, Resolver: resolver}
-			got, atRunTime := engine.RunsPerDevice(dag, node, dag.Nodes[node], render.New(), func() []inventory.InventoryItem {
+			got := engine.RunsPerDevice(dag, node, dag.Nodes[node], render.New(), func() []inventory.InventoryItem {
 				devices, _ := world.ResolveAll(engine.TaskTarget(dag, dag.Nodes[node]))
 				return devices
 			})
-			if got != tc.cause || atRunTime {
-				t.Errorf("engine.RunsPerDevice: %q (at run time %v), want %q", got, atRunTime, tc.cause)
+			if got != tc.cause {
+				t.Errorf("engine.RunsPerDevice: %q, want %q", got, tc.cause)
 			}
 
 			// Plan time.
@@ -255,34 +257,43 @@ func TestLockAll_ValidateAndTheRunAgreeForEveryCause(t *testing.T) {
 	}
 }
 
-// TestLockAllTheBuilderRefuses: a rescue task in a block that handles
-// failures per device, and a handler, can never take the lock, so the
-// runbook does not build, on any tier, and the refusal ends in the words the
-// run and validate use for the same cause. A rescue task in a block that
-// runs as one unit builds.
-func TestLockAllTheBuilderRefuses(t *testing.T) {
+// TestLockAll_TheBuilderRefusesOnlyAHandler: a runbook whose rescue task
+// takes the lock still builds, and so does every other cause but a
+// handler's. This is a recovery property, not an oversight. A rollback
+// compiles the runbook the run ran (pleiades rollback's findRunbook, the
+// Controller's rollback planner, the Runner's adapter), and lock_acquisition
+// is hashed into DAG.Version, so the key cannot be edited away afterwards
+// either. A builder that refused such a runbook would leave a run that had
+// already changed devices with no way to undo it. Validation and the run
+// refuse it instead (the agreement test above), and neither stands between
+// a journal and its rollback. A handler's lock has been refused by the
+// builder since handlers existed, so no run of one is waiting to be undone.
+func TestLockAll_TheBuilderRefusesOnlyAHandler(t *testing.T) {
 	eval, err := engine.NewCELEvaluator()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		name, runbook string
-		cause         engine.PerDeviceCause
-	}{
-		{"a rescue task", "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n    rescue:\n      - name: every lock\n        noop: {}\n        lock_acquisition: all_at_plan_time\n", engine.PerDeviceRescue},
-		{"a task of a block inside a rescue", "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n    rescue:\n      - name: inner\n        block:\n          - name: every lock\n            noop: {}\n            lock_acquisition: all_at_plan_time\n", engine.PerDeviceRescue},
-		{"a handler", "id: h\nhosts: web\ntasks:\n  - name: changes\n    noop: {}\n    notify: every lock\nhandlers:\n  - name: every lock\n    noop: {}\n    lock_acquisition: all_at_plan_time\n", engine.PerDeviceHandler},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := engine.NewBuilder(eval).BuildFromYAML([]byte(tc.runbook))
-			if err == nil || !strings.HasSuffix(err.Error(), ": "+tc.cause.LockAllReason()) || !strings.Contains(err.Error(), "every lock") {
-				t.Fatalf("build: %v, want a refusal naming the task and ending in %q", err, tc.cause.LockAllReason())
-			}
-		})
+	builds := 0
+	for _, tc := range lockAllCases() {
+		if tc.unlocked || tc.cause == engine.NotPerDevice || tc.cause == engine.PerDeviceHandler {
+			continue
+		}
+		builds++
+		dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(tc.runbook))
+		if err != nil {
+			t.Errorf("%s: the builder refuses it, so a run of it could not be rolled back: %v", tc.name, err)
+			continue
+		}
+		if dag.Version == "" {
+			t.Errorf("%s: built with no version for a journal to name", tc.name)
+		}
 	}
-	unit := "id: g\nhosts: web\ntasks:\n  - name: guarded\n    block:\n      - name: fails\n        noop: {}\n      - name: elsewhere\n        noop: {target: web1}\n    rescue:\n      - name: every lock\n        noop: {}\n        lock_acquisition: all_at_plan_time\n"
-	if _, err := engine.NewBuilder(eval).BuildFromYAML([]byte(unit)); err != nil {
-		t.Errorf("a unit's rescue task taking every lock: %v, want it built", err)
+	if builds < len(engine.PerDeviceCauses())-1 {
+		t.Fatalf("only %d cases were built", builds)
+	}
+	handler := "id: h\nhosts: web\ntasks:\n  - name: changes\n    noop: {}\n    notify: every lock\nhandlers:\n  - name: every lock\n    noop: {}\n    lock_acquisition: all_at_plan_time\n"
+	if _, err := engine.NewBuilder(eval).BuildFromYAML([]byte(handler)); err == nil || !strings.HasSuffix(err.Error(), ": "+engine.PerDeviceHandler.LockAllReason()) {
+		t.Errorf("building a handler that takes every lock: %v, want the handler's refusal", err)
 	}
 }
 

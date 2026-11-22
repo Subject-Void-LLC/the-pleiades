@@ -9,18 +9,25 @@
 // lock_acquisition: all_at_plan_time, which takes every device's lock
 // together.
 //
-// RunsPerDevice is the only place that decides it. The run asks it to choose
-// the path, and validation asks it to refuse the lock before anything runs, so
-// a cause added here reaches both, and each cause carries its own reason
+// RunsPerDevice decides it for the run and for validation. The run asks it
+// to choose the path (runNode, runGuarded), and validation asks it to refuse
+// the lock before anything runs (internal/validate's lock_all.go), so a cause
+// added here reaches both, and each cause carries its own reason
 // (PerDeviceCause.LockAllReason), so both say the same words for one task.
 // A new cause is a new constant below, a line in PerDeviceCauses and a reason;
 // the tests beside this file and in internal/validate then require a case that
 // runs it through validation and through a real run.
+//
+// Two refusals of the lock are made elsewhere and do not ask it. The builder
+// refuses a handler's (validateHandlers, notify.go), from the runbook as
+// written. And the builder refuses a background task's (async_validate.go),
+// which is another question. The builder refuses no other cause, and must
+// not: a rollback compiles the runbook the run ran, so a runbook that has
+// run has to go on compiling (FAILURE_PATTERNS 1355's resolution).
 package engine
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -94,10 +101,9 @@ const ErrIterationLockAll = "a task with loop:, with_items: or until: runs its i
 
 // ErrRescueLockAll is why a rescue task cannot take lock_acquisition:
 // all_at_plan_time: it runs on each device on its own, reading that device's
-// failure. The builder refuses it (refuseRescueLockAll), validation refuses
-// it for a tag selection that leaves its block no task with a target of its
-// own, and the run refuses it when it reaches the rescue; all three ask
-// RunsPerDevice.
+// failure. Validation refuses it before anything runs and the run refuses it
+// when it reaches the rescue, both for PerDeviceRescue. The builder does not:
+// see the package comment above.
 const ErrRescueLockAll = "a rescue task runs on each device on its own, reading that device's failure" + lockAllTail
 
 // ErrVarsLockAll is why a task reading variables that differ by device cannot
@@ -114,8 +120,8 @@ const ErrFactsLockAll = "a task whose condition reads its device's stored facts 
 const ErrUnreadableConditionLockAll = "a task whose condition cannot be read for what it reads is decided on each device on its own" + lockAllTail
 
 // LockAllReason is why a task that runs per device for cause c cannot take
-// lock_acquisition: all_at_plan_time. The run's refusal, validation's finding
-// and the builder's error all end with it. It is empty for NotPerDevice and
+// lock_acquisition: all_at_plan_time. The run's refusal and validation's
+// finding both end with it. It is empty for NotPerDevice and
 // for a value that is not a cause.
 func (c PerDeviceCause) LockAllReason() string {
 	switch c {
@@ -148,30 +154,30 @@ func (c PerDeviceCause) LockAllReason() string {
 //     parameter is rendered, so none is read for a device or a variable.
 //   - devices returns the devices task's target names now, or none for a
 //     target rendered from data. It is called only when the answer depends on
-//     it: the task reads vars and no task of the runbook sets a fact. A caller
-//     that cannot say which devices passes nil.
+//     it: the task reads vars and no task of the runbook sets a fact. Every
+//     caller has an inventory (the run its resolver, validation its world),
+//     so it is never nil.
 //
-// The answer is a cause, or NotPerDevice. atRunTime is true only beside
-// NotPerDevice, when the one thing that could still make the task run per
-// device is PerDeviceVarsDiffer and devices was nil: the task reads vars, and
-// whether a device brings variables of its own is known only where the
-// inventory is. Every other cause is read from the runbook alone, so a caller
-// before the run gets either a definite cause or that one open question.
+// Every cause but PerDeviceVarsDiffer is read from the runbook alone, as it
+// is compiled and tag-selected. That one also reads the inventory, and the
+// two callers read it differently on purpose: validation asks about every
+// device the target names, and a run under --limit about those it reaches.
 //
 // What a run adds that no caller before it can know is whether the task is
 // reached at all: a rescue task runs only where its block failed, and a check
-// never runs one. A cause is what holds when the task runs.
-func RunsPerDevice(dag *DAG, nodeID string, task *Task, eng render.Engine, devices func() []inventory.InventoryItem) (cause PerDeviceCause, atRunTime bool) {
+// never runs one (runGuarded skips it before asking). A cause is what holds
+// when the task runs.
+func RunsPerDevice(dag *DAG, nodeID string, task *Task, eng render.Engine, devices func() []inventory.InventoryItem) PerDeviceCause {
 	if rescuesPerDevice(dag, nodeID) {
-		return PerDeviceRescue, false
+		return PerDeviceRescue
 	}
 	// A loop or a retry runs on each device on its own (loop.go), and so does
 	// a handler, which runs only where it was notified (notify.go).
 	if task.iterates() {
-		return PerDeviceIteration, false
+		return PerDeviceIteration
 	}
 	if task.handler != nil {
-		return PerDeviceHandler, false
+		return PerDeviceHandler
 	}
 	conditional := dag.Conditions[nodeID] != nil
 	if conditional {
@@ -181,34 +187,31 @@ func RunsPerDevice(dag *DAG, nodeID string, task *Task, eng render.Engine, devic
 		// it read device.
 		uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice)
 		if err != nil {
-			return PerDeviceConditionUnreadable, false
+			return PerDeviceConditionUnreadable
 		}
 		if uses {
-			return PerDeviceConditionReadsDevice, false
+			return PerDeviceConditionReadsDevice
 		}
 		// A stored fact is the device's own (facts_root.go).
 		if len(task.conditionFactKeys()) > 0 {
-			return PerDeviceConditionReadsFacts, false
+			return PerDeviceConditionReadsFacts
 		}
 	}
 	if eng != nil && ParamsReadRoot(eng, task.Params, TemplateRootDevice) {
-		return PerDeviceParamsReadDevice, false
+		return PerDeviceParamsReadDevice
 	}
 	if !readsVars(task, conditional, eng) {
-		return NotPerDevice, false
+		return NotPerDevice
 	}
 	if dag.UsesSetFact {
-		return PerDeviceVarsDiffer, false
-	}
-	if devices == nil {
-		return NotPerDevice, true
+		return PerDeviceVarsDiffer
 	}
 	for _, d := range devices() {
 		if len(deviceVars(d)) > 0 {
-			return PerDeviceVarsDiffer, false
+			return PerDeviceVarsDiffer
 		}
 	}
-	return NotPerDevice, false
+	return NotPerDevice
 }
 
 // rescuesPerDevice reports whether nodeID is a rescue task its devices each
@@ -249,33 +252,12 @@ func readsVars(task *Task, conditional bool, eng render.Engine) bool {
 	return eng != nil && ParamsReadRoot(eng, task.Params, TemplateRootVars)
 }
 
-// refuseRescueLockAll refuses, when the runbook is built, a rescue task that
-// takes lock_acquisition: all_at_plan_time in a block that handles failures
-// per device. Such a task can never run: the run refuses it wherever it
-// reaches it. Refusing it here, as a handler's is (validateHandlers), means
-// every tier refuses the runbook the same way, before any task runs and
-// before a Controller accepts a launch of it. dag is the whole runbook,
-// before any tag selection: a block that is no unit with every task counted
-// is no unit under any selection, so nothing a run could accept is refused.
-func refuseRescueLockAll(dag *DAG) error {
-	ids := make([]string, 0, len(dag.Nodes))
-	for id := range dag.Nodes {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		task := dag.Nodes[id]
-		if task.LockAcquisition == AcquisitionAllAtPlanTime && rescuesPerDevice(dag, id) {
-			return fmt.Errorf("task %s: %s", taskLabel(id, task), ErrRescueLockAll)
-		}
-	}
-	return nil
-}
-
 // perDevice is RunsPerDevice for this run: its renderer, and the devices
-// task's target names now.
+// task's target names now. It is where every cause a run acts on comes from:
+// runPerDevice and rescueOn take the cause it returned, which a test holds
+// true of every call (TestPerDeviceCause_OnlyPerDeviceSendsATaskDownThePath).
 func (r *run) perDevice(nodeID string, task *Task) PerDeviceCause {
-	cause, _ := RunsPerDevice(r.dag, nodeID, task, r.x.renderer, func() []inventory.InventoryItem {
+	return RunsPerDevice(r.dag, nodeID, task, r.x.renderer, func() []inventory.InventoryItem {
 		target := TaskTarget(r.dag, task)
 		if target == "" || HasTemplate(target) {
 			return nil
@@ -283,7 +265,6 @@ func (r *run) perDevice(nodeID string, task *Task) PerDeviceCause {
 		devices, _ := ResolveTargets(r.x.resolver, target)
 		return devices
 	})
-	return cause
 }
 
 // refuseLockAll returns the error a task running per device for cause fails

@@ -26,10 +26,18 @@ import (
 // cannot be added beside it unnoticed.
 //
 // The devices it hands the engine are those the task's target names in the
-// whole inventory (varsDevices), so the answer is definite and the engine's
-// "decided at run time" answer, for a caller with no inventory, never comes
-// back here. A rollback: step is not asked about: the builder refuses
-// lock_acquisition on one.
+// whole inventory (varsDevices), whatever --limit the run is given: a device
+// outside the limit that brings variables of its own still gets the task
+// refused, since validate takes no limit and run --limit must not accept
+// what validate refuses. A rollback: step is not asked about: the builder
+// refuses lock_acquisition on one.
+//
+// A rescue task is refused here, not by the builder, in every mode: the
+// engine skips a rescue in a check before it would refuse the lock, and
+// this rule does not read the mode, so a check of such a runbook is refused
+// before it starts, as the real run is. The builder must not refuse it: a
+// rollback compiles the runbook the run ran, and a runbook that stops
+// compiling cannot be rolled back.
 func lockAllFindings(world WorldView, eng render.Engine) []Finding {
 	ids := make([]string, 0, len(world.DAG.Nodes))
 	for id, task := range world.DAG.Nodes {
@@ -41,7 +49,7 @@ func lockAllFindings(world WorldView, eng render.Engine) []Finding {
 	var findings []Finding
 	for _, id := range ids {
 		task := world.DAG.Nodes[id]
-		cause, _ := engine.RunsPerDevice(world.DAG, id, task, eng, func() []inventory.InventoryItem { return varsDevices(world, task) })
+		cause := engine.RunsPerDevice(world.DAG, id, task, eng, func() []inventory.InventoryItem { return varsDevices(world, task) })
 		if cause == engine.NotPerDevice {
 			continue
 		}

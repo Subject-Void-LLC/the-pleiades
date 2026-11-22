@@ -834,12 +834,6 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		return nil, err
 	}
 
-	// A rescue task that could never run (per_device.go). After the walk,
-	// which is what says which blocks run as one unit.
-	if err := refuseRescueLockAll(dag); err != nil {
-		return nil, err
-	}
-
 	// Cycle Detection (DFS). The graph is built entirely by this
 	// deterministic walk over a tree, so a cycle should be structurally
 	// unreachable; this check is cheap and stays as a defensive guard.
