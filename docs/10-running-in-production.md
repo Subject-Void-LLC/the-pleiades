@@ -1609,8 +1609,10 @@ other.
 
 A task that runs on each device on its own cannot take `all_at_plan_time`, because its
 devices' locks are never taken together: a task with `loop:`, `with_items:` or `until:`,
-a task that reads `device` or variables that differ by device, and a rescue task.
-`pleiades validate` refuses each one, and so does a run before its first task.
+and a task that reads `device` or variables that differ by device. `pleiades validate`
+refuses each one, naming which it is, and so does a run before its first task. A rescue
+task cannot take it either, but nothing checks that ahead of time: the run refuses it
+when it reaches the rescue.
 
 ### Safety versus dry-run
 

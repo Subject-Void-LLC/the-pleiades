@@ -112,11 +112,11 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		return append(results, r.dispatch(ctx, nodeID, prepared, run, started)...)
 	}
 
-	// A rescue task, each device reading its own failure, or a task reading
-	// the device it runs on. Both run on each device on its own, so neither
-	// can take every device's lock together.
+	// A rescue task, each device reading its own failure, a task that loops
+	// or retries, or a task reading the device it runs on. Each runs on each
+	// device on its own, so none can take every device's lock together.
 	if task.LockAcquisition == AcquisitionAllAtPlanTime {
-		reason := ErrDeviceRootLockAll
+		reason := PerDeviceLockAllReason(task)
 		if rescue {
 			reason = ErrRescueLockAll
 		}
