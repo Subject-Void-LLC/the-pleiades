@@ -1,0 +1,1 @@
+A condition that is known not to be true or false, such as a `when_cel` holding a string, a number or an optional value like `facts[?"os.codename"]` alone, is now refused by `pleiades validate` and when a run builds the runbook, naming its type; it used to pass and fail the task only when the run reached it. Add the test the condition meant, for example `.hasValue()`.
