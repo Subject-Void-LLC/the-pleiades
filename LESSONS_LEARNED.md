@@ -507,6 +507,7 @@ story, per `.AGENTS/AGENTS.md`.
 472. LESSONS 471 holds for every brief, a subagent's included: check each premise in the code before sending, and keep the line telling the receiver to check it first (FAILURE_PATTERNS 1357; a repeat of LESSONS 471 one day later; in kind of FAILURE_PATTERNS 1352) (2026-11-22)
 473. A test of processes racing releases them together after each reports ready, never at a shared future instant, and is run once with the fix removed to see it fail (FAILURE_PATTERNS 1353; an extension of LESSONS 338 and of FAILURE_PATTERNS 830's lesson) (2026-11-22)
 474. A helper process a test starts blocks on standard input and exits at end of file; it never sleeps for a fixed long time (FAILURE_PATTERNS 1353; in kind of FAILURE_PATTERNS 729 and LESSONS 327) (2026-11-22)
+475. A new refusal goes in validation and the run, not in the builder, whenever recovery (rollback, relaunch, resume) builds what already ran; and a key that is part of `DAG.Version` cannot be edited away to get past a refusal (FAILURE_PATTERNS 1359; near LESSONS 257 and 427; in kind of FAILURE_PATTERNS 837 and 841 for the tier half) (2026-11-22)
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

@@ -8764,3 +8764,29 @@ other side: a stop ended one process and left its children running.
 
 **Rule in practice.** The parent keeps the write end of the child's standard input and closes it to end the child.
 The child's last act is a read of standard input to end of file. No helper holds a resource behind a timer.
+
+## 475. A new refusal goes in validation and the run, not in the builder, whenever recovery builds what already ran; and a key that is part of `DAG.Version` cannot be edited away to get past a refusal (FAILURE_PATTERNS 1359; near LESSONS 257 and 427; in kind of FAILURE_PATTERNS 837 and 841 for the tier half) (2026-11-22)
+
+**Why.** Branch `fix/validate-lock-all-one-question`. The first fix for FAILURE_PATTERNS 1355 refused lock-all on a
+rescue task inside the builder (`buildFromDef`). Review caught two things before merge. A rollback compiles the
+runbook its job ran (the Controller's `GetDAG`, the Runner's adapter, and the CLI's `findRunbook`), so a runbook
+that ran before the refusal existed could no longer be rolled back. And the operator had no way around it:
+`lock_acquisition` is in `forwardDefinition`, so it is in `DAG.Version`, and a rollback of an edited runbook is
+refused as changed. The same refusal also rested on `TaskNeedsDevice`, which a Controller answers differently
+because it links no Collection, so the tiers would have disagreed on whether the runbook builds. The refusal was
+moved out of the builder; validation and the run make it.
+
+**Reasoning.** The builder is not only the front door. Every reader of a runbook calls it: validate, run, launch,
+rollback, relaunch and resume. A refusal there applies to work that is already done and now needs undoing, which is
+the worst moment to refuse. Validation and the run are called only when new work starts, so a refusal there stops
+the new run and leaves recovery alone. LESSONS 257 says to run a recovery feature end to end in its awkward orders;
+this is one of those orders, met from the other side: the feature under change was not recovery, and it broke
+recovery. LESSONS 427 is the same shape for stored data: a new refusal at creation meets inputs an older release
+accepted.
+
+**Rule in practice.** Before adding a refusal, list the callers of the function it goes in. If any caller builds
+something that already ran, the refusal goes in validation and the run. If the refusal reads the method registry,
+ask what a Controller answers. If the refused key is hashed into `DAG.Version`, say in the review that an operator
+cannot edit it away. Two build-time refusals that predate this rule have the same property and were left as they
+are: a handler taking lock-all (`internal/engine/notify.go`) and a background task taking it
+(`internal/engine/async_validate.go`).
