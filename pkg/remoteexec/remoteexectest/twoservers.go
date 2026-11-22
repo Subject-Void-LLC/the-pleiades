@@ -40,6 +40,10 @@ type TwoServers struct {
 
 	mu   sync.Mutex
 	live map[net.Conn]struct{}
+	// stopped is set by Close under mu; a connection track sees after it is
+	// closed at once, so one accepted or dialed during Close cannot hold
+	// Close's wait open.
+	stopped bool
 }
 
 // StartTwoServers starts the listener, with behind answering every connection
@@ -99,6 +103,7 @@ func (ts *TwoServers) Close() {
 	ts.closed.Do(func() {
 		_ = ts.listener.Close()
 		ts.mu.Lock()
+		ts.stopped = true
 		for c := range ts.live {
 			_ = c.Close()
 		}
@@ -107,10 +112,15 @@ func (ts *TwoServers) Close() {
 	})
 }
 
-// track registers c as live, so Close can end it.
+// track registers c as live, so Close can end it, or closes it at once when
+// Close has already run.
 func (ts *TwoServers) track(c net.Conn) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	if ts.stopped {
+		_ = c.Close()
+		return
+	}
 	ts.live[c] = struct{}{}
 }
 
