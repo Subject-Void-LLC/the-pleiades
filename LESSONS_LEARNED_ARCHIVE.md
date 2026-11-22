@@ -8712,3 +8712,55 @@ ones a review is least able to catch, because it takes them as given.
 Settle each one in the code, with the language server or a short test, and attach the file it rests on, as 419 asks.
 (3) If the question disappears once its premise is checked, it needed no review. (4) When an answer comes back
 resting on a premise of the brief, check that premise before acting on the answer.
+
+## 472. LESSONS 471 holds for every brief, a subagent's included: check each premise in the code before sending, and keep the line telling the receiver to check it first (FAILURE_PATTERNS 1357; a repeat of LESSONS 471 one day later; in kind of FAILURE_PATTERNS 1352) (2026-11-22)
+
+**Why.** The orchestrating session briefed a subagent to build a guard on the premise that the parser refuses a task
+written as `fqcn:` plus `params:`. The parser reads that form: `fqcn` and `params` are reserved task keys,
+`internal/engine/task_syntax.go` rewrites the key form into that shape, and `validate.TaskFormWarnings` only warns
+(FAILURE_PATTERNS 1357). The guard as briefed would have needed about 55 allowlist entries over 308 lines in 63 Go
+test files.
+
+**What is old and what is new.** LESSONS 471 was written the day before, and its rule sentence names a paid review.
+It was read as a rule about money. The premise of a free brief is the same kind of claim, and the cost of a false
+one is the work built on it. The new part is what worked: the brief told the subagent to check the premise first,
+and it stopped before building anything.
+
+**Rule in practice.** (1) 471's steps apply to every brief: a paid review, a subagent, a plan handed to another
+session. (2) A statement that something "is refused" names what refuses it: the parser, a validate rule, a test, or
+only a written rule. Those are four different facts. (3) Every brief that asks for work resting on a premise says
+"check this first and stop if it is false". (4) When the receiver stops, the outcome goes to the owner as a choice,
+not as a smaller version of the same work.
+
+## 473. A test of processes racing releases them together after each reports ready, never at a shared future instant, and is run once with the fix removed to see it fail (FAILURE_PATTERNS 1353; an extension of LESSONS 338 and of FAILURE_PATTERNS 830's lesson) (2026-11-22)
+
+**Why.** Branch `fix/credential-save-lock`. The first multi-process test of the credential file lock gave every
+child one future instant to start at. A child that started late missed the instant and ran when it could, so the
+children ran one after another and the test passed with the lock call removed. Review caught it. The children now
+each report ready, are released together, and the test is red 3 runs of 3 under `-race` without the lock
+(FAILURE_PATTERNS 1353). The earlier test on `main`, from #223, had a second fault of the same kind: it asserted
+only `len(listed) == 0`, so it tolerated lost entries.
+
+**What is old and what is new.** LESSONS 338 says to prove a hazard with a control that must fail without the fix,
+and FAILURE_PATTERNS 830's lesson says a store's first test is two writers at once, run once with the lock removed.
+Both were known. The new part is how such a test goes quiet: a start time set ahead of the clock depends on how
+fast the machine starts processes, and a slow start turns a race into a queue.
+
+**Rule in practice.** (1) Each child prints a ready line and then waits on a signal from the parent. (2) The parent
+waits for every ready line, then releases all of them at once. (3) The assertion counts every entry each writer
+made, not only that the result is well formed. (4) The test is run with the fix removed, more than once and under
+`-race`, and the count of red runs is written down.
+
+## 474. A helper process a test starts blocks on standard input and exits at end of file; it never sleeps for a fixed long time (FAILURE_PATTERNS 1353; in kind of FAILURE_PATTERNS 729 and LESSONS 327) (2026-11-22)
+
+**Why.** Branch `fix/credential-save-lock`. A test of the credential file lock started a helper child that held the
+lock and slept for an hour. When the test binary is killed (a timeout, a headroom stop, an interrupt), nothing ends
+that child, so it holds the lock and its memory for the rest of the hour. Review caught it before push. The helper
+now reads standard input until end of file and exits, and the helpers run from `TestMain`.
+
+**Reasoning.** A pipe from the parent closes when the parent dies, however it dies. A sleep, a signal handler or a
+cleanup function all need the parent to live long enough to act. FAILURE_PATTERNS 729 is the same loss from the
+other side: a stop ended one process and left its children running.
+
+**Rule in practice.** The parent keeps the write end of the child's standard input and closes it to end the child.
+The child's last act is a read of standard input to end of file. No helper holds a resource behind a timer.
