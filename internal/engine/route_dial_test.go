@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -25,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // echoMessage is what a round trip sends through the route and reads back.
@@ -55,7 +57,15 @@ type routeFixture struct {
 
 func newRouteFixture(t *testing.T) *routeFixture {
 	t.Helper()
-	bastion, err := remoteexectest.Start(remoteexectest.Options{})
+	return newRouteFixtureFor(t, remoteexectest.Options{}, nil)
+}
+
+// newRouteFixtureFor is newRouteFixture with the bastion started under opts,
+// and its stored credential holding privateKeyPEM beside its password when
+// that is not nil.
+func newRouteFixtureFor(t *testing.T, opts remoteexectest.Options, privateKeyPEM []byte) *routeFixture {
+	t.Helper()
+	bastion, err := remoteexectest.Start(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +104,41 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &routeFixture{bastion: bastion, target: echo.Addr().String(), inv: hops{"bastion": hop}, creds: credential.NewStaticStore(bastion.Secrets())}
+	secrets := bastion.Secrets()
+	if privateKeyPEM != nil {
+		secrets[wire.SecretPrivateKeyPEM] = string(privateKeyPEM)
+	}
+	return &routeFixture{bastion: bastion, target: echo.Addr().String(), inv: hops{"bastion": hop}, creds: credential.NewStaticStore(secrets)}
+}
+
+// TestRouteDialerFor_ABastionsSkippedKeyIsWarned proves a bastion whose key
+// and password credential logged in by password, because it takes the RSA
+// key only with ssh-rsa, is warned about in the task's collector when a
+// method dials an address of its own through the device's route.
+func TestRouteDialerFor_ABastionsSkippedKeyIsWarned(t *testing.T) {
+	keyPEM, pub, err := remoteexectest.RSAUserKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newRouteFixtureFor(t, remoteexectest.Options{AuthorizedKey: pub, PublicKeyAuthAlgorithms: []string{cryptossh.KeyAlgoRSA}}, keyPEM)
+	cluster := &inventorytest.Stub{StubName: "k", Props: map[string]pkginventory.PropertyValue{"route": []any{"bastion"}}}
+	dial, _, err := engine.RouteDialerFor(context.Background(), f.inv, f.creds, cluster)
+	if err != nil || dial == nil {
+		t.Fatalf("RouteDialerFor = %v", err)
+	}
+	ctx := sdk.WithConnectionNotes(context.Background(), "k")
+	conn, err := dial(ctx, "tcp", f.target)
+	if err != nil {
+		t.Fatalf("dialing through the route: %v", err)
+	}
+	_ = conn.Close()
+	want := `device "bastion ` + f.bastion.Addr() + ` carrying k" did not use the stored RSA key`
+	if w := strings.Join(sdk.ConnectionWarnings(ctx), "\n"); !strings.Contains(w, want) {
+		t.Errorf("the task's warnings %q do not say %q", w, want)
+	}
+	if f.bastion.KeyLogins() != 0 {
+		t.Errorf("the bastion verified %d key logins, want none", f.bastion.KeyLogins())
+	}
 }
 
 // roundTrip writes through dial to the echo target and reads it back.

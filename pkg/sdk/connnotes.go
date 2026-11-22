@@ -10,6 +10,7 @@ package sdk
 
 import (
 	"context"
+	"net"
 	"slices"
 	"sync"
 
@@ -37,11 +38,33 @@ func WithConnectionNotes(ctx context.Context, device string) context.Context {
 // NoteConnection records conn's warnings in ctx's collector, and does
 // nothing when ctx carries none or conn has none to say.
 func NoteConnection(ctx context.Context, conn *remoteexec.Conn) {
-	notes, ok := ctx.Value(connNotesKey{}).(*connNotes)
-	if !ok || conn == nil {
+	if conn == nil {
 		return
 	}
-	warnings := conn.LegacyWarnings(notes.device)
+	note(ctx, conn.LegacyWarnings)
+}
+
+// NoteRoute records, in ctx's collector, the warnings of the bastion hops of
+// conn, a connection remoteexec.Runner.DialThroughHops opened through a
+// device's route for a protocol other than SSH (telnet, a serial console, an
+// API): a weakening on a bastion carries the device's traffic whatever rides
+// it (remoteexec.RouteWarnings). It does nothing when ctx carries no
+// collector or conn came from somewhere else.
+func NoteRoute(ctx context.Context, conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	note(ctx, func(device string) []string { return remoteexec.RouteWarnings(conn, device) })
+}
+
+// note adds warningsFor(the collector's device) to ctx's collector, each
+// warning once, and does nothing when ctx carries none.
+func note(ctx context.Context, warningsFor func(device string) []string) {
+	notes, ok := ctx.Value(connNotesKey{}).(*connNotes)
+	if !ok {
+		return
+	}
+	warnings := warningsFor(notes.device)
 	notes.mu.Lock()
 	defer notes.mu.Unlock()
 	for _, w := range warnings {

@@ -116,7 +116,14 @@ func (c *Conn) LegacyWarnings(device string) []string {
 		return nil
 	}
 	out := legWarnings(device, c.legacy, c.userKey, c.client)
-	for _, h := range c.hopLegacy {
+	return append(out, hopWarnings(device, c.hopLegacy)...)
+}
+
+// hopWarnings is each bastion hop's warnings, for the named device behind
+// them, naming the hop.
+func hopWarnings(device string, hops []hopLegacy) []string {
+	var out []string
+	for _, h := range hops {
 		out = append(out, legWarnings("bastion "+h.addr+" carrying "+device, h.legacy, h.userKey, h.client)...)
 	}
 	return out
