@@ -185,12 +185,21 @@ web01  root  private_key  key ed25519 SHA256:ZfQpjeGpfm+9ygwX/TtPIiJPTth+JUTRdHv
 The fingerprint is the one `ssh-keygen -lf` prints for the key's public half, so it matches a
 line in a machine's `authorized_keys` to the credential that logs in with it, and shows which
 devices share a key. A credential stored before this was recorded reads `key fingerprint not
-recorded`; store it again to record it. A bundle (`--pfx`) is never opened when it is stored,
-so it records nothing. The record is plain text, so anyone who can edit the file can change
-it: every run compares it with the key it decrypts, and a record that does not describe the
-key fails the run before it connects, naming the device and the command that stores it again.
-The fingerprint is shown only here. It is never written to a fact, a task's stats or the
-journal.
+recorded`, and storing it again records it, unless it is a key this cannot read or name: a DSA
+key, a passphrase-sealed key stored without its passphrase, an encrypted PKCS#8 key, or anything
+else `ssh` cannot parse stays not recorded. A bundle (`--pfx`) is never opened when it is stored,
+so it records nothing. A sealed OpenSSH key file whose header names a different public key than
+the one its passphrase seals is refused when it is stored.
+
+The record is plain text, so anyone who can edit the file can change it. Each time a run reads the
+credential, it compares the record with the key it decrypts, read with its passphrase, never from
+the file's header. A record whose fingerprint or type is not that key's fails the run before it
+connects, naming the device and the command that stores it again. A key it cannot read or name is
+not compared; the login that uses it decides. This proves that the record and the key agree, not
+that the key is the one first stored under that name: each secret in the vault is sealed on its
+own, not bound to the entry that holds it, so a sealed key moved from another entry together with
+its record passes. The fingerprint is shown by `list-credentials` and by `add-credential
+--generate`, and is never written to a fact, a task's stats or the journal.
 
 **A login for a machine Pleiades creates.** `add-credential --generate` makes a new random key
 and a new random password that nobody chooses, types or sees, and prints only what may be
@@ -226,8 +235,10 @@ secret.
 `--generate` never touches a device, and refuses to discard a stored login without `--replace`,
 since whatever that login reaches would then be out of reach: the new key is on no machine yet.
 With `--replace` the output names the fingerprint of the key it discarded, so you can remove that
-line from the machine that held it. Every refusal, a mistyped `--key-type` included, comes before
-any secret is read from standard input and before any key is made.
+line from the machine that held it. A mistyped `--key-type`, a `--generate` flag given without
+`--generate`, and a stored login without `--replace` are each refused before any secret is read
+from standard input and before any key is made; a login another command stores while the key is
+being made is refused at the save, not discarded.
 
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a

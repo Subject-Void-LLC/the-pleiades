@@ -48,12 +48,15 @@ type CredentialInfo struct {
 	// rsa-3072, ecdsa-p256), as recorded when the key was stored (key_info.go).
 	KeyType KeyType `json:"key_type,omitempty"`
 	// KeyFingerprint is that key's SHA256 fingerprint, as ssh-keygen -l
-	// prints it, recorded beside it. It is not a secret, and it is shown
-	// only here: never in a fact, a stat or a journal.
+	// prints it, recorded beside it. It is not a secret. list-credentials
+	// shows it, and add-credential --generate prints the one it made; it is
+	// never put in a fact, a stat or a journal.
 	KeyFingerprint string `json:"key_fingerprint,omitempty"`
 	// KeyNotRecorded is set when it holds a private key whose type and
 	// fingerprint were never recorded: one stored before they were, or one
-	// that could not be read when it was stored. Nothing is guessed.
+	// that could not be read or named when it was stored (a DSA key, a
+	// sealed key stored without its passphrase, an encrypted PKCS#8 key),
+	// which storing again does not change. Nothing is guessed.
 	KeyNotRecorded bool `json:"key_not_recorded,omitempty"`
 }
 

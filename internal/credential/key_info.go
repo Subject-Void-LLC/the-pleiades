@@ -6,7 +6,11 @@
 // secret, but also never a fact, a stat or a journal entry, since the key
 // Pleiades logs in with describes Pleiades, not the device. A file can be
 // edited by hand, so Lookup compares what is recorded with the key it
-// decrypts and refuses the credential when they differ.
+// decrypts and refuses the credential when they differ. That proves the
+// record and the key agree, not that the key is the one first stored under
+// the name: the vault seals each field with no associated data
+// (internal/crypto's AES-GCM), so a whole sealed key moved from another entry
+// with its record passes, and the vault's format is left as it is.
 package credential
 
 import (
