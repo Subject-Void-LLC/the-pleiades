@@ -122,6 +122,14 @@ type Options struct {
 	// (ssh-rsa), so a client reaches it only through a record allowing
 	// legacy key exchange and legacy host keys (pkg/remoteexec's legacy.go).
 	Legacy bool
+
+	// PublicKeyAuthAlgorithms, when set, are the only signature algorithms
+	// the server accepts a user key with, and what it advertises in its
+	// server-sig-algs extension: []string{"ssh-rsa"} is a server that takes
+	// an RSA key only with a SHA-1 signature, as OpenSSH set to
+	// PubkeyAcceptedAlgorithms ssh-rsa does (measured on OpenSSH 10.3,
+	// 2026-11-22). Empty means the library's default set.
+	PublicKeyAuthAlgorithms []string
 }
 
 // Limit returns a SessionLimit for n, so a caller can write
@@ -159,6 +167,11 @@ type Server struct {
 	// keyLogins counts the successful authentications made by key.
 	keyLogins atomic.Int64
 
+	// keySignatures is the signature algorithm of each key login, in order,
+	// as the server verified it.
+	keySigMu      sync.Mutex
+	keySignatures []string
+
 	// logins counts successful authentications, so a test can prove how
 	// many real logins a run made rather than trusting the client's own
 	// account of whether it reused a connection.
@@ -182,8 +195,18 @@ func (s *Server) Logins() int64 { return s.logins.Load() }
 // per password presented.
 func (s *Server) Refusals() int64 { return s.refusals.Load() }
 
-// KeyLogins returns how many of Logins were made by key.
+// KeyLogins returns how many of Logins were made by key: a signature the
+// server verified, never a key the client only asked about.
 func (s *Server) KeyLogins() int64 { return s.keyLogins.Load() }
+
+// KeySignatures returns the signature algorithm of each key login, in order,
+// as the server verified it (rsa-sha2-512, ssh-rsa), so a test reads what the
+// client signed with from the server rather than from the client's account.
+func (s *Server) KeySignatures() []string {
+	s.keySigMu.Lock()
+	defer s.keySigMu.Unlock()
+	return append([]string(nil), s.keySignatures...)
+}
 
 // DropConnections closes every connection the server is serving, as a
 // device that reboots or a firewall that forgets idle flows would. A
@@ -341,15 +364,26 @@ func Start(opts Options) (*Server, error) {
 		// The one key exchange an IOSvL2 15.2 switch offers.
 		config.KeyExchanges = []string{cryptossh.InsecureKeyExchangeDH14SHA1}
 	}
+	config.PublicKeyAuthAlgorithms = opts.PublicKeyAuthAlgorithms
 	if opts.AuthorizedKey != nil {
 		authorized := opts.AuthorizedKey.Marshal()
+		// The library asks this both for a client's query (would you take
+		// this key?) and before checking a signature, so it only decides.
 		config.PublicKeyCallback = func(c cryptossh.ConnMetadata, key cryptossh.PublicKey) (*cryptossh.Permissions, error) {
 			if c.User() != username || !bytes.Equal(key.Marshal(), authorized) {
 				return nil, fmt.Errorf("denied")
 			}
+			return &cryptossh.Permissions{}, nil
+		}
+		// A login by key is counted once its signature verified, so a client
+		// that asked about its key and then did not sign is not one.
+		config.VerifiedPublicKeyCallback = func(_ cryptossh.ConnMetadata, _ cryptossh.PublicKey, perms *cryptossh.Permissions, signatureAlgorithm string) (*cryptossh.Permissions, error) {
 			srv.logins.Add(1)
 			srv.keyLogins.Add(1)
-			return &cryptossh.Permissions{}, nil
+			srv.keySigMu.Lock()
+			srv.keySignatures = append(srv.keySignatures, signatureAlgorithm)
+			srv.keySigMu.Unlock()
+			return perms, nil
 		}
 	}
 	config.AddHostKey(signer)
