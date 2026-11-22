@@ -51,7 +51,10 @@ variable the run never gives is an error, not an empty string, unless the read
 is guarded with `| default(...)`. In a condition the guard is `has(vars.name)`,
 `"name" in vars`, or CEL's optional field or index, `vars.?name.orValue("x")` or
 `vars[?"name"].hasValue()`; `validate` reads each of these as written for a
-missing name. The optional forms work on a registered result the same way
+missing name. An optional read counts only when its optional is used without its
+value being taken (`hasValue()`, `orValue(...)`, `or(...)`, `optMap`, `optFlatMap`):
+`vars.?name.value()` fails without the name, as `vars.name` does, and is held to the
+same rule. The optional forms work on a registered result the same way
 (`result.?probe.hasValue()`).
 
 ```yaml
