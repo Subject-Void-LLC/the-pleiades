@@ -132,6 +132,55 @@ func TestKeyAuth_RefusesASignerThatCannotChoose(t *testing.T) {
 	}
 }
 
+// TestHoldToSHA2_HoldsAKeyNoRecordGoverns proves the signer for a login no
+// device record governs (a project's git server) refuses ssh-rsa and a DSA
+// key's signature naming no property and no address, signs with SHA-2 and
+// with an ed25519 key's own format, and refuses a signer that cannot choose.
+func TestHoldToSHA2_HoldsAKeyNoRecordGoverns(t *testing.T) {
+	data := []byte("data")
+	rsaHeld, err := HoldToSHA2(newRSATestSigner(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rsaHeld.(ssh.AlgorithmSigner).SignWithAlgorithm(rand.Reader, data, ssh.KeyAlgoRSA)
+	refused, ok := errors.AsType[*LegacySignatureRefusedError](err)
+	if !ok || refused.Property != "" || !strings.HasPrefix(err.Error(), "the SSH server did not advertise") || !strings.Contains(err.Error(), "no device record governs this login") {
+		t.Fatalf("ssh-rsa from a key no record governs: %v, want a refusal naming no property", err)
+	}
+	if sig, err := rsaHeld.(ssh.AlgorithmSigner).SignWithAlgorithm(rand.Reader, data, ssh.KeyAlgoRSASHA256); err != nil || sig.Format != ssh.KeyAlgoRSASHA256 {
+		t.Errorf("rsa-sha2-256 from a key no record governs: %v, %v", sig, err)
+	}
+
+	dsaPEM, _ := dsaKeyPEM(t)
+	dsaSigner, err := ssh.ParsePrivateKey(dsaPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsaHeld, err := HoldToSHA2(dsaSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dsaHeld.Sign(rand.Reader, data); !isSignatureRefusal(err) {
+		t.Errorf("a DSA key no record governs: %v, want a refusal", err)
+	}
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edHeld, err := HoldToSHA2(newTestSigner(t, priv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig, err := edHeld.Sign(rand.Reader, data); err != nil || sig.Format != ssh.KeyAlgoED25519 {
+		t.Errorf("an ed25519 key no record governs: %v, %v", sig, err)
+	}
+
+	if _, err := HoldToSHA2(plainSigner{newRSATestSigner(t)}); err == nil {
+		t.Error("a signer that cannot choose its algorithm was held")
+	}
+}
+
 // plainSigner is an ssh.Signer that hides every other interface its key has.
 type plainSigner struct{ s ssh.Signer }
 

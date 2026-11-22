@@ -63,6 +63,9 @@ type LegacySignatureRefusedError struct {
 	Property string
 	// fips is set when FIPS 140 mode refused it.
 	fips bool
+	// noRecord is set for a login no device record governs (HoldToSHA2), a
+	// project's git server, where nothing can allow it.
+	noRecord bool
 	// err is the login's own failure when another method was tried after the
 	// key and failed too, nil when the key was the only one.
 	err error
@@ -70,10 +73,19 @@ type LegacySignatureRefusedError struct {
 
 // Error says what the server answered and what, if anything, would allow it.
 func (e *LegacySignatureRefusedError) Error() string {
-	msg := fmt.Sprintf("the SSH server at %s %s", e.Addr, serverTook(e.Key, e.Algorithm))
+	server := "the SSH server"
+	if e.Addr != "" {
+		server += " at " + e.Addr
+	}
+	msg := server + " " + serverTook(e.Key, e.Algorithm)
 	switch {
 	case e.fips:
 		msg += ", which FIPS 140 mode forbids whatever the record says: log in with an ed25519 or ECDSA key, or have the server take rsa-sha2-256"
+	case e.noRecord:
+		msg += ", which nothing allows here, since no device record governs this login: log in with an ed25519 or ECDSA key, or have the server take rsa-sha2-256"
+		if e.Algorithm == ssh.KeyAlgoRSA {
+			msg += "; a server known to take SHA-2 (OpenSSH 7.2 or later does) may have had its advertisement removed in transit"
+		}
 	default:
 		msg += ", which this device's record does not allow: "
 		if e.Algorithm == ssh.KeyAlgoRSA {

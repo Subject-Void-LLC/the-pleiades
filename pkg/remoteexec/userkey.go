@@ -99,6 +99,9 @@ type userKeyOutcome struct {
 	// fips is set when the refusal was FIPS 140 mode's, which the record
 	// cannot lift, rather than the record's own.
 	fips bool
+	// noRecord is set for a login no device record governs (HoldToSHA2),
+	// where nothing can allow a legacy signature.
+	noRecord bool
 }
 
 // legacySigned returns the legacy algorithm the key signed with, or empty when
@@ -114,8 +117,8 @@ func (o userKeyOutcome) legacySigned() string {
 // nil from the signer itself, or the login's own failure when another method
 // was then tried and failed too.
 func (o userKeyOutcome) refusal(addr string, err error) *LegacySignatureRefusedError {
-	refused := &LegacySignatureRefusedError{Addr: addr, Key: o.key, Algorithm: o.refused, fips: o.fips, err: err}
-	if !o.fips {
+	refused := &LegacySignatureRefusedError{Addr: addr, Key: o.key, Algorithm: o.refused, fips: o.fips, noRecord: o.noRecord, err: err}
+	if !o.fips && !o.noRecord {
 		refused.Property = LegacyUserKeySignaturesProperty
 	}
 	return refused
@@ -160,6 +163,25 @@ type userKeySigner struct {
 	allowLegacy bool
 	addr        string
 	use         *userKeyUse
+	// noRecord marks a login no device record governs (HoldToSHA2).
+	noRecord bool
+}
+
+// HoldToSHA2 returns signer as a login no device record governs offers it,
+// for a connection this package does not make: a project's git server,
+// reached through go-git. An RSA key signs with rsa-sha2-512 or rsa-sha2-256
+// only, and ssh-rsa, or any signature from a DSA key, is refused with a
+// LegacySignatureRefusedError naming no property, since no record can allow
+// it. Other keys sign as they would. A signer that cannot choose its
+// algorithm is refused, as keyAuth refuses one.
+func HoldToSHA2(signer ssh.Signer) (ssh.Signer, error) {
+	key, ok := signer.(ssh.AlgorithmSigner)
+	if !ok {
+		return nil, fmt.Errorf("a %s key that cannot choose its signature algorithm", signer.PublicKey().Type())
+	}
+	held := newUserKeySigner(key, "", Legacy{}, nil)
+	held.noRecord = true
+	return held, nil
 }
 
 // newUserKeySigner wraps key for one connection to addr under legacy,
@@ -203,7 +225,7 @@ func (s *userKeySigner) SignWithAlgorithm(rand io.Reader, data []byte, algorithm
 	if !slices.Contains(s.algorithms, algorithm) {
 		return nil, fmt.Errorf("remoteexec: this %s cannot sign with %s", keyNoun(s.key.PublicKey()), algorithm)
 	}
-	outcome := userKeyOutcome{key: keyNoun(s.key.PublicKey())}
+	outcome := userKeyOutcome{key: keyNoun(s.key.PublicKey()), noRecord: s.noRecord}
 	if slices.Contains(legacyUserKeySignatures(), algorithm) && (!s.allowLegacy || fips140.Enabled()) {
 		// Under FIPS 140 mode the property would not help, so the refusal
 		// does not name it, whether the record sets it or not.
