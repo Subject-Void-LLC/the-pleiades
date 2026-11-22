@@ -8,10 +8,13 @@ import (
 	"fmt"
 )
 
-// MaxSerialDigits is the longest serial recorded, in hex digits: the 20
-// octets RFC 5280 section 4.1.2.2 allows a serial. A longer one is left out
-// with a warning, since a device writes its own certificate and a fact is
-// kept for as long as its history is.
+// MaxSerialDigits is the longest serial recorded, in hex digits of the
+// number's bytes. RFC 5280 section 4.1.2.2 allows a serial 20 octets as
+// encoded, and a 20-byte number whose top bit is set encodes as 21 (a 00 pad
+// byte first, so it does not read as negative), which some CAs issue anyway:
+// 40 digits keeps those. A longer one is left out with a warning, since a
+// device writes its own certificate and a fact is kept for as long as its
+// history is.
 const MaxSerialDigits = 40
 
 // serialText returns the serial number of cert (presented by the named
@@ -36,7 +39,7 @@ func serialText(device string, cert *x509.Certificate) (string, string) {
 	}
 	text := hex.EncodeToString(n.Bytes())
 	if len(text) > MaxSerialDigits {
-		return "", fmt.Sprintf("device %q presented a certificate whose serial number is %d hex digits, more than the %d RFC 5280 allows, so no %s fact is recorded", device, len(text), MaxSerialDigits, FactSerial)
+		return "", fmt.Sprintf("device %q presented a certificate whose serial number is %d hex digits, more than the %d recorded (RFC 5280 allows 20 encoded octets), so no %s fact is recorded", device, len(text), MaxSerialDigits, FactSerial)
 	}
 	return text, ""
 }

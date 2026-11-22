@@ -27,7 +27,8 @@ func serialOf(b []byte) *big.Int { return new(big.Int).SetBytes(b) }
 // digits a byte as openssl x509 -serial prints it (checked by hand against
 // OpenSSL 3.0.2: 0 is 00, 128 is 80, 0x0a1b is 0A1B), with no warning. A
 // leading zero digit is kept, a top bit set adds no 00 byte, a zero serial
-// reads 00, and a full 20-octet serial (40 digits) fits.
+// reads 00, and a 20-byte serial (40 digits) fits even with its top bit
+// set, which encodes as 21 octets (a 00 pad byte first).
 func TestRecord_TheSerialIsLowercaseHexOfItsBytes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -37,7 +38,7 @@ func TestRecord_TheSerialIsLowercaseHexOfItsBytes(t *testing.T) {
 		{"a leading zero digit", big.NewInt(0x0A1B), "0a1b"},
 		{"the top bit set", big.NewInt(128), "80"},
 		{"zero, which RFC 5280 forbids", big.NewInt(0), "00"},
-		{"twenty octets", serialOf(bytes.Repeat([]byte{0xAB}, 20)), strings.Repeat("ab", 20)},
+		{"twenty bytes, top bit set: 21 encoded octets", serialOf(bytes.Repeat([]byte{0xAB}, 20)), strings.Repeat("ab", 20)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			settings, seen := seenOn(t, newServerWithSerial(t, tc.serial))
@@ -54,7 +55,8 @@ func TestRecord_TheSerialIsLowercaseHexOfItsBytes(t *testing.T) {
 }
 
 // TestRecord_OpenSSLsOwnSerialReadsAsOpenSSLPrintsIt: the certificate
-// OpenSSL made for pkg/devicetls's vector, a full 20-octet serial, is
+// OpenSSL made for pkg/devicetls's vector, a 20-byte serial whose top bit
+// is clear (so 20 encoded octets), is
 // recorded as "openssl x509 -noout -serial" prints it
 // (serial=7264FB1A0BD9A9E5806469100D6BED4B4E08A337), in lowercase.
 func TestRecord_OpenSSLsOwnSerialReadsAsOpenSSLPrintsIt(t *testing.T) {
@@ -82,7 +84,7 @@ func TestRecord_OpenSSLsOwnSerialReadsAsOpenSSLPrintsIt(t *testing.T) {
 	}
 }
 
-// TestRecord_ASerialTooLongIsLeftOutWithAWarning: a 21-octet serial (42
+// TestRecord_ASerialTooLongIsLeftOutWithAWarning: a 21-byte serial (42
 // digits), which Go's own parser accepts, is recorded neither as a stat nor
 // as a fact, and says why, while the certificate's other facts are recorded.
 func TestRecord_ASerialTooLongIsLeftOutWithAWarning(t *testing.T) {
