@@ -113,8 +113,12 @@ func TestConditionOptional_LockAllIsRefusedForADeviceRead(t *testing.T) {
 	resolver := mapResolver{"web": {typedStub{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive,
 		Props: map[string]inventory.PropertyValue{engine.DeviceVarsProperty: map[string]any{"site": "hq"}}}}}}
 	// A device read, and a read of a variable the device brings, which
-	// differs by device (engine.VarsDifferByDevice, which validate asks too).
-	for _, condition := range []string{`device.?name.hasValue()`, `vars.?site.orValue('') == 'hq'`} {
+	// differs by device (engine.RunsPerDevice, which validate asks too), each
+	// refused in its own words.
+	for condition, reason := range map[string]string{
+		`device.?name.hasValue()`:        engine.ErrDeviceRootLockAll,
+		`vars.?site.orValue('') == 'hq'`: engine.ErrVarsLockAll,
+	} {
 		seen := &paramsSeen{}
 		x := engine.NewExecutor(resolver, seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
 			engine.WithRenderer(render.New()))
@@ -124,7 +128,7 @@ func TestConditionOptional_LockAllIsRefusedForADeviceRead(t *testing.T) {
 		}
 		refused := false
 		for _, n := range result.Nodes {
-			if n.Err != nil && strings.Contains(n.Err.Error(), engine.ErrDeviceRootLockAll) {
+			if n.Err != nil && strings.HasSuffix(n.Err.Error(), ": "+reason) {
 				refused = true
 			}
 		}

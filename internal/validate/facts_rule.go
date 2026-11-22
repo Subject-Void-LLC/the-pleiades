@@ -48,9 +48,11 @@ const (
 //     only what this run gathers first can answer, and a read nothing
 //     gathers would fail at its task. A key an earlier task declares is
 //     allowed, and fails at its task if that task does not emit it;
-//   - a task with no device, which has no facts;
-//   - lock_acquisition: all_at_plan_time, since a task reading its device's
-//     facts is decided on each device on its own.
+//   - a task with no device, which has no facts.
+//
+// Such a task is decided on each device on its own, so it cannot take
+// lock_acquisition: all_at_plan_time either; that refusal is the engine's
+// own, made with every other cause of it (lock_all.go), in the run's words.
 //
 // Where a fact may be read at all (a condition, by a literal key) is the
 // builder's to refuse, so a runbook reaching here reads facts only as the
@@ -88,9 +90,6 @@ func FactsRule(world WorldView) []Finding {
 		}
 		if target, _ := world.taskDevices(task); target == "" && world.Resolver == nil {
 			add(read.Node, fmt.Sprintf("task %s reads %s, and it has no device, so it has no facts: give it hosts: or a target", read.Label, keys))
-		}
-		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime {
-			add(read.Node, fmt.Sprintf("task %s reads %s: a task reading its device's facts is decided on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together", read.Label, keys))
 		}
 	}
 	return findings

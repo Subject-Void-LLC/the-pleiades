@@ -89,15 +89,28 @@ func TestFactsRule_AProjectWithNoKeyAllowsOnlyWhatTheRunGathersFirst(t *testing.
 
 // TestFactsRule_ATaskWithNoDeviceOrTakingEveryLockIsRefused: a task with no
 // device has no facts, and a task reading its device's facts is decided per
-// device, so it cannot take every device's lock together.
+// device, so it cannot take every device's lock together. That second
+// refusal is made once, with every other cause of it, in the engine's words
+// (lock_all.go), on any store; FactsRule adds none of its own.
 func TestFactsRule_ATaskWithNoDeviceOrTakingEveryLockIsRefused(t *testing.T) {
 	noDevice := "id: facts\ntasks:\n  - name: on debian\n    when: facts[\"os.family\"] == \"debian\"\n    noop: {}\n"
 	if f := factFindings(t, noDevice, validate.FactStoreReadable); len(f) != 1 || !strings.Contains(f[0].Message, "it has no device") {
 		t.Errorf("a task with no device: %v", f)
 	}
 	lockAll := strings.Replace(readOnlyFacts, "    noop: {}", "    lock_acquisition: all_at_plan_time\n    noop: {}", 1)
-	if f := factFindings(t, lockAll, validate.FactStoreReadable); len(f) != 1 || !strings.Contains(f[0].Message, "all_at_plan_time") {
-		t.Errorf("a task taking every lock: %v", f)
+	if f := factFindings(t, lockAll, validate.FactStoreReadable); len(f) != 0 {
+		t.Errorf("FactsRule on a task taking every lock: %v, want the refusal left to the one place that makes it", f)
+	}
+	for _, store := range []validate.FactStore{validate.FactStoreReadable, validate.FactStoreNone} {
+		var refusals []string
+		for _, f := range validate.Validate(validate.WorldView{Items: factsItems(), DAG: buildYAML(t, lockAll), StoredFacts: store}).Findings {
+			if strings.Contains(f.Message, "all_at_plan_time") {
+				refusals = append(refusals, f.Message)
+			}
+		}
+		if len(refusals) != 1 || !strings.HasSuffix(refusals[0], ": "+engine.ErrFactsLockAll) {
+			t.Errorf("store %v, a task taking every lock: %q, want one refusal ending in the engine's reason", store, refusals)
+		}
 	}
 }
 

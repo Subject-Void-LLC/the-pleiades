@@ -6,7 +6,7 @@
 // expanded into sibling nodes at build time: a list read from a registered
 // result does not exist until an earlier task has run. A task that loops or
 // retries therefore runs on each device on its own, as one reading the device
-// root does (readsDevice).
+// root does (RunsPerDevice).
 //
 // Every run of the method is its own result and its own journal entry
 // (NodeResult.Iteration), so a rollback undoes the items and the tries one by

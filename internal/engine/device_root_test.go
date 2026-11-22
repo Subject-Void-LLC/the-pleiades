@@ -205,12 +205,11 @@ tasks:
 		t.Errorf("device with all_at_plan_time: %s", nodeErrors(result))
 	}
 
-	// A rescue task runs on each device on its own too, so the engine refuses
-	// it with all_at_plan_time itself, for a runbook validation never saw
+	// A rescue task runs on each device on its own too, so the builder
+	// refuses it with all_at_plan_time (FAILURE_PATTERNS 1355), and the run
+	// refuses it itself for a runbook that reached it another way
 	// (FAILURE_PATTERNS 657, whose refusal was in validate alone).
-	failing := &undoable{fail: map[string]bool{"b1@web1": true}}
-	x = engine.NewExecutor(twoDevices(), failing, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, engine.WithRenderer(render.New()))
-	refused, err := x.Run(context.Background(), yamlRunbook(t, `id: g
+	const guardedRunbook = `id: g
 hosts: web
 tasks:
   - name: guarded
@@ -220,8 +219,15 @@ tasks:
     rescue:
       - name: r0
         noop: {}
-        lock_acquisition: all_at_plan_time
-`))
+`
+	if _, err := buildYAML(t, guardedRunbook+"        lock_acquisition: all_at_plan_time\n"); err == nil || !strings.Contains(err.Error(), engine.ErrRescueLockAll) {
+		t.Errorf("building a rescue task with all_at_plan_time: %v", err)
+	}
+	failing := &undoable{fail: map[string]bool{"b1@web1": true}}
+	x = engine.NewExecutor(twoDevices(), failing, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, engine.WithRenderer(render.New()))
+	locked := yamlRunbook(t, guardedRunbook)
+	locked.Nodes["tasks[0].rescue[0]"].LockAcquisition = engine.AcquisitionAllAtPlanTime
+	refused, err := x.Run(context.Background(), locked)
 	if err != nil {
 		t.Fatal(err)
 	}

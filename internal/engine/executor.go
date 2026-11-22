@@ -1095,10 +1095,11 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	if r.dag.Guarded(r.dag.Scopes[nodeID]) {
 		return r.runGuarded(ctx, nodeID, task, started)
 	}
-	// A task that reads the device it runs on is decided and rendered on
-	// each device (device_root.go).
-	if r.readsDevice(nodeID, task) {
-		return r.runPerDevice(ctx, nodeID, task, started, nil)
+	// A task that runs on each device on its own (per_device.go: it loops,
+	// reads the device it runs on, and so on) is decided and rendered there
+	// (device_root.go).
+	if cause := r.perDevice(nodeID, task); cause != NotPerDevice {
+		return r.runPerDevice(ctx, nodeID, task, started, nil, cause)
 	}
 
 	prepared, early := r.prepare(ctx, nodeID, task, started, "", nil)
