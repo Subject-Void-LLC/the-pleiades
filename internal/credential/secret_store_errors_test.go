@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -79,12 +80,12 @@ func TestSecrets_ABrokenStoreIsReported(t *testing.T) {
 	if _, err := credential.SecretValues(broken); err == nil {
 		t.Error("SecretValues read a broken file")
 	}
-	brokenKey, err := credential.ResolveMasterKey(broken)
-	if err != nil {
-		t.Fatal(err)
+	// Whether a broken file holds what a key sealed cannot be told, so no key
+	// is made for it (FAILURE_PATTERNS 1344), and a lookup fails on that.
+	if _, err := credential.ResolveMasterKey(broken); err == nil || !strings.Contains(err.Error(), "cannot be told") {
+		t.Errorf("ResolveMasterKey beside a broken file = %v, want a refusal", err)
 	}
 	if _, _, err := credential.NewLazyFileStore(broken).(credential.SecretStore).LookupSecret(context.Background(), "dmvpn", "psk"); err == nil {
 		t.Error("a lookup read a broken file")
 	}
-	_ = brokenKey
 }

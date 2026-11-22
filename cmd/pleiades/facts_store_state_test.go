@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
@@ -97,5 +98,36 @@ func TestFactKeysToWrite_ALostKeyIsNeverReplacedBesideSealedFacts(t *testing.T) 
 	}
 	if _, statErr := os.Stat(masterKeyFile(fresh)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("a write after the key was lost made a new key beside the sealed facts: %v", statErr)
+	}
+}
+
+// TestFactKeysToWrite_ALostKeyBesideCredentialsMakesNoKey: a project that
+// stored a credential but never a fact, and lost its master key, refuses its
+// first fact write too, naming the credential file, rather than making a new
+// key beside the credential sealed under the old one (FAILURE_PATTERNS 1344).
+func TestFactKeysToWrite_ALostKeyBesideCredentialsMakesNoKey(t *testing.T) {
+	withoutMasterKeyEnv(t)
+	dir := t.TempDir()
+	key, err := credential.ResolveMasterKey(vaultDir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credential.SaveFileStore(vaultDir(dir), key, "web01", credential.Credential{Username: "u", Password: "s3cret-pw"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(masterKeyFile(dir)); err != nil {
+		t.Fatal(err)
+	}
+	store, err := facts.NewFileStore(factsDir(dir), factKeysToWrite(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, _ := facts.Prepare(map[string]any{"os.family": "debian"}, facts.Guard{})
+	err = store.Record(context.Background(), "web1", facts.Observation{Entries: entries, At: time.Now()})
+	if err == nil || !errors.Is(err, credential.ErrSealedWithoutKey) || !strings.Contains(err.Error(), "credentials.yaml (1 device credential)") {
+		t.Fatalf("a first fact beside a credential sealed under a lost key = %v, want it refused naming the credential file", err)
+	}
+	if _, statErr := os.Stat(masterKeyFile(dir)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("the fact write made a new key beside the sealed credential: %v", statErr)
 	}
 }

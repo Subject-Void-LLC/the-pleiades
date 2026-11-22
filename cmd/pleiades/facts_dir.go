@@ -26,11 +26,12 @@ func factsDir(projectDir string) string {
 // stays sealed under the key that is gone, leaving a store no one key reads.
 // A store that cannot be looked at is refused the same way.
 //
-// Only the facts' own writes take this rule. The project's credentials resolve
-// the key as they always have, so a run that reads a credential in a project
-// whose key was lost still makes one there, and the facts' write then finds a
-// key that opens none of the facts already stored: each such write fails and
-// is logged, as any failed store does.
+// credential.ResolveMasterKey, the one function that makes a key, holds every
+// writer to the same rule over what the vault's .pleiades holds sealed (its
+// credentials, named secrets, seal key and, when the vault is the project, these
+// facts), so no command makes a key beside any of it (FAILURE_PATTERNS 1344).
+// The check here is for the facts under --dir when --vault names another
+// directory, which ResolveMasterKey does not look in.
 func factKeysToWrite(projectDir string) *facts.Keys {
 	return facts.NewLazyKeys(func() ([]byte, error) { return factMasterKeyToWrite(projectDir) }, "project")
 }

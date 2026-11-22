@@ -466,8 +466,8 @@ tasks:
   `PLEIADES_MASTER_KEY` and `.pleiades/master.key`; a gather then a read in one run
   needs no key, and its first stored fact makes one. A project that stored facts and
   has lost its key cannot read any device's, so every task reading one fails, the
-  same way for every device, and no fact is stored again (no new key is made beside
-  the old facts) until the key is restored. A key file another account may read, or
+  same way for every device, and no fact is stored again (no command makes a new key
+  beside the old facts, or beside a stored credential) until the key is restored. A key file another account may read, or
   a value that is not a key, is named as that, not as a missing key. A project with
   its key and no stored facts passes `validate`; the reading task fails when the run
   reaches it, since whether a device has been gathered is known only then.

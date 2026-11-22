@@ -119,6 +119,18 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+**A lost master key is never replaced.** The key is made on first use only in a project
+that holds nothing sealed under one. Once `.pleiades/` holds a stored credential, a named
+secret, a registry account or database connection, `seal.key`, or stored facts, a command
+that finds no key there (`add-credential`, `add-secret`, `seal-key`, an import, a run that
+reads a credential or stores a fact) refuses, names what it found, and asks you to restore
+`.pleiades/master.key` or set `PLEIADES_MASTER_KEY` to the key that sealed it. A new key
+would open none of it, and what came next would be sealed under a second key. A key file
+another account may read, or one that is not a key, is refused the same way and never
+replaced. If the key is truly gone, nothing can open what it sealed: remove the files the
+message names that you accept losing, then run the command again. Back up `master.key`
+with the project.
+
 **A loose vault is refused.** Like OpenSSH with a private key, `pleiades` refuses a
 `master.key`, `credentials.yaml` or `seal.key` that group or others can read or write, or
 that another user owns, before it reads any secret, and says how to fix it (`chmod 600
