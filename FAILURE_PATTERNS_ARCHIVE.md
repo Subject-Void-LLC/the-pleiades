@@ -33931,7 +33931,7 @@ already required the Controller's build. This was read from code, not executed.
 **Lesson.** LESSONS 478. A brief states what code does only with a file and line read in this session. Anything
 else is written as a question for the receiver to answer first.
 
-## 1368. A test's `Require` call named a need that is not in `need.Names`, and pull request #226's `fast` job failed after `make pr-check` and `make branch-containers` passed: the registry test reads every `Require` call in the module, and its package was neither changed nor in `PR_CHECK_ALWAYS` (a repeat of 631; in kind of 756, 1311 and 1322; CI_LESSONS 1, 32 and 42) (fixed on `fix/walk-launch-compile-error`, `b31dd05d`; the rerun's result not known when written)
+## 1368. A test's `Require` call named a need that is not in `need.Names`, and pull request #226's `fast` job failed after `make pr-check` and `make branch-containers` passed: the registry test reads every `Require` call in the module, and its package was neither changed nor in `PR_CHECK_ALWAYS` (a repeat of 631; in kind of 756, 1311 and 1322; CI_LESSONS 1, 32 and 42) (fixed in #226, `b31dd05d`, merged as `02d4b75b`; the rerun at `4774650e` passed every required check, run 45037602732)
 
 **Symptom.** 2026-11-22, pull request #226, branch `fix/walk-launch-compile-error`, commit `f6d49012`. The
 required `fast` job failed (run 45032180209, job 137237967463). `make pr-check` and `make branch-containers` had
@@ -33977,11 +33977,14 @@ can fail it while its own package is unchanged. The package ran in 7.5 s locally
 
 **Not done, and not known.**
 
-- The rerun of the pull request's checks at `b31dd05d` had no result when this was written.
+- The rerun of the pull request's checks had no result when this was written. *Updated 2026-11-22:* the rerun at
+  `4774650e` (which holds `b31dd05d`) passed every required check (run 45037602732), and #226 merged as `02d4b75b`.
 - No `internal/archtest` rule and no prscope rule was added. `PR_CHECK_ALWAYS` is still a list kept by hand.
 - Open question: which other tests read the whole module's source and live outside `PR_CHECK_ALWAYS`? They were
   not enumerated. Each one has this same hole until it is listed or selected by a rule.
-- The Actions ledger was not annotated: it held no entry for this run when this was written.
+- The Actions ledger was not annotated: it held no entry for this run when this was written. *Updated 2026-11-22:*
+  run 45032180209 was recorded (`tools/failures record-actions -run`), and its two test entries (`fast`,
+  `fast-macos (2)`) are annotated with this pattern.
 
 **Searched.** By the test's name, `need.Names`, `testsupport/need` and `PR_CHECK_ALWAYS`, and by the class (a
 failure only CI showed because pr-check did not run the package): 559, 631, 755, 756, 1047, 1190, 1311, 1322. No
