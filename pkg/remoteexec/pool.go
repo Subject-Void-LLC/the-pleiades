@@ -219,12 +219,23 @@ func (p *Pool) lendLocked(device string, e *pooled) *Conn {
 	return p.lend(device, e)
 }
 
-// lend wraps e's connection in a borrowed Conn. p.mu must be held. The
-// borrowed Conn reports the host keys e's own dial verified, since lending
-// it again performs no handshake of its own.
+// lend wraps e's connection in a borrowed Conn. p.mu must be held.
+//
+// The borrowed Conn is a copy of the whole pooled Conn, so a field added to
+// Conn travels with the connection (the host keys its own dial verified, what
+// its record allowed) without an edit here, and only what belongs to one
+// borrow is reset: its lease, the clients a detached command's redials
+// dialed, whether a redial was refused, and the become and raw views a
+// borrower builds for itself. pool_lend_test.go lists every field as one or
+// the other, so a new field fails that test until it is placed.
 func (p *Pool) lend(device string, e *pooled) *Conn {
-	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, userKey: e.conn.userKey, hostKeys: e.conn.hostKeys,
-		lease: &lease{pool: p, device: device, entry: e}}
+	borrowed := *e.conn
+	borrowed.lease = &lease{pool: p, device: device, entry: e}
+	borrowed.extra = nil
+	borrowed.redialRefused = false
+	borrowed.become = nil
+	borrowed.raw = false
+	return &borrowed
 }
 
 // forget removes e from the Pool when it is still device's entry.
