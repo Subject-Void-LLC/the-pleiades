@@ -5,15 +5,17 @@ package runbook
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
-// MaxCompileMessage bounds how many bytes of the builder's own text
-// CompileError.Message shows. A build error names a node, a task, a key or
-// an expression, in a sentence or two; the bound is for a runbook written to
-// make it long.
+// MaxCompileMessage bounds Message, in bytes: the whole sentence, with the
+// builder's text escaped and the note saying it was cut. A build error names
+// a node, a task, a key or an expression, in a sentence or two; the bound is
+// for a runbook written to make it long.
 const MaxCompileMessage = 2048
 
 // CompileError says the runbook ID was found and read, and does not build.
@@ -49,22 +51,41 @@ func (e *CompileError) Unwrap() error { return e.Err }
 // answer, a form's refusal, a job's failure reason.
 //
 // The builder's text quotes what the runbook's author wrote (a handler's
-// name, a key, an expression), so it is author input wherever it is shown:
-// it is kept to one line with every character a terminal acts on written as
-// a visible escape (termsafe.EscapeLine), and cut at MaxCompileMessage bytes
-// with its whole length after it.
+// name, a key, an expression), so it is author input wherever it is shown,
+// and three things are done to it, in this order:
+//
+//   - It is masked by shape (redact.Text with no known values, the masker
+//     logs and test output go through), so a value that looks like a
+//     credential, written literally into the runbook, is not repeated to
+//     whoever may launch it or read its job. Shape is all there is to go by:
+//     a secret that looks like an ordinary word is shown.
+//   - It is kept to one line, with every character a terminal acts on written
+//     as a visible escape (termsafe.EscapeLine).
+//   - It is cut so the whole sentence is at most MaxCompileMessage bytes, with
+//     the text's own length after it. The cut is made on the escaped text and
+//     between characters, so it never ends inside an escape or a multi-byte
+//     character.
 func (e *CompileError) Message() string {
-	text := e.Err.Error()
-	cut := ""
-	if len(text) > MaxCompileMessage {
-		end := MaxCompileMessage
-		// Back up to the start of a character, so the cut does not show as
-		// an invalid byte the text never held there.
-		for end > 0 && !utf8.RuneStart(text[end]) {
-			end--
-		}
-		cut = fmt.Sprintf("... (cut from %d bytes)", len(text))
-		text = text[:end]
+	text := redact.Text(nil, e.Err.Error())
+	prefix := fmt.Sprintf("runbook %q does not compile: ", e.ID)
+	escaped := termsafe.EscapeLine(text)
+	if len(prefix)+len(escaped) <= MaxCompileMessage {
+		return prefix + escaped
 	}
-	return fmt.Sprintf("runbook %q does not compile: %s%s", e.ID, termsafe.EscapeLine(text), cut)
+
+	note := fmt.Sprintf("... (cut from %d bytes)", len(text))
+	room := MaxCompileMessage - len(prefix) - len(note)
+	var kept strings.Builder
+	for i := 0; i < len(text); {
+		// One character at a time, so each escape is whole or absent. An
+		// invalid byte decodes as one byte and is escaped as one.
+		_, size := utf8.DecodeRuneInString(text[i:])
+		unit := termsafe.EscapeLine(text[i : i+size])
+		if kept.Len()+len(unit) > room {
+			break
+		}
+		kept.WriteString(unit)
+		i += size
+	}
+	return prefix + kept.String() + note
 }

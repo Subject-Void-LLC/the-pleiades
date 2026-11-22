@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -130,10 +131,68 @@ func TestCompileError_MessageIsOneEscapedBoundedLine(t *testing.T) {
 
 	long := &runbook.CompileError{ID: "x", Err: errors.New("a" + strings.Repeat("é", 1<<19))}
 	message = long.Message()
-	if len(message) > runbook.MaxCompileMessage+128 || !strings.HasSuffix(message, "... (cut from 1048577 bytes)") {
+	if len(message) > runbook.MaxCompileMessage || len(message) < runbook.MaxCompileMessage-8 || !strings.HasSuffix(message, "... (cut from 1048577 bytes)") {
 		t.Errorf("a megabyte of text gave a %d byte message ending %q", len(message), message[len(message)-40:])
 	}
-	if strings.Contains(message, `\x`) {
+	if strings.Contains(message, `\x`) || !utf8.ValidString(message) {
 		t.Errorf("the cut split a character: %q", message[len(message)-60:])
+	}
+}
+
+// TestCompileError_MessageIsCutBetweenEscapes: text that is all escapes is cut
+// on the escaped form, so the whole sentence stays inside the bound and ends
+// on a whole escape. 2048 escape characters are 8192 bytes once escaped.
+func TestCompileError_MessageIsCutBetweenEscapes(t *testing.T) {
+	message := (&runbook.CompileError{ID: "x", Err: errors.New(strings.Repeat("\x1b", 2048))}).Message()
+	if len(message) > runbook.MaxCompileMessage {
+		t.Fatalf("the message is %d bytes, over the bound of %d", len(message), runbook.MaxCompileMessage)
+	}
+	const prefix, note = `runbook "x" does not compile: `, "... (cut from 2048 bytes)"
+	if !strings.HasPrefix(message, prefix) || !strings.HasSuffix(message, note) {
+		t.Fatalf("message %q...%q lacks its prefix or its note", message[:40], message[len(message)-40:])
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(message, prefix), note)
+	if len(body)%4 != 0 || strings.ReplaceAll(body, `\x1b`, "") != "" {
+		t.Errorf("the kept text is %d bytes and is not whole escapes: ...%q", len(body), body[len(body)-12:])
+	}
+	if len(body) < runbook.MaxCompileMessage-len(prefix)-len(note)-4 {
+		t.Errorf("only %d bytes were kept, with room for more", len(body))
+	}
+
+	// Text that fits is not cut at all.
+	if short := (&runbook.CompileError{ID: "x", Err: errors.New("bad key")}).Message(); short != prefix+"bad key" {
+		t.Errorf("Message = %q", short)
+	}
+}
+
+// TestCompileError_MessageMasksASecretShapedLiteral: a condition that does not
+// compile is quoted back by the builder, through the real source. A value
+// shaped like a credential that the author wrote into it is masked, and the
+// rest of the message still says what is wrong.
+func TestCompileError_MessageMasksASecretShapedLiteral(t *testing.T) {
+	const keyID = "AKIA" + "IOSFODNN7EXAMPLE"
+	dir := t.TempDir()
+	body := "id: x\ntasks:\n  - name: step\n    when: 'token == \"" + keyID + "\" &&'\n    noop: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "x.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = src.Get(t.Context(), "x")
+	var notCompiled *runbook.CompileError
+	if !errors.As(err, &notCompiled) {
+		t.Fatalf("Get = %v, want a CompileError", err)
+	}
+	if !strings.Contains(err.Error(), keyID) {
+		t.Fatalf("the builder's error %q does not quote the condition, so this test proves nothing", err)
+	}
+	message := notCompiled.Message()
+	if strings.Contains(message, keyID) {
+		t.Errorf("Message %q repeats the key id", message)
+	}
+	if !strings.Contains(message, "does not compile") || !strings.Contains(message, "token") {
+		t.Errorf("Message %q no longer says what is wrong", message)
 	}
 }

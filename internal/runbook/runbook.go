@@ -13,9 +13,9 @@
 // and Controller-side dispatch can never disagree about what a given
 // runbook requires.
 //
-// This package depends only on internal/engine, internal/termsafe (which
-// reads the standard library alone), pkg/capability, and the standard
-// library, deliberately: it sits below internal/api and
+// This package depends only on internal/engine, internal/redact and
+// internal/termsafe (each of which reads the standard library alone),
+// pkg/capability, and the standard library, deliberately: it sits below internal/api and
 // internal/dispatch in the dependency graph (a future dispatch handler
 // depends on this package, never the reverse), and it must never import
 // internal/ent, so a non-Controller caller (a CLI subcommand, a test) can
