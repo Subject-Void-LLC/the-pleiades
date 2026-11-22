@@ -77,6 +77,12 @@ func (d *Dispatcher) Launch(ctx context.Context, req launchable.Request) (launch
 // Preflight did not make and Launch did would be a schedule that saved
 // cleanly and then failed forever, which is the failure this whole seam
 // exists to prevent.
+//
+// The one refusal the two do not share is named in the body: a Preflight of
+// a standing edit (req.Standing) lets a runbook that does not compile
+// through, because that schedule was saved while the runbook compiled and
+// the edit does not make it fire. Launch clears the flag, so the firing is
+// still refused.
 func (d *Dispatcher) unattended(ctx context.Context, req launchable.Request) (launch.Template, launch.Config, error) {
 	if d.templates == nil {
 		return launch.Template{}, launch.Config{}, fmt.Errorf("launching by template is not wired on this controller")
