@@ -287,8 +287,8 @@ cannot report a problem found later, such as a credential that cannot be resolve
 shows up as a failed job. Each launch creates a new job; there is no idempotency key, so
 retrying a launch whose answer was lost starts a second job.
 
-A launch does read the template's runbook first, and refuses what could only fail. A
-runbook that does not compile is answered `422` with the builder's own message (the
+A launch does read the template's runbook first, and refuses one it can read that could
+only fail. A runbook that does not compile is answered `422` with the builder's own message (the
 handler, task or key it objects to), on a launch, a check and a relaunch alike, and no
 job is created. Earlier releases accepted such a launch and failed its job at fan-out
 with `runbook "x" could not be resolved`, which left out the reason. A runbook that is
@@ -297,7 +297,11 @@ job with `runbook "x" not found` or `runbook "x" could not be resolved`: the det
 a storage failure stays in the Controller's log. A runbook that stops compiling between
 its launch and its fan-out fails the job with the builder's message as its
 `failure_reason`. Creating a template over a runbook that does not compile is a `400`
-with the same message.
+with the same message. The message quotes the part of the runbook that did not compile,
+so a value written literally into a runbook can appear in a refusal or in a job's
+failure reason. It is masked there by shape only (a token, a key or a URL's password
+that looks like one), so a secret that looks like an ordinary word is shown; keep
+secrets out of runbooks.
 
 ### Fan-out: one row per device, whether it runs or not
 

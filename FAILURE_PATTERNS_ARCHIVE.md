@@ -33680,7 +33680,9 @@ skipped with `launch_failed`, logs, and does not retry. The message is in the Co
 occurrence's reason is a closed vocabulary. A schedule's edit admits its target again, so the refusal would have
 made such a schedule impossible to rename or pause. `launchable.Request.Standing` says an edit keeps the target and
 the saved configuration and does not turn the schedule on, and the Dispatcher lets the compile refusal through for
-that write alone. The seeded-login and fact-read refusals still refuse such an edit, as before.
+that write alone. Where the runbook compiles, the seeded-login and fact-read refusals still refuse such an edit. Where
+it does not, they are not asked, on any write, since they read a compiled runbook: that is as it was before the
+branch.
 
 **Tests.** `internal/api`: `TestLaunchTemplate_RefusesARunbookThatDoesNotCompile`,
 `TestLaunchRoutes_ARunbookThatDoesNotCompileIs422`, `TestSchedules_ARunbookThatDoesNotCompileIsRefusedAtTheWrite`,
@@ -33690,12 +33692,21 @@ that write alone. The seeded-login and fact-read refusals still refuse such an e
 `TestLaunchTemplate_ARunbookTheSourceCannotGiveIsStillLeftToFanOut` and
 `TestWorker_HandleJobRequested_AStorageErrorKeepsItsTextOutOfTheReason` hold the other kind to its old behavior.
 
-**Not proven.** Nothing ran against a real Controller and Runner: `tests/e2e` and the `cmd/controller` gates were
-not run here. The two form cases (the launch form and the relaunch control in `internal/ui`) are wired and have no
-test of their own. The builder's text quotes what the author wrote, so a value an author pasted into a runbook can
-appear in a refusal or a failure reason.
+**Fixed in review, same branch (`6a16536f`, `3221c5d0`, `fc5cf0de`, `235745c6`).**
 
-**Left as found.** A rollback of a job whose runbook cannot be read answers 422 with the source's own error text
-(`internal/api/dispatcher_rollback.go`, `ErrNotRollbackable`), which for a storage error can name a path. Read from
-code, not exercised, and not changed here. The launch form does not name `dispatch.ErrFactReads`, so that refusal
-renders as a fault there.
+- The message was cut on the raw text and then escaped, so 2048 escape characters gave 8 KB. It is cut on the escaped
+  text now, and the whole sentence is at most 2048 bytes. It also goes through the shape masker (`redact.Text`), so a
+  credential-shaped value an author wrote into a condition is not repeated.
+- A rollback of a job whose runbook could not be read answered 422 with the source's own error, which for a storage
+  failure named the server's runbook path (exercised: the body held the temp directory's path). By kind now
+  (`unreadableRunbook`): compile, the message; gone, a sentence; anything else, logged and 500.
+- A standing edit was judged from the row as read and written unconditionally, so a concurrent pause could be
+  overwritten and the schedule turned on unasked. The write now carries the stored `enabled`, target and saved
+  configuration it was judged against, and an edit that finds them changed is judged again.
+- `GET /runbooks/{id}` said `invalid runbook id` for a runbook that does not compile. It gives the message now.
+- The launch form had no case for `dispatch.ErrFactReads`. It has one, and both form mappings are functions of the
+  error with tests (`launchRefusal`, `relaunchErrors`).
+
+**Not proven.** Nothing ran against a real Controller and Runner: `tests/e2e` and the `cmd/controller` gates were
+not run here. The masking is by shape only: a secret that looks like an ordinary word, written into a runbook, is
+shown in a refusal or a failure reason. The schedule write's condition was run on SQLite, not PostgreSQL.
