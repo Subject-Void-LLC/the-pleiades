@@ -28502,6 +28502,9 @@ main clone. This entry's own worktree path was not recorded, so that it was over
 cause and not measured. Still open: the workaround is a short path, and the rule above (run outside any `.claude`
 directory) is replaced by that. The "Root cause. Not found." paragraph is kept as written.
 
+**Resolved, 2026-11-22.** Fixed with 1337 on `fix/gosec-path-and-flakes`: `make gosec` runs from any checkout, a
+worktree under `.claude/` included, and from a path longer than the limit (see 1337's resolution).
+
 ## 1158. Under an allowed span key (url.path, pleiades.device.name), a value with no secret shape is exported as is, and the exporter's "<METHOD> <route pattern>" shape check accepts any API-scope span name shaped like a path (open: a limit of the telemetry boundary)
 
 **Symptom.** Found on this branch, 2026-11-10, in review of 1148's fix. The masking exporter masks kept strings by shape
@@ -31590,6 +31593,13 @@ identical lines). A bounded search of the tests (`Contains(<log-like>, "<short n
 **Lesson.** A sentinel searched for in output must be unable to occur in that output's own fields: never a short number
 or a common word where a timestamp, a UUID or a duration is printed beside it.
 
+**Resolved, 2026-11-22.** The fix had landed in #215 (`e89f1351`), which changed the needles to `zq9hostvalue` and
+`zq9versionvalue`, letters no timestamp, hex digest, UUID or duration can spell, without updating this entry. Measured
+on `fix/gosec-path-and-flakes`: with the old needles (`web1`, `9.6`) put back for the run only, 4 of 300 runs of the
+refused subtest failed (`-count=300`, container-free with `-run`); with the committed needles, 300 runs of the whole
+test passed. The package's other absence checks on a log (`provenance_test.go`, `nodes_test.go`) search for
+`zq9value` or `level=WARN`; none searches for a short number.
+
 ## 1292. `pkg/cml` measured 88.9% against its 89.0% floor in #211's CI (a records-only change) and 89.0% in #210's on the same code, and a steady 89.0% in 24 local runs, so some block is covered only incidentally on the runners (open: block not identified; a repeat of 87)
 
 **Symptom.** 2026-11-20, PR #211 (records only, no Go file changed). CI run 44652479425's `coverage` job failed
@@ -31612,6 +31622,16 @@ the block a test that drives it on purpose (87's fix). Do not lower the floor to
 
 **Lesson.** A floor set to exactly the value one machine measures fails on the first runner that reaches one block
 fewer; a package whose coverage varies has a block no test drives on purpose, and the artifacts should say which.
+
+**Resolved, 2026-11-22.** The block is `client.go:292`, the "reading the answer" error (one statement), reached only
+by `TestClientFor_AControllerThatStopsAnsweringIsCutOff`'s partway case, and only when the answer's headers arrive
+before its 1.5 s `requestTimeout`. With that case skipped the package measured exactly 88.9% (582 of 655 statements),
+the runners' number: on a starved runner the headers arrive late, the request fails before any answer, and the case
+still passes. `TestCall_AnAnswerCutOffPartwayIsAnError` (`failure_internal_test.go`) now drives that error on purpose,
+with a controller that closes the connection short of its stated length; with the partway case skipped the package
+now measures 89.0%. Ten runs before and ten after (`-race -tags integration`, GOMAXPROCS 4, plus five before at
+GOMAXPROCS 1) all measured 583 of 655: no spread on this machine either way, so the runners' miss is argued from the
+block's only path, not reproduced. The floor is unchanged.
 
 ## 1293. Explicit 0, -0 and null versions in journal lines and dispatch payloads decoded to Go's zero value and silently read as version 1, and peekFormat swallowed decode errors so unknown fields hid bad formats (fixed before push; a repeat in kind of 961 and 1203)
 
@@ -32898,6 +32918,34 @@ and their compilers holding about 5 GB, the leftover 997 describes. The commit i
 
 **Lesson.** LESSONS 467 and CI_LESSONS 41. An "undefined" type error under `# command-line-arguments`, on code that
 builds, means the tool was handed part of a package: measure the file list before reading the code.
+
+**Resolved, 2026-11-22.** Branch `fix/gosec-path-and-flakes`. The cause was confirmed in the source: gosec v2.30.0's
+`Analyzer.load` joins each file to its directory's absolute path, and x/tools v0.52.0's `defaultDriver` splits a list
+over 32,767 - 16,384 = 16,383 characters. internal/ent's 180 files are 14,445 characters from a 47-character worktree
+path, so a checkout path over 57 characters fails. From a 159-character checkout internal/ent (34,605) and
+internal/engine (18,199) were both over, and gosec alone reported 6 files it could not type-check (`undefined:
+Workflow` under `# command-line-arguments`). The cache inference was right: cmd/go's `buildActionID` hashes the
+package's `dir` unless `-trimpath` is set, and a new worktree's first gosec run took 123 s and its second 38 s.
+
+Fix: `tools/gosec-check` finds each package gosec's walk scans whose list is over the limit (`split.go`), scans the
+rest from the checkout with those left out by an exact pattern, scans those from a symlink
+`<user cache>/pgs/<12 hex of the checkout path>` that has the same name on every run and is kept (`shortpath.go`),
+and joins the two reports with every path moved back under the checkout (`scan.go`). A shorter path through
+relative names was not possible: gosec always joins the absolute path. From the deep checkout the first run took
+105 s and the second 30 s (later 28, 21 and 57 s; a short worktree 17 to 37 s, the main clone 43 s), with 45
+findings in 2,282 files: the same 43 distinct (file, line, rule), the same one waived skip and the same line count as
+the main clone and the short worktree. A package even the short path cannot rescue is refused with the fix, before
+any link is made. A link whose checkout is gone is removed by the next run that needs one.
+
+Stopping it: each `go list` leads its own process group (x/tools `internal/gocommand` `setProcessGroup`), so a kill
+of gosec or its group misses them. On an interrupt or the new `-timeout` (30 minutes) gosec-check freezes gosec,
+lists what it started with ps, and stops each process and each group they lead (`process.go`, `proctree_unix.go`);
+an interrupt and a SIGTERM to a real deep-path scan, and a time limit, each left no gosec or `go list`. SIGKILL to
+gosec-check itself still leaves them, as before. Windows: the rescue is not engaged at a runner's path; where it is,
+a symlink the account may not make fails with the fix named; a stop kills gosec alone; none of this has run there.
+gosec's own fix, loading a module's package by its directory (securego/gosec #1803, 2026-10-26), is in no release
+after v2.30.0; `TestScan_RescuesAPackageSplitByALongPath` fails its first check once the pin moves past it, and the
+rescue can then go.
 
 ## 1338. Two background waiters each looped until `ps -eo args | rg '[m]onitor.py run --cap'` found nothing, each waiter's command line held text the pattern matched, and each waited on the other for half an hour with no gate running (process; worked around with a script file; a repeat of 153, 689 and 1067, in a form LESSONS 448's bracket rule does not cover)
 
