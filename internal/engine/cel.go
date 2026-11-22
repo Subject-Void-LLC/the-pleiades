@@ -223,6 +223,13 @@ func (e *celEvaluator) Compile(expression string) (Program, error) {
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
 	}
+	// A condition is true or false. One the checker knows to be something
+	// else (a string, a number, an optional such as facts[?"key"]) is refused
+	// now, naming its type, rather than when the run reaches it; one of
+	// unknown type (a register's field) is left to the run.
+	if out := ast.OutputType(); !out.IsExactType(cel.BoolType) && !out.IsExactType(cel.DynType) {
+		return nil, fmt.Errorf("failed to compile CEL expression: it is a %s, not true or false", out)
+	}
 
 	prg, err := e.env.Program(ast, cel.CostLimit(defaultCELCostLimit))
 	if err != nil {

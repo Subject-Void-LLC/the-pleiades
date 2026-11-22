@@ -145,3 +145,24 @@ func TestFactsRoot_NoParameterReadsAFact(t *testing.T) {
 		})
 	}
 }
+
+// TestConditions_OneThatIsNotTrueOrFalseIsRefusedWhenBuilt: a condition the
+// checker knows to be a string, a number or an optional (facts[?"key"]
+// alone) is refused when it compiles, naming its type; one of unknown type,
+// such as a register's field, is left to the run.
+func TestConditions_OneThatIsNotTrueOrFalseIsRefusedWhenBuilt(t *testing.T) {
+	eval, err := engine.NewCELEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{`facts[?"os.codename"]`, `"yes"`, `1 + 1`} {
+		if _, err := eval.Compile(src); err == nil || !strings.Contains(err.Error(), "not true or false") {
+			t.Errorf("%s: %v, want it refused as not true or false", src, err)
+		}
+	}
+	for _, src := range []string{`true`, `stat.flag`, `facts[?"os.codename"].hasValue()`} {
+		if _, err := eval.Compile(src); err != nil {
+			t.Errorf("%s: %v, want it compiled", src, err)
+		}
+	}
+}
