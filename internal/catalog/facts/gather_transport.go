@@ -42,15 +42,29 @@ func windowsScriptAndStdin(script string, opts winrmexec.Options) (string, strin
 // gatherRun runs one probe's command and returns what it printed.
 type gatherRun func(ctx context.Context, command string) (string, error)
 
+// gatherWay is the way gatherRunner opened to a device.
+type gatherWay struct {
+	// run runs one probe's command.
+	run gatherRun
+	// platform is whose probes to run, as uname -s names it, or Windows.
+	platform string
+	// close closes the connection.
+	close func()
+	// hostKeys, for a device reached over SSH, says what the session's
+	// known_hosts check accepted (pkg/sshfacts); nil over WinRM, which has no
+	// host key. It is read when the probes are done, so a key exchange the
+	// session made in between is counted too.
+	hostKeys func() remoteexec.HostKeys
+}
+
 // gatherRunner opens the way to device: WinRM for a device reached that
-// way, as wait.connection chooses, and SSH for any other. It returns the
-// runner, the platform whose probes to run, and what closes the connection.
-// Its errors carry fqcn.
-func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (gatherRun, string, func(), error) {
+// way, as wait.connection chooses, and SSH for any other. Its errors carry
+// fqcn.
+func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (gatherWay, error) {
 	if winrm, ok := device.(capability.WinRMCapable); ok && device.HasCapability(capability.NameWinRM) {
 		auth, err := winrmexec.AuthFromSecrets(rc.InjectSecrets())
 		if err != nil {
-			return nil, "", nil, fmt.Errorf("%s: %w", fqcn, err)
+			return gatherWay{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		var opts winrmexec.Options
 		if shell, ok := device.(capability.WindowsShellCapable); ok {
@@ -72,12 +86,12 @@ func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 			}
 			return res.Stdout, nil
 		}
-		return run, platformWindows, func() {}, nil
+		return gatherWay{run: run, platform: platformWindows, close: func() {}}, nil
 	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
-		return nil, "", nil, err
+		return gatherWay{}, err
 	}
 	// Every probe runs in sh, so the login shell (csh, tcsh or fish as
 	// well as a POSIX one) only passes it on; each is one line, since csh
@@ -92,9 +106,9 @@ func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	system, err := run(ctx, "uname -s")
 	if err != nil {
 		_ = conn.Close()
-		return nil, "", nil, fmt.Errorf("%s: uname -s: %w", fqcn, err)
+		return gatherWay{}, fmt.Errorf("%s: uname -s: %w", fqcn, err)
 	}
-	return run, lastLine(system), func() { _ = conn.Close() }, nil
+	return gatherWay{run: run, platform: lastLine(system), close: func() { _ = conn.Close() }, hostKeys: conn.VerifiedHostKeys}, nil
 }
 
 // lastLine is out's last line that is not empty, trimmed.

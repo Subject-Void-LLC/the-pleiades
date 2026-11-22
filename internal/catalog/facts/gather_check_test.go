@@ -35,11 +35,12 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(srv.Close)
-	server := gatherServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password}
-	params := map[string]any{"insecure_skip_host_key_verify": true}
+	server := gatherServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password, hostKey: srv.HostKey}
+	// The check verifies the host key as the run does, so both record it.
+	gatherTrustServer(t, server)
 
 	checkRC := newGatherContext(server)
-	checked, err := d.Check(context.Background(), checkRC, newGatherTarget(server), params)
+	checked, err := d.Check(context.Background(), checkRC, newGatherTarget(server), nil)
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}

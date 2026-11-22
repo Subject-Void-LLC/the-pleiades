@@ -291,8 +291,8 @@ func gatherMinKeys(rc *gatherContext) []string {
 	var keys []string
 	for k := range rc.facts {
 		// The min and hardware subsets' facts are the host., os. and
-		// hardware. families'.
-		if strings.HasPrefix(k, "host.") || strings.HasPrefix(k, "os.") || strings.HasPrefix(k, "hardware.") {
+		// hardware. families', and the min subset's ssh.host_key. facts.
+		if strings.HasPrefix(k, "host.") || strings.HasPrefix(k, "os.") || strings.HasPrefix(k, "hardware.") || strings.HasPrefix(k, "ssh.host_key.") {
 			keys = append(keys, k)
 		}
 	}

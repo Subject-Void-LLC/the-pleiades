@@ -132,6 +132,7 @@
     "service",
     "service_state",
     "snmp",
+    "ssh",
     "svc",
     "tls",
     "user",
@@ -179,6 +180,7 @@
     "service.",
     "service_state.",
     "snmp.",
+    "ssh.",
     "svc.",
     "tls.",
     "user.",
@@ -265,6 +267,9 @@
     ],
     "snmp.": [
       "net"
+    ],
+    "ssh.": [
+      "facts"
     ],
     "svc.": [],
     "tls.": [

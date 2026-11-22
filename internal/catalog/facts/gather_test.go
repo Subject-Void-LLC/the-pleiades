@@ -18,6 +18,7 @@ package facts_test
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,9 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -33,7 +37,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sshfacts"
 )
 
 // errGatherEmit is what a stub context returns when a test wants
@@ -48,6 +54,9 @@ type gatherServer struct {
 	port     int
 	username string
 	password string
+	// hostKey is the key the server presents, which gatherRun writes to a
+	// known_hosts file so every run verifies it for real.
+	hostKey ssh.PublicKey
 }
 
 // startGatherServer starts a real SSH server that runs every command
@@ -81,7 +90,7 @@ func startGatherServerWithSessionBudget(t *testing.T, budget int) gatherServer {
 	}
 	t.Cleanup(srv.Close)
 
-	return gatherServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password}
+	return gatherServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password, hostKey: srv.HostKey}
 }
 
 // gatherTarget is a device reachable over SSH that also answers
@@ -165,17 +174,40 @@ func (c *gatherContext) EmitFact(key string, value any) error {
 	return nil
 }
 
-// gatherRun invokes the method against the harness with host key
-// verification skipped, which is what every test here needs and none of
-// them is about.
+// gatherRun invokes the method against the harness with the server's host
+// key verified against a real known_hosts file, as a real run verifies it, so
+// every run here also records ssh.host_key.ed25519 (gatherTrustServer).
 func gatherRun(t *testing.T, server gatherServer, rc *gatherContext, params map[string]any) (collection.Result, error) {
 	t.Helper()
+	gatherTrustServer(t, server)
+	return facts.Gather(context.Background(), rc, newGatherTarget(server), params)
+}
 
-	full := map[string]any{"insecure_skip_host_key_verify": true}
-	for key, value := range params {
-		full[key] = value
+// gatherTrustServer writes a known_hosts file holding server's host key and
+// points this process's SSH connections at it for the rest of the test
+// (remoteexec.KnownHostsEnv), as a deployment points them at its own.
+// more are other keys known_hosts lists for the same address.
+func gatherTrustServer(t *testing.T, server gatherServer, more ...ssh.PublicKey) {
+	t.Helper()
+	addr := net.JoinHostPort(server.host, strconv.Itoa(server.port))
+	gatherTrustLines(t, map[string][]ssh.PublicKey{addr: append([]ssh.PublicKey{server.hostKey}, more...)})
+}
+
+// gatherTrustLines writes a known_hosts file listing each address's keys and
+// points this process's SSH connections at it for the rest of the test.
+func gatherTrustLines(t *testing.T, entries map[string][]ssh.PublicKey) {
+	t.Helper()
+	var b strings.Builder
+	for addr, keys := range entries {
+		for _, key := range keys {
+			b.WriteString(knownhosts.Line([]string{addr}, key) + "\n")
+		}
 	}
-	return facts.Gather(context.Background(), rc, newGatherTarget(server), full)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatalf("writing known_hosts: %v", err)
+	}
+	t.Setenv(remoteexec.KnownHostsEnv, path)
 }
 
 // gatherCommandOutput runs a command on THIS machine and returns its
@@ -470,8 +502,10 @@ func TestGather_OmitsEverythingItCannotDetermine(t *testing.T) {
 	if result.Changed {
 		t.Error("a run that read nothing reported a change")
 	}
-	if len(rc.facts) != 0 {
-		t.Errorf("facts = %v, want none: a fact that could not be determined is left out, never guessed and never empty", rc.facts)
+	// The host key comes from the session's own handshake, not from a
+	// command, so a device that answers nothing still proved its key.
+	if _, ok := rc.facts[sshfacts.FactED25519]; !ok || len(rc.facts) != 1 {
+		t.Errorf("facts = %v, want only %s: a fact that could not be determined is left out, never guessed and never empty", rc.facts, sshfacts.FactED25519)
 	}
 }
 
