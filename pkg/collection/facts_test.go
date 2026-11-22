@@ -41,6 +41,9 @@ func TestValidateFacts_RefusesEachMalformedDeclaration(t *testing.T) {
 		"items on a key":      {func(s *collection.FactSpec) { s.ItemNames = true }, "as items"},
 		"items on no dot":     {func(s *collection.FactSpec) { s.Prefix, s.ItemNames = true, true }, "as items"},
 		"items on a lone dot": {func(s *collection.FactSpec) { s.Key, s.Prefix, s.ItemNames = ".", true, true }, "as items"},
+		// A family's items are listed only where the device has them, so a
+		// call not listing one proves nothing of it.
+		"absence claimed of a family": {func(s *collection.FactSpec) { s.Key, s.Prefix, s.AbsentWhenNotEmitted = "pkg.", true, true }, "no family can be"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := good
@@ -165,5 +168,51 @@ func TestRegister_RefusesAKeyAnotherMethodDeclaresOtherwise(t *testing.T) {
 	if err := collection.Register(factMethod("facttest.five", collection.FactSpec{Key: "bad key", Kind: collection.FactStable, Type: collection.FactString, Description: "x"})); err == nil ||
 		!strings.Contains(err.Error(), `"facttest.five"`) {
 		t.Fatalf("a malformed declaration: %v", err)
+	}
+}
+
+// TestRegister_OnlyABuiltInMayClaimAbsence: a built-in may claim that a key it
+// declares by name is absent when a bare call does not emit it; an external
+// Collection's method may not, since nothing holds its code to the claim.
+func TestRegister_OnlyABuiltInMayClaimAbsence(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	claim := collection.FactSpec{Key: "absent.k", Kind: collection.FactStable, Type: collection.FactString, Description: "a key", AbsentWhenNotEmitted: true}
+	if err := collection.Register(factMethod("absenttest.builtin", claim)); err != nil {
+		t.Fatalf("a built-in's claim: %v", err)
+	}
+	external := factMethod("acmeabsent.program", collection.FactSpec{Key: "acmeabsent.k", Kind: collection.FactStable, Type: collection.FactString, Description: "a key", AbsentWhenNotEmitted: true})
+	external.Provider = &collection.Provider{Program: "acme", Digest: strings.Repeat("a", 64)}
+	if err := collection.Register(external); err == nil || !strings.Contains(err.Error(), "only a built-in method may claim") {
+		t.Fatalf("an external Collection's claim: %v, want it refused", err)
+	}
+}
+
+// TestFactDeclarers_NamesMethodsByKeyAndByFamily: a key's declarers are the
+// methods naming it and, apart, those naming a family it belongs to, from the
+// registry and the installed catalog.
+func TestFactDeclarers_NamesMethodsByKeyAndByFamily(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	t.Cleanup(collection.CatalogForTest())
+	for _, d := range []collection.Descriptor{
+		factMethod("decltest.gather", collection.FactSpec{Key: "decl.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "a key"}),
+		factMethod("decltest.install", collection.FactSpec{Key: "decl.pkg.", Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "a family"}),
+	} {
+		if err := collection.Register(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := collection.InstallCatalog([]byte(`{"decltest.catalogued":{"status":"implemented","facts":[{"key":"decl.kernel","kind":"stable","type":"string","description":"a key"}]}}`)); err != nil {
+		t.Fatal(err)
+	}
+	byName, byFamily := collection.FactDeclarers("decl.kernel")
+	if strings.Join(byName, ",") != "decltest.catalogued,decltest.gather" || len(byFamily) != 0 {
+		t.Errorf("decl.kernel: by name %v, by family %v", byName, byFamily)
+	}
+	byName, byFamily = collection.FactDeclarers("decl.pkg.nginx")
+	if len(byName) != 0 || strings.Join(byFamily, ",") != "decltest.install" {
+		t.Errorf("decl.pkg.nginx: by name %v, by family %v", byName, byFamily)
+	}
+	if byName, byFamily := collection.FactDeclarers("nothing.declares"); len(byName)+len(byFamily) != 0 {
+		t.Errorf("a key nothing declares: %v %v", byName, byFamily)
 	}
 }

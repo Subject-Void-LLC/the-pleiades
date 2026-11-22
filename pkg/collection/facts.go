@@ -8,6 +8,7 @@ package collection
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -81,6 +82,15 @@ type FactSpec struct {
 	Type FactType `json:"type"`
 	// Description says what the fact is, in one line.
 	Description string `json:"description"`
+	// AbsentWhenNotEmitted claims that a call of the method with nothing
+	// narrowing it, which succeeds and does not emit this key, has
+	// established that the device lacks it: the method tells a device without
+	// the fact from one it could not read (a command that failed, a file it
+	// was not allowed to open, a tool that is missing, a value over a bound).
+	// Only then may a condition read the key as absent; without it, a key
+	// such a call left out is unknown. A family's items are never claimed:
+	// Register refuses it on a Prefix declaration.
+	AbsentWhenNotEmitted bool `json:"absent_when_not_emitted,omitempty"`
 }
 
 // NamesItems reports whether s is a family whose names after its prefix are
@@ -179,6 +189,8 @@ func ValidateFacts(specs []FactSpec) error {
 			return fmt.Errorf("declares fact %q with no description", s.Key)
 		case s.ItemNames && (!s.Prefix || len(s.Key) < 2 || !strings.HasSuffix(s.Key, ".")):
 			return fmt.Errorf("declares fact %q's names as items, which only a family whose prefix ends in a dot can", s.Key)
+		case s.AbsentWhenNotEmitted && s.Prefix:
+			return fmt.Errorf("declares the family %q absent when not emitted, which no family can be: a call lists the items it found, and one it did not list may be one it never looked for", s.Key)
 		}
 		id := s.Key
 		if s.Prefix {
@@ -211,6 +223,14 @@ func checkFacts(d Descriptor) error {
 	if d.Provider != nil {
 		if err := checkExternalFacts(d); err != nil {
 			return err
+		}
+		// Absence is a claim about what the method's code can tell apart,
+		// which nothing holds a program to; the engine reads it of built-ins
+		// only, so a program making it is refused rather than ignored.
+		for _, s := range d.Manifest.Facts {
+			if s.AbsentWhenNotEmitted {
+				return fmt.Errorf("collection: %q declares fact %q absent when not emitted, which only a built-in method may claim", d.Name, s.Key)
+			}
 		}
 	} else {
 		if err := checkBuiltinAfterExternal(d); err != nil {
@@ -263,4 +283,37 @@ func validFactType(t FactType) bool {
 		return true
 	}
 	return false
+}
+
+// FactDeclarers returns the methods declaring key, sorted: those naming it,
+// and those naming a family it belongs to. It reads the registry and, for a
+// name nothing is registered under, the installed module catalog, so a
+// Controller can say which method would gather a key too.
+func FactDeclarers(key string) (byName, byFamily []string) {
+	seen := map[string]bool{}
+	add := func(name string, specs []FactSpec) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		spec, ok := FactFor(specs, key)
+		switch {
+		case !ok:
+		case spec.Prefix:
+			byFamily = append(byFamily, name)
+		default:
+			byName = append(byName, name)
+		}
+	}
+	for name, d := range collections.All() {
+		add(name, d.Manifest.Facts)
+	}
+	builtinCatalog.RLock()
+	for name, m := range builtinCatalog.manifests {
+		add(name, m.Facts)
+	}
+	builtinCatalog.RUnlock()
+	sort.Strings(byName)
+	sort.Strings(byFamily)
+	return byName, byFamily
 }
