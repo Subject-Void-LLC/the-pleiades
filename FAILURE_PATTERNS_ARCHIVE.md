@@ -34046,8 +34046,14 @@ other answer, or none, reads nothing (fail closed). A jail reads `container:jail
 FreeBSD. Test: `TestFreeBSDIdentityReads_SkipAJail`. The Linux-only fragment is replaced by
 `changelog/facts-identity.added.md`, which names FreeBSD, macOS and Windows and the jail rule.
 
-**Not proven.** A real jail. bsd-lab's login has no root and no sudo, so no jail could be made there. The guard is
-proven by its unit test only.
+**Not proven.** A real jail. bsd-lab's login has no root and no sudo, so no jail could be made there.
+*Corrected 2026-11-22, after the branch's review:* `TestFreeBSDIdentityReads_SkipAJail` only checks that each read
+starts with the guard, so a guard changed to fail open (`!= 1`) still passed it. `TestFreeBSDJailGuard_FailsClosed`
+(`15ad6350`) runs the guard through `/bin/sh` against a stand-in `sysctl` (0, 1, empty, failed, another answer,
+none), and that mutation fails four of its six cases (run once by hand). The review found the same gap on Windows: a
+process-isolated Windows container would have stored its host's UUID and serial and its image's MachineGuid. It is
+fixed in the same commit (the container execution agent, `cexecsvc`, skips the three reads, and the value is
+`container:windows`), reasoned and not measured, since the lab has no Windows container.
 
 **Searched.** By "machine-id", "machine_id", "jail", "gatherNotInContainer", "bsdHostProbes", `7c619582` and
 `1a1c8aae`. 928 names a FreeBSD jail in passing (a hidden daemon read as unknown), a different defect. No entry for
