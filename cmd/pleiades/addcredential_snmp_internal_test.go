@@ -46,6 +46,53 @@ func TestAddSNMPFlags_MatchTheCLISpec(t *testing.T) {
 	}
 }
 
+// TestAddCredentialFlags_MatchTheCLISpec: every flag runAddCredential
+// registers is in internal/clispec with the same help text and default, and
+// every flag clispec lists for add-credential is registered, so the generated
+// reference and --help cannot drift apart in either direction. The control is
+// that the flag set was seen and holds the flags this change added.
+func TestAddCredentialFlags_MatchTheCLISpec(t *testing.T) {
+	var registered *flag.FlagSet
+	inspectAddCredentialFlags = func(fs *flag.FlagSet) { registered = fs }
+	t.Cleanup(func() { inspectAddCredentialFlags = nil })
+	// No device name: the command refuses after registering its flags.
+	if err := runAddCredential(nil); err == nil {
+		t.Fatal("add-credential with no device ran")
+	}
+	if registered == nil {
+		t.Fatal("runAddCredential registered no flags through the hook")
+	}
+	spec, ok := clispec.Find(clispec.Root, "add-credential")
+	if !ok {
+		t.Fatal("clispec has no add-credential")
+	}
+	documented := map[string]clispec.Flag{}
+	for _, f := range spec.Flags {
+		documented[f.Name] = f
+	}
+	seen := map[string]bool{}
+	registered.VisitAll(func(f *flag.Flag) {
+		seen[f.Name] = true
+		doc, ok := documented[f.Name]
+		switch {
+		case !ok:
+			t.Errorf("--%s is registered and not in clispec's add-credential", f.Name)
+		case doc.Doc != f.Usage || doc.Default != f.DefValue:
+			t.Errorf("--%s: clispec says %q (default %q), the flag %q (default %q)", f.Name, doc.Doc, doc.Default, f.Usage, f.DefValue)
+		}
+	})
+	for name := range documented {
+		if !seen[name] {
+			t.Errorf("clispec lists --%s, which add-credential does not register", name)
+		}
+	}
+	for _, name := range []string{"key-type", "no-password", "json", "generate", "username"} {
+		if !seen[name] {
+			t.Errorf("the control: --%s was not seen", name)
+		}
+	}
+}
+
 // TestFamiliesGiven_NamesEachFamilyItsFlagsSet: SNMP flags alone name the
 // SNMP family, login flags the login, both both, and neither the login,
 // which is add-credential's password prompt.

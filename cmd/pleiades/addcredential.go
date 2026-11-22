@@ -14,6 +14,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
+// inspectAddCredentialFlags, when set, is handed every flag runAddCredential
+// registers before it parses any: a test holds them to internal/clispec, the
+// spec the reference and --help are generated from. Nil in the binary.
+var inspectAddCredentialFlags func(fs *flag.FlagSet)
+
 // runAddCredential stores one device's SSH credential, encrypted at rest,
 // in <dir>/.pleiades/credentials.yaml (internal/credential's Crawl-tier
 // Store adapter, file_store.go). Unlike add-host's inventory.yaml, this
@@ -90,6 +95,9 @@ func runAddCredential(args []string) error {
 	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input, after the login's own secret when that is piped too")
 	noDevice := fs.Bool("no-device", false, "store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused")
 	snmp := addSNMPFlags(fs)
+	if inspectAddCredentialFlags != nil {
+		inspectAddCredentialFlags(fs)
+	}
 
 	name, err := parseOneArg(fs, args)
 	if err != nil {
