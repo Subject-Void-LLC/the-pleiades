@@ -287,6 +287,18 @@ cannot report a problem found later, such as a credential that cannot be resolve
 shows up as a failed job. Each launch creates a new job; there is no idempotency key, so
 retrying a launch whose answer was lost starts a second job.
 
+A launch does read the template's runbook first, and refuses what could only fail. A
+runbook that does not compile is answered `422` with the builder's own message (the
+handler, task or key it objects to), on a launch, a check and a relaunch alike, and no
+job is created. Earlier releases accepted such a launch and failed its job at fan-out
+with `runbook "x" could not be resolved`, which left out the reason. A runbook that is
+missing, or that the Controller cannot read, is still left to fan-out, which fails the
+job with `runbook "x" not found` or `runbook "x" could not be resolved`: the detail of
+a storage failure stays in the Controller's log. A runbook that stops compiling between
+its launch and its fan-out fails the job with the builder's message as its
+`failure_reason`. Creating a template over a runbook that does not compile is a `400`
+with the same message.
+
 ### Fan-out: one row per device, whether it runs or not
 
 A Controller replica claims the job (`pending` to `fanning_out`), resolves its bound
@@ -650,6 +662,15 @@ decision, which is a larger version of the concern that already stops a relaunch
 doing it once. A prompted credential input is never stored at all; a secret survey
 answer is stored encrypted, and the refusal is about replaying it rather than about
 reading it back.
+
+A template whose runbook does not compile cannot be scheduled either: the write is
+refused with the builder's own message, as a launch of it is. A schedule saved while the
+runbook compiled is not lost when the runbook breaks later. When it fires, the launch is
+refused, the occurrence is recorded as `skipped` with the reason `launch_failed`, no job
+is created, the builder's message goes to the Controller's log, and the schedule moves
+on to its next occurrence. Such a schedule can still be read, renamed, paused and
+deleted; pointing a schedule at that template, or turning a paused one back on, is
+refused until the runbook compiles again.
 
 Note the scope: what is refused is a schedule whose saved configuration ANSWERS such a
 question. A template carrying a password or file question can still be scheduled, so
