@@ -13,8 +13,8 @@
 // gosec itself must already be on PATH (AGENTS.md's gopls/gosec/
 // govulncheck setup section). A package gosec would load in pieces from a
 // checkout with a long path is scanned from a short path (scan.go), and an
-// interrupt or the time limit stops gosec and every process it started
-// (process.go).
+// interrupt or the time limit stops gosec and, on Linux and macOS, the
+// processes it started, with the limits process.go names.
 package main
 
 import (

@@ -32937,12 +32937,19 @@ findings in 2,282 files: the same 43 distinct (file, line, rule), the same one w
 the main clone and the short worktree. A package even the short path cannot rescue is refused with the fix, before
 any link is made. A link whose checkout is gone is removed by the next run that needs one.
 
-Stopping it: each `go list` leads its own process group (x/tools `internal/gocommand` `setProcessGroup`), so a kill
-of gosec or its group misses them. On an interrupt or the new `-timeout` (30 minutes) gosec-check freezes gosec,
-lists what it started with ps, and stops each process and each group they lead (`process.go`, `proctree_unix.go`);
-an interrupt and a SIGTERM to a real deep-path scan, and a time limit, each left no gosec or `go list`. SIGKILL to
-gosec-check itself still leaves them, as before. Windows: the rescue is not engaged at a runner's path; where it is,
-a symlink the account may not make fails with the fix named; a stop kills gosec alone; none of this has run there.
+Stopping it: each `go list` leads its own process group (x/tools `internal/gocommand` `setProcessGroup`), and gosec
+has no signal handler, so killing gosec or any group it is in leaves them running. gosec now leads a group of its own,
+so a signal to gosec-check's group (a Ctrl-C, make, a watchdog) reaches gosec-check alone. On that signal or past
+`-timeout` (10 minutes, unmeasured on CI) gosec-check freezes gosec, lists what it started with ps (pid, parent,
+group, start time), kills gosec's group, sends SIGTERM to what it started and each group they lead, and after a
+grace lists again and kills only processes whose pid and start time are unchanged (`process.go`,
+`proctree_unix.go`). On a real deep-path scan with four `go list` running, SIGINT to gosec-check's group, and SIGINT
+to the group of `make gosec`, each left no gosec, `go list` or compiler. Limits: this has run on Linux only, not on
+macOS; on Windows only gosec is stopped; when ps cannot list the processes only gosec is stopped, with a warning;
+SIGKILL to gosec-check leaves gosec and its `go list` running; and if gosec-check dies in the one ps run between
+freezing gosec and killing it, gosec stays frozen. A first version of this stop shared gosec-check's group and,
+on a group signal, found nothing to stop (found in review before the pull request). Windows: the rescue is not
+engaged at a runner's path; where it is, a symlink the account may not make fails with the fix named.
 gosec's own fix, loading a module's package by its directory (securego/gosec #1803, 2026-10-26), is in no release
 after v2.30.0; `TestScan_RescuesAPackageSplitByALongPath` fails its first check once the pin moves past it, and the
 rescue can then go.
