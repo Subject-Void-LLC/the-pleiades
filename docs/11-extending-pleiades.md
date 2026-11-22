@@ -959,7 +959,11 @@ method's result is the same to the engine whichever kind of process produced it.
 
 The program never runs on a managed device. It runs beside The Pleiades and reaches the
 device the way a built-in method does, through `sdk.Connect` and the credential in the
-request.
+request. Through `sdk.Connect` it is held to the device's legacy SSH properties as a built-in
+method is: a stored RSA key signs the login with SHA-2 unless the device's record sets
+`ssh_allow_legacy_user_key_signatures`. A program that uses the private key it is handed some
+other way, in Go or any other language, is not, and nothing The Pleiades does can stop it
+signing with SHA-1.
 
 **The protocol version.** `describe` names the protocol versions the program speaks: a
 program built with `pkg/external` prints `protocol` (the newest) and `protocol_min` and
