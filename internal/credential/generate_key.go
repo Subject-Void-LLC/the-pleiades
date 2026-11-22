@@ -49,7 +49,9 @@ func (t KeyType) IsRSA() bool { return strings.HasPrefix(string(t), "rsa-") }
 // ParseKeyType returns the generated key type s names. It matches exactly,
 // in lower case, and refuses anything else by listing the five names; a
 // 2048-bit RSA key is refused with the type to use instead and the way to
-// store one made elsewhere.
+// store one made elsewhere. A refusal never repeats s: a secret pasted into
+// the wrong flag would otherwise be printed back to the terminal and any log
+// of it.
 func ParseKeyType(s string) (KeyType, error) {
 	for _, t := range GenerateKeyTypes {
 		if s == string(t) {
@@ -63,7 +65,7 @@ func ParseKeyType(s string) (KeyType, error) {
 	if strings.EqualFold(s, "rsa-2048") {
 		return "", fmt.Errorf("a generated RSA key is at least 3072 bits, so use rsa-3072; a 2048-bit key made elsewhere can still be stored with --key")
 	}
-	return "", fmt.Errorf("unknown key type %q: the types are %s", s, strings.Join(names, ", "))
+	return "", fmt.Errorf("that is not a key type this generates: the types are %s", strings.Join(names, ", "))
 }
 
 // GenerateKey returns a new private key of type t in OpenSSH's own PEM
@@ -89,7 +91,7 @@ func GenerateKey(t KeyType, comment string) ([]byte, error) {
 	case KeyTypeECDSAP384:
 		private, err = ecdsa.GenerateKey(elliptic.P384(), entropy)
 	default:
-		return nil, fmt.Errorf("credential: %q is not a key type this generates", t)
+		return nil, fmt.Errorf("credential: not a key type this generates")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("credential: generating a key: %w", err)

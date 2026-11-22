@@ -112,6 +112,10 @@ func TestParseKeyType_TakesTheFiveNamesExactly(t *testing.T) {
 			t.Errorf("%q: %v, want a refusal listing the five types", s, err)
 		}
 	}
+	// A secret pasted into --key-type is never printed back.
+	if _, err := ParseKeyType("Hunter2-s3cret-pasted"); err == nil || strings.Contains(err.Error(), "Hunter2") {
+		t.Errorf("a refusal repeats its input: %v", err)
+	}
 	for _, s := range []string{"rsa-2048", "RSA-2048"} {
 		if _, err := ParseKeyType(s); err == nil || !strings.Contains(err.Error(), "rsa-3072") || !strings.Contains(err.Error(), "--key") {
 			t.Errorf("%q: %v, want rsa-3072 and --key named", s, err)

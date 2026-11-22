@@ -176,15 +176,16 @@ func TestAddCredential_GenerateRefusesBeforeReadingOrMakingAnything(t *testing.T
 		args []string
 		want string
 	}{
-		"rsa-2048":                   {[]string{"new1", "--generate", "--key-type", "rsa-2048", "--snmp-community-stdin"}, "use rsa-3072"},
-		"bare rsa":                   {[]string{"new1", "--generate", "--key-type", "rsa", "--snmp-community-stdin"}, `unknown key type "rsa"`},
-		"upper case":                 {[]string{"new1", "--generate", "--key-type", "ED25519", "--snmp-community-stdin"}, `unknown key type "ED25519"`},
-		"dsa":                        {[]string{"new1", "--generate", "--key-type", "dsa", "--snmp-community-stdin"}, `unknown key type "dsa"`},
-		"key type without generate":  {[]string{"new1", "--key-type", "rsa-3072", "--password-stdin"}, "--key-type only applies to --generate"},
-		"no password without it":     {[]string{"new1", "--no-password", "--password-stdin"}, "--no-password only applies to --generate"},
-		"json without it":            {[]string{"new1", "--json", "--password-stdin"}, "--json only applies to --generate"},
-		"replace without it":         {[]string{"new1", "--replace", "--password-stdin"}, "--replace only applies to --generate"},
-		"a stored login, no replace": {[]string{"db1", "--generate", "--enable-password-stdin", "--snmp-community-stdin"}, "--replace discards it"},
+		"rsa-2048":                    {[]string{"new1", "--generate", "--key-type", "rsa-2048", "--snmp-community-stdin"}, "use rsa-3072"},
+		"bare rsa":                    {[]string{"new1", "--generate", "--key-type", "rsa", "--snmp-community-stdin"}, "not a key type this generates"},
+		"upper case":                  {[]string{"new1", "--generate", "--key-type", "ED25519", "--snmp-community-stdin"}, "not a key type this generates"},
+		"dsa":                         {[]string{"new1", "--generate", "--key-type", "dsa", "--snmp-community-stdin"}, "not a key type this generates"},
+		"a secret pasted as the type": {[]string{"new1", "--generate", "--key-type", "Hunter2-s3cret-pasted", "--snmp-community-stdin"}, "not a key type this generates"},
+		"key type without generate":   {[]string{"new1", "--key-type", "rsa-3072", "--password-stdin"}, "--key-type only applies to --generate"},
+		"no password without it":      {[]string{"new1", "--no-password", "--password-stdin"}, "--no-password only applies to --generate"},
+		"json without it":             {[]string{"new1", "--json", "--password-stdin"}, "--json only applies to --generate"},
+		"replace without it":          {[]string{"new1", "--replace", "--password-stdin"}, "--replace only applies to --generate"},
+		"a stored login, no replace":  {[]string{"db1", "--generate", "--enable-password-stdin", "--snmp-community-stdin"}, "--replace discards it"},
 	} {
 		var err error
 		left := withStdinLeft(t, piped+piped, func() {
@@ -192,6 +193,9 @@ func TestAddCredential_GenerateRefusesBeforeReadingOrMakingAnything(t *testing.T
 		})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want a refusal naming %q", name, err, tc.want)
+		}
+		if err != nil && strings.Contains(err.Error(), "Hunter2") {
+			t.Errorf("%s: the refusal repeats the value given: %v", name, err)
 		}
 		if left != piped+piped {
 			t.Errorf("%s: read standard input before refusing, leaving %q", name, left)
