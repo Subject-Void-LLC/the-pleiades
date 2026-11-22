@@ -446,6 +446,13 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 	var problems []string
 	for _, expr := range tmpl.Expressions() {
 		root := expr.Path[0]
+		// A stored fact decides whether a task runs and goes nowhere else
+		// (facts_root.go), a rollback step's parameters and a set_fact's
+		// value included.
+		if root == TemplateRootFacts {
+			problems = append(problems, ErrParamReadsFacts)
+			continue
+		}
 		if !slices.Contains(roots, root) {
 			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(roots, ", ")))
 			continue

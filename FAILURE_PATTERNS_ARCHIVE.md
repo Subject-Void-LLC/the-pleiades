@@ -33000,3 +33000,265 @@ guard.
 **Lesson.** A row that does not open is never, by itself, proof of damage, because the tool cannot tell a row sealed
 under a key it was not given from a corrupted one: any history with such a row is unverifiable however the keys are
 set. A check that a command's configuration is right must cover every key the data may need, not one of them.
+
+## 1342. A stored fact key read absent because some method that had observed the device declared the key's family, so a package nobody had asked about read as not installed (fixed before push; caught in review; a repeat in kind of 13, 723, 925 and 926; LESSONS 379 and 391)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. The first build of
+the `facts` condition root called a key absent when any method that had observed the device declared the key's family
+by prefix. `facts.gather` declares `package.`, `service.`, `file.`, `port.`, `user.` and `group.` as prefixes, and
+its default subset lists none of them. So `facts.gather: {}` followed by `when: facts["package.nginx"] is not
+defined` was true on a host with nginx installed. One `pkg.install curl` made every other package read absent from
+then on.
+
+**Root cause.** A family declaration was read as coverage. A declaration says what a method can emit. It does not say
+what one call looked for, and the store keeps what a gather found, not what it asked. The reader had no record of the
+question, so it took "a method that can emit this family ran, and the key is not there" as "the device does not have
+it".
+
+**Why 13, 723, 925 and 926 did not prevent it.** They are the same class: an empty answer taken as a negative one.
+Their fixes are each on a reader of one probe (a routing table, a family source, `systemctl`), where a failed or
+misaimed read came back as an empty set. Here no read was made at all: absence was inferred from a declaration.
+LESSONS 379 and 391 say only the system's own not-found answer may claim absent. The first build held to that for a
+key some call had looked for by name, and then widened "looked for" to "declared", which is one step further from the
+device than those lessons cover.
+
+**Fix.** `04ee463d`, then narrowed after an edge-case pass on the pull request. A store answers only present or
+unknown (`TestAnswerFacts_AStoreAnswersPresentOrUnknownNeverAbsent`,
+`TestFactsRoot_AStoredObservationAloneMakesNoKeyAbsent`). Absence is opt-in per key: a key reads absent only when an
+earlier task of the same run called, with no parameter narrowing the call, a built-in that declares the key by exact
+name with `collection.FactSpec.AbsentWhenNotEmitted`, a claim that its silence proves the device lacks the key, and
+did not emit it (`TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent`, `internal/engine/facts_answer.go`).
+`Register` refuses the claim on a family and on an external Collection's method. No built-in makes it yet:
+`facts.gather` reads with commands whose failure it cannot tell from an empty answer (`hardware.serial` is `cat ...
+2>/dev/null; true`, so a non-root login reads nothing on a device that has a serial). A value the guard refused is
+withheld, never absent. Any other key nothing holds is unknown, a CEL unknown in the condition, and the task fails
+only when the condition's result is unknown.
+
+**Open, by design.** A family's item, such as `package.nginx`, can never read absent. That needs a coverage record
+per observation: the exact keys the call looked for and the families it listed in full. It is not built, and the docs
+and the changelog say a family's item fails the task rather than reading as false.
+
+**Lesson.** LESSONS 469. Absence needs a record of the question asked. A declaration, a prefix or "an observer ran"
+is not that record.
+
+## 1343. The Walk tier's refusal of a fact-reading runbook lived only in per-device admission, so a launch made a job whose every device failed and a schedule was accepted that would fail at every firing; a refused relaunch answered 500 (fixed before push; caught in review; a repeat of 1214; LESSONS 436)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. No Runner can read
+stored facts in this release, so the Controller refuses a runbook whose condition reads one. The first build refused
+it only when each device was admitted. `POST /templates/{id}/launch`, the check route and a relaunch were accepted
+and produced a job in which every device failed. `POST /schedules` accepted a schedule of such a template, which
+would have failed at every firing. Found beside it: `POST /jobs/{id}/relaunch` answered 500 "internal error" for a
+refused relaunch, for this refusal and for 1214's seeded logins, which is on `main`.
+
+**Root cause.** The refusal was written where the first test reached it, in fan-out's admission
+(`internal/dispatch/worker_devices.go`), and not at the writes that start a job. The relaunch route's error mapping
+listed neither `dispatch.ErrSeededLogin` nor the new `dispatch.ErrFactReads`, so both fell through to 500.
+
+**Why 1214 did not prevent it.** 1214's lesson says every path that starts a job asks the same refusal function, and
+its fix did that for seeded logins by hand: launch, fan-out, then the schedule's preflight in a second commit.
+Nothing in the code ties a new refusal to that list of callers, so the next refusal was again added at one place.
+1214's own list also missed the relaunch route's status code, which stayed 500 until this branch.
+
+**Fix.** `308e8a95`: one function, `dispatch.RefuseFactReads`, is called at launch, check, relaunch and the
+schedule's `Preflight`, and admission keeps it as the backstop. Each answers a refusal naming the task and the key
+(`TestLaunchTemplate_RefusesAFactReadingRunbookBeforeTheJobExists`, `TestLaunchRoutes_AFactReadingRunbookIs422`,
+`TestSchedules_AFactReadingRunbookIsRefusedAtTheWrite`,
+`TestFanOut_ARunbookReadingStoredFactsIsRefusedBeforeContact`). A rollback is not refused for it
+(`TestRollback_AJobOfAFactReadingRunbookIsNotRefusedForIt`). The Runner refuses before its first task
+(`TestExecute_RefusesARunbookReadingStoredFactsBeforeItsFirstTask`). `fce5dce5`: a refused relaunch answers 422 with
+the runbook's own refusal, for both errors.
+
+**Not built.** No test holds every launch route to every refusal function, so a third refusal can be added at one
+place again. LESSONS 470 states the practice.
+
+**Lesson.** LESSONS 470. A refusal is placed by listing the routes that can start the work, not by fixing the route
+where it was first seen.
+
+## 1344. A fact write in a project whose master key was lost made a new master key beside fact files sealed under the old one (fact write path fixed before push; the credentials path still makes a new key: open)
+
+**Symptom.** 2026-11-21, found in review of branch `feat/41-facts-in-when`; the defect was on `main` before the
+branch (`factKeysToWrite`, `cmd/pleiades/facts_dir.go`). A gather in a project that had stored facts and then lost
+its master key made a new master key without saying so. New facts were sealed under the new key. Every older fact
+file stayed sealed under the key that was gone.
+
+**Root cause.** The write path asked for the project's master key with create-if-missing, which is right for a
+project that has never stored a fact and wrong beside files already sealed. Nothing looked for sealed fact files
+before making a key.
+
+**Search.** The index and the archive for a key made, replaced or regenerated beside data sealed under another one.
+1217 is about a key file's mode and owner, and 1330 and 1341 are about a wrong or partial key read as damage. None is
+a key created over existing sealed data.
+
+**Fix.** `938a1572`. The fact write path, and the private-file digest keyer, refuse instead and name the key to
+restore. A project that never stored a fact still gets its key on the first write
+(`TestFactKeysToWrite_ALostKeyIsNeverReplacedBesideSealedFacts`).
+
+**Open.** The credentials path still makes a new master key in such a project. After it has, fact writes for devices
+with existing fact files fail and are logged, while new devices store under the new key, so the store ends up mixed:
+some files under the lost key and some under the new one. Not fixed on this branch.
+
+**Lesson.** A key is created only where nothing is sealed yet. Every path that can create a project's key checks for
+data sealed under an earlier one first, and one path fixed leaves the others to do the same harm.
+
+## 1345. An error raised after a condition read a fact was reported as the fact's fault: `!has(facts.x) && vars.typo == 1` blamed `facts.x` (fixed before push; caught in review; a repeat in kind of 270 and 1051)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. Once a condition
+had read a fact, any evaluation error was replaced by a message about that fact. `!has(facts.x) && vars.typo == 1`
+failed on the misspelled variable and told the author to test for `facts.x`.
+
+**Root cause.** `sanitize` withheld CEL's error text whenever a fact had been read, since that text can quote a
+value, and put the fact's advice in its place. It did not ask whether the fact read was the thing that failed.
+
+**Why 270 and 1051 did not prevent it.** 270's lesson is to follow your own advice once before shipping it, and
+1051's is that a refusal names the first thing that was wrong. The message was checked for the case it was written
+for (an absent fact) and not for an error elsewhere in the same condition.
+
+**Fix.** `0a7e5b6d`. CEL's text stays withheld. The message names the failing condition item and says the cause may
+be anywhere in it. The advice to test for a fact is given only when the fact read itself failed
+(`TestFactsRoot_AFailureElsewhereInAConditionIsNotBlamedOnAFact`).
+
+**Lesson.** When an error's text must be withheld, say where the failure was and stop there. Name a cause only when
+the code knows it.
+
+## 1346. Every error reading the project's master key was reported as "no master key", so a key file refused for its mode or owner, or a malformed key, told the author to set a key that exists (fixed before push; caught in review; a repeat of 270; beside 1217)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. `validate` on a
+runbook that reads facts, in a project whose `master.key` was refused for its mode or owner (1217's refusal) or held
+a value that is not a key, said the project had no master key and advised setting one.
+
+**Root cause.** `projectFactStore` (`cmd/pleiades/facts_dir.go`) folded every error from the key read into the no-key
+state.
+
+**Why 270 did not prevent it.** The same miss as 1345: the advice was right for the one case in mind (no key) and was
+never followed for the others. 1217 gave the loose key file a refusal of its own that names the file and the `chmod`
+or `chown` that fixes it, and this new caller threw that text away.
+
+**Fix.** `6b0d49d0`. Validation names the key's own refusal, which names a file or a variable and never a key
+(`TestProjectFactStore_TellsAnUnusableKeyFromNone`, `TestFactsRule_AnUnusableKeyIsNamedNotCalledMissing`).
+
+**Lesson.** "Missing" and "unusable" are two states with two fixes. A caller that turns an error into a state keeps
+the error's own advice.
+
+## 1347. A documented `when_cel` test could not work: `facts[?"os.codename"]` alone is an optional value, not true or false, and such a condition was refused only when the run reached it (fixed before push; caught in review; a behavior change)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request.
+`docs/04-writing-runbooks.md` listed `facts[?"os.codename"]` among the tests a `when_cel` can make. It is an optional
+value. The runbook built, and the task failed at run time with "CEL expression did not return a boolean".
+
+**Root cause.** Two things. The example was written as prose and never run. And the build step compiled a condition
+without looking at its result type, so a condition known to be a string, a number or an optional passed the build.
+
+**Search.** The index for a documentation example that does not compile, validate or run, and for a condition that is
+not a boolean: no earlier entry. LESSONS 206 says to prove each surprising documentation claim from the code.
+
+**Fix.** `5eb75969`: a condition whose type the checker knows not to be boolean is refused when the runbook is built,
+naming its type; one of unknown type is still left to the run
+(`TestConditions_OneThatIsNotTrueOrFalseIsRefusedWhenBuilt`). `304f08ce`: the example is corrected
+(`facts[?"os.codename"].hasValue()`), and the section's test forms sit in a runbook that
+`TestCLI_WritingRunbooksPageExamplesValidate` validates. The build-time refusal is what lets that test catch such an
+example.
+
+**Behavior change.** A runbook holding a condition of a known non-boolean type used to validate and fail in the run.
+It is now refused by `validate` and at the start of `run`. Stated in
+`changelog/condition-not-true-or-false-refused.breaking.md`.
+
+**Lesson.** A documented example is a runbook a test validates, and the validator must be able to fail on what the
+run would fail on, or the test proves little.
+
+## 1348. Two new test fixtures named their method with `fqcn:`, the task form the owner refused (fixed before push; a repeat of 531)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`. Two fixtures in the branch's new tests (the admission
+runbooks in `internal/dispatch/facts_test.go` and a DAG in `internal/engine/facts_view_internal_test.go`) named each
+task's method with `fqcn:`. Neither test is about that spelling.
+
+**Why 531 did not prevent it.** 531's guard, `TestShippedRunbooksNameTheirMethodAsKey`, covers docs, examples, the
+root documents, documented method examples and the init sample. It does not read test fixtures, and the agent rules'
+sentence that names new test fixtures is a rule to remember. Older fixtures in the same packages still use `fqcn:`,
+and the new ones were copied from them, which is 531's own cause.
+
+**Fix.** `f86d29ce`: both fixtures name the method as the task key. No guard over test fixtures was added.
+
+**Lesson.** 531's lesson stands: a rule loses to the nearest example. A fixture copied from an old one is converted
+in the same edit.
+
+## 1349. In a check, a rescue task that reads a fact was named unchecked and warned about, though a check never runs a rescue (fixed before push; caught in review)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. Check mode reports
+a task unchecked when its condition reads a fact that an earlier, predicting task of the run would write. A block's
+rescue task reading such a fact was named unchecked, and `validate` warned about it. A check never runs a rescue.
+
+**Root cause.** The walk that marks tainted readers visited a block's rescue, always and handler tasks like any
+other, without asking whether a check runs them.
+
+**Search.** The index for rescue tasks (541, 547, 568, 670): none records a check reporting on a task it never runs.
+
+**Fix.** `89ca4d62`. Rescue, always and handler tasks are placed after what they follow on the walk, so the taint and
+the no-key rule read them in order, and a rescue is left out of both
+(`TestCheckedFactReads_AlwaysRescueAndHandlersFollowWhatTheyRead`,
+`TestFactsCheck_AnAlwaysTaskReadingAnInstallsFactIsUnchecked`,
+`TestFactsRule_NoKeyAllowsAnAlwaysRescueOrHandlerAfterAGather`).
+
+**Lesson.** A report about a mode names only what that mode runs. Walk the task tree by what the mode executes, not
+by what the file holds.
+
+## 1350. The first fact overlay kept every fact each task emitted, per device, for the whole run, though a run's conditions name a handful of keys (fixed before push; caught in review)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. No failure was
+seen. The overlay that lets a condition read what earlier tasks of the run gathered held every emitted fact for every
+device until the run ended: up to 8,192 entries per device per gather.
+
+**Root cause.** The overlay was written as a copy of what was emitted, not as an answer to what the run would ask.
+The keys a run's conditions can read are literal and known when the runbook is built.
+
+**Search.** The index for something kept for a whole run, held per device or unbounded: the entries found (62, 175,
+431, 639) are bounds on input or on waiting, not an in-run cache. No earlier entry has this class.
+
+**Fix.** `04ee463d`. The overlay keeps only the keys the run's conditions name. A gather of a thousand packages in a
+run that reads only the kernel overlays the kernel alone, and a run that reads no fact overlays nothing
+(`TestOverlay_KeepsOnlyTheKeysTheRunsConditionsRead`, added in `f86d29ce`).
+
+**Lesson.** When the set of questions is known before the run, keep only their answers. Multiply any per-device cache
+by the fleet before building it.
+
+## 1351. The condition reference parser has no optional syntax while the compile environment has it, so a `.?` or `[?` condition is not decided per device and fails at run time (open; on main; not fixed on the branch that found it)
+
+**Symptom.** Found 2026-11-21 while building branch `feat/41-facts-in-when`; the defect is on `main`. `when_cel:
+'device.?name.hasValue()'` compiles, is not decided per device, and fails at run time with "no such attribute(s):
+device".
+
+**Root cause.** `internal/engine/condition_refs.go` line 25 builds `parseEnv` with `cel.NewEnv()` and no options. The
+compile environment (`internal/engine/cel.go`) is built with `cel.OptionalTypes()`. So `ConditionUsesRoot`,
+`ConditionReads` and `ConditionTestsPresence` return a parse error for any condition using `.?` or `[?`, and
+`readsDevice` ignores that error and answers that the condition does not read `device`.
+
+**Search.** The index and both archives for the parse environment, optional syntax, `condition_refs`, `readsDevice`
+and "no such attribute": no earlier entry.
+
+**Not affected.** The `facts` detector uses a parse environment of its own, built with optional types
+(`factsParseEnv`, `internal/engine/facts_root.go`), so the new root does not share the gap.
+
+**Status.** Open. Reported by the session that found it; this records pass read the two environments' construction
+and did not run a reproduction. A fix gives `parseEnv` the optional syntax and stops `readsDevice` from dropping the
+error. No test exists yet.
+
+**Lesson.** Two parsers of one language are built from one option list. A caller that ignores a parse error has
+decided the answer is "no".
+
+## 1352. A paid outside review was sent a question whose premise was false: the brief said a `rollback:` step could carry a `when:`, and `validateRollbackStep` refuses one (process; a repeat in kind of 1202; LESSONS 210 and 419)
+
+**Symptom.** 2026-11-21, branch `feat/41-facts-in-when`. A batch was paid for to ask whether a rollback step's
+condition may read facts. The brief stated that a `rollback:` step can carry a `when:`. It cannot:
+`validateRollbackStep` (`internal/engine/rollback_key.go`) refuses one. Both review passes reasoned from the false
+premise, and their answers to that question were worth nothing.
+
+**Root cause.** The premise was written from memory of the task format and not checked in the code before the brief
+was sent.
+
+**Why 1202, LESSONS 210 and LESSONS 419 did not prevent it.** 1202 and LESSONS 210 say to check a premise in the code
+before building on it, and both were read as rules about building. LESSONS 419 is about a review's wrong claims on
+code it was not shown, and puts the duty on what the sender attaches. None says the question itself is a claim. Here
+the review was given a false statement by the sender, and a review cannot be expected to refute its own brief.
+
+**Fix.** None in code. The practice is LESSONS 471. The cost of the batch was not given to this records pass.
+
+**Lesson.** LESSONS 471. Each factual sentence in a review's brief is checked in the code before the brief is sent.

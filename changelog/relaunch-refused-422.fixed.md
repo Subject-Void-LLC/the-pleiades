@@ -1,0 +1,1 @@
+`POST /jobs/{id}/relaunch` answers 422 with the runbook's own refusal when the template's runbook is one the Controller refuses to launch (it seeds a device's login, or reads a stored fact), where it used to answer 500 "internal error".

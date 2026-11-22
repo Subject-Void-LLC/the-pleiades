@@ -32,7 +32,15 @@ func TestAnsibleTest_EachSpellingOfARunVariable(t *testing.T) {
 		{in: "error.message is defined", refused: otherRoot},
 		{in: "result['probe'] is defined", refused: otherRoot},
 		{in: "vars.a.b is defined", refused: notAVariable},
-		{in: "facts.os is defined", refused: notAVariable},
+		// A stored fact is asked of the facts root, which answers from the
+		// store and fails on a key it cannot answer (facts_view.go).
+		{in: "facts.os is defined", want: `facts[?"os"].hasValue()`},
+		{in: `facts["os.family"] is not defined`, want: `!(facts[?"os.family"].hasValue())`},
+		{in: "facts['os.family'] is undefined", want: `!(facts[?"os.family"].hasValue())`},
+		{in: `facts[ "os.family" ] is not undefined`, want: `facts[?"os.family"].hasValue()`},
+		{in: "facts.os.family is defined", refused: notAVariable},
+		{in: "facts[vars.k] is defined", refused: notAVariable},
+		{in: `facts["a\"b"] is defined`, refused: notAVariable},
 		{in: "region is defined", refused: notAVariable},
 		{in: "variables.x is defined", refused: notAVariable},
 		{in: "vars.x is defined && vars.y is defined", refused: notAVariable},

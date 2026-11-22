@@ -33,6 +33,10 @@ func validateDispatch(dag *engine.DAG, device inventory.InventoryItem, mode coll
 		// task naming a project file is refused here rather than by the
 		// method once earlier tasks have run (validate.ProjectFileRule).
 		NoProjectDirectory: true,
+		// A Runner has no store of facts and is handed none, so a runbook
+		// whose condition reads one is refused here, before its first task
+		// touches the device, rather than at the task (validate.FactsRule).
+		StoredFacts: validate.FactStoreNone,
 	})
 	var warnings []string
 	for _, w := range report.Warnings {

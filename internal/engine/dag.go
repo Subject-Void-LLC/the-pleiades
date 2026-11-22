@@ -458,6 +458,12 @@ type Task struct {
 	noMerge bool
 	progs   *taskPrograms
 
+	// factKeys are the keys the task's condition reads of the facts root,
+	// worked out once by the builder (facts_root.go); factsParsed says it
+	// did, so a run reads them rather than parsing the condition again.
+	factKeys    []string
+	factsParsed bool
+
 	// synthetic marks a structural fan-out/join marker node the Builder
 	// constructs itself (synthesizeParallel), never one a runbook author
 	// writes. It is unexported so it is unreachable from encoding/json or

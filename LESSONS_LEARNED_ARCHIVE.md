@@ -8652,3 +8652,63 @@ that names the awaited program for another reason, such as starting it next.
 no command line. (2) Or wait on a pid, read once when the process is started, not on a search. (3) Or do not wait on
 a search at all: run the steps in sequence from one script. (4) One waiter at a time. The bracket form stays the
 minimum for a one-line wait, and is not enough for anything that also launches the program it waited for.
+
+## 469. A declaration says what a method can emit, never what one call looked for: reading a key as absent needs a record of the question asked (FAILURE_PATTERNS 1342; an extension of LESSONS 379 and 391; in kind of FAILURE_PATTERNS 13, 723, 925 and 926) (2026-11-21)
+
+**Why.** Branch `feat/41-facts-in-when`, the `facts` root in a task's condition. The first build read a stored key as
+absent when any method that had observed the device declared the key's family by prefix. `facts.gather` declares
+`package.`, `service.`, `file.`, `port.`, `user.` and `group.` as prefixes and lists none of them by default, so
+`facts.gather: {}` then `when: facts["package.nginx"] is not defined` was true on a host with nginx, and one
+`pkg.install curl` made every other package read absent (FAILURE_PATTERNS 1342). Review found it before any pull
+request.
+
+**What is old and what is new.** LESSONS 379 and 391 say that absent is a claim only the system's own not-found
+answer may make. They are about a read that was made and came back unclear. The new part is the case where no read
+was made: a declaration, a prefix, or the fact that an observer ran stood in for the question. A store has the same
+limit. It keeps what a gather found and not what it looked for, so by itself it can answer present or unknown and
+nothing else.
+
+**Rule in practice.** (1) A store answers present or unknown. (2) Absent is read only from a call whose question is
+known: a method that declares the key by exact name, called in this run with no parameter narrowing the call, that
+did not emit it. (3) A family's item reads absent only from a coverage record written with the observation: the exact
+keys looked for and the families listed in full. Until that record exists, the key is unknown and an unknown key
+fails the task; it is never folded to false. (4) Test the claim with a device that has the thing and a call that
+never asked about it.
+
+## 470. A refusal belongs at every write that can be refused: find the places by listing the routes that start the work, not by fixing the route where it was reported (FAILURE_PATTERNS 1343; a repeat of FAILURE_PATTERNS 1214's lesson; an extension of LESSONS 436 from scopes to refusals) (2026-11-21)
+
+**Why.** Branch `feat/41-facts-in-when`. The Walk tier cannot read stored facts in this release, so the Controller
+refuses a runbook whose condition reads one. The first build put that refusal in per-device admission only. A launch
+made a job whose every device failed, and a schedule was accepted that would have failed at every firing
+(FAILURE_PATTERNS 1343). FAILURE_PATTERNS 1214 was the same miss for seeded logins, and its
+schedule half was itself found only after the launch half was fixed. Listing the routes this time also found that a
+refused relaunch answered 500, for both refusals.
+
+**What is old and what is new.** LESSONS 436 says a second path to an effect needs every scope the effect's own route
+requires, and to find the paths in the code. FAILURE_PATTERNS 1214's lesson says every path that starts a job asks
+the same refusal function. Both were written and neither held, because each was applied to the one refusal in hand.
+The new part is the method and its extent: the list of paths is made first, from the code, each time a refusal is
+added, and it covers the answer each path gives (the status code and the message) as well as whether it refuses.
+
+**Rule in practice.** When a new refusal of what a job would do is added: (1) list every route that starts or
+promises the work: launch, check, relaunch, the schedule's write through `Preflight`, admission, and the Runner
+before its first task; a rollback is on the list too, with a written reason when it is not refused. (2) Call one
+function from each. (3) Keep admission and the Runner as backstops, never as the only place. (4) Give each route a
+test of its refusal and of its status code. (5) No test yet holds every launch route to every refusal function; until
+one does, this list is made by hand.
+
+## 471. Check a question's premise in the code before sending it to a paid review: a review reasons from its brief and cannot refute it (FAILURE_PATTERNS 1352; a repeat of LESSONS 210 on the sender's side; an extension of LESSONS 419; in kind of FAILURE_PATTERNS 1202) (2026-11-21)
+
+**Why.** Branch `feat/41-facts-in-when`. A batch was paid for to ask whether a rollback step's condition may read
+facts. The brief said a `rollback:` step can carry a `when:`. `validateRollbackStep` refuses one. Both review passes
+reasoned from the false premise (FAILURE_PATTERNS 1352).
+
+**What is old and what is new.** LESSONS 210 says to re-read the source before building on a plan's claim about it.
+LESSONS 419 says a review makes claims about code it was not shown, so attach the files and settle each claim
+afterwards. Both leave out the brief itself. A brief's statements about the code are claims too, and they are the
+ones a review is least able to catch, because it takes them as given.
+
+**Rule in practice.** Before a brief is sent: (1) underline each sentence that says what the code does or allows. (2)
+Settle each one in the code, with the language server or a short test, and attach the file it rests on, as 419 asks.
+(3) If the question disappears once its premise is checked, it needed no review. (4) When an answer comes back
+resting on a premise of the brief, check that premise before acting on the answer.

@@ -4,73 +4,69 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-19. Branch `docs/records-phase41-files` (records only, from `main` at `7c619582`, the #209 merge). Merged
-since the last handoff: #208 (systemd read-backs) and #209 (the last records). Open: #210 (branch
-`feat/facts-read-port`, head `daf0739e`: the read port in the CLI, the device facts link, Walk-tier fact benchmarks,
-and file and port fact hardening), CI pending.**
+**2026-11-21. Branch `feat/41-facts-in-when` at `fce5dce5`, rebased on `main` at `f7324fa5` (the #220 merge). No pull
+request is open for it yet. Merged since the last handoff: #210 to #220. This handoff was written by the records pass,
+which ran no test and no gate; the test names below are the branch's own proof and were read, not run again.**
 
 ### What works
 
-- `make pr-check` passed at `daf0739e`: the fast, repeat and containers passes and every step. The Mac, FreeBSD and
-  Windows legs did not run in it (none was configured for that run); the lab tests below ran on their own.
-- The CLI's runs read stored facts through the engine's read port (`cmd/pleiades/facts_reader.go`,
-  `facts_reader_test.go`). A device's response links to its facts (`internal/api/hateoas_facts_link_test.go`).
-  Benchmarks of the Walk tier's fact path (`internal/adapters/native/facts_bench_test.go`,
-  `internal/facts/entstore/bench_test.go`).
-- The suspected file and port weaknesses from the last handoff, and a fourth (hard links), were each reproduced by a
-  test that failed on the old code, then fixed: FAILURE_PATTERNS 1279 to 1282. `internal/catalog/facts` passed on the
-  machine legs run on their own, outside pr-check: macOS 27.2.1 (`tools/maccheck` at `2739093e`) and FreeBSD with its
-  ACL test on bsd-check's ZFS pool (`tools/bsdcheck` at `7b138c07`, the ACL cases not skipped); Linux ACLs and
-  attributes in Debian with `acl` and `attr`, BusyBox's `unlisted` in Alpine; and
-  `TestCLI_FactsGatherOnWindowsHoldsACLsLabelsJunctionsAndStreams` holds Windows ACLs,
-  labels, junctions and streams on win-check (PowerShell 5.1). A file fact now says `acl` (listed, unreadable or
-  unlisted), and `file_attached.<path>` carries a path's extended attributes or streams as names and one keyed digest.
-- Records: FAILURE_PATTERNS 1279 to 1290, LESSONS 456 to 458, CI_LESSONS 36 and 37.
+- Facts in conditions, Crawl tier: a task's `when`, `when_or` and `when_cel` read the evaluating device's own stored
+  facts through the new `facts` root, by a literal key. The stored snapshot is overlaid with what earlier levels of the
+  run emitted. An unknown key fails the task, and `is defined`, `default()` and `has()` do not hide it. Proof:
+  `TestCLI_FactsInConditionsReleaseGate` (`cmd/pleiades`, a real sshd container), `internal/engine/facts_when_test.go`,
+  `FuzzConditionFactReads` (`internal/engine/facts_root_fuzz_test.go`).
+- A store answers present or unknown; absent only from a call of this run that asked for the key by exact name
+  (`TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent`, FAILURE_PATTERNS 1342).
+- `validate` refuses `facts` in params, rollback step params, computed keys, the whole root and another device's
+  facts, and a no-key project for a key no earlier task gathers (`internal/validate/facts_rule_test.go`).
+- Check mode reports a tainted reader unchecked (exit 3), with the observation exemption for read-only built-ins
+  (`internal/engine/facts_when_check_test.go`, `TestReadOnlyFactEmittersObserveOnlyWhenTheirCheckIsTheirRun`).
+- Walk tier: a fact-reading runbook is refused at launch, check, relaunch, the schedule's write, admission and in the
+  Runner before its first task (`internal/api/dispatcher_fact_reads_test.go`, `internal/dispatch/facts_test.go`,
+  `internal/adapters/native/facts_refusal_test.go`). A refused relaunch answers 422.
+- The engine names no fact store or key (`TestEngineNamesNoFactStoreOrKey`).
+- Records: FAILURE_PATTERNS 1342 to 1352, LESSONS 469 to 471, four changelog fragments. No CI lesson: nothing failed
+  in pr-check or in Actions.
 
 ### Blocker
 
-- None. #210 waits on its CI.
+- None reported. The branch's `make pr-check` result was not given to the records pass.
 
 ### Open
 
-- Phase 41, in order. (1) The read port: #210 gives it a caller in the CLI only and changes nothing under
-  `cmd/runner`. (2) Facts at rest, next (see Next steps). (3) Identity facts on FreeBSD, macOS and Windows, and
-  per-component serials for network gear (lab). Then the items re-opened on 2026-11-19 (41b item 2, 41c items 7 and
-  11, 41h item 12), 41c's remaining read-backs, 41d to 41g, and 41h's Release Gate.
-- Carried: Ansible names for the identity facts wait on a lab comparison; `config.running_digest` has not run on a real
-  device; FAILURE_PATTERNS 1267 is open; #202's residual (per-batch signing, Phase 105); the one-off
-  `TestSubscriber_HoldsEachBatchToItsDevicesClaim` flake is explained (FAILURE_PATTERNS 1291: its no-value check
-  finds `9.6` in slog's timestamp), and its fix is left for later.
-- `pkg/cml`'s coverage varies on CI's runners (FAILURE_PATTERNS 1292: 88.9% against its 89.0% floor in #211's
-  run, 89.0% everywhere else); the block is not identified yet.
-- Practices, not code: commit before any lab leg and read the commit it names (1288); after heavy builds, check WSL's
-  page cache before starting a lab VM, and ask the owner to drop it (1289).
-- Owner approvals of 2026-11-19: Samba AD DC as a privileged container, in opt-in lab runs only; a directory harness
-  (OpenLDAP with SSSD or nslcd, and Samba AD) built with Phase 41c's users item and reused by Phase 80. Owner
-  decisions pending: none.
+- FAILURE_PATTERNS 1344, in part: the credentials path still makes a new master key in a project that lost its key
+  beside sealed fact files, and the fact store then ends up mixed.
+- FAILURE_PATTERNS 1351 (on `main`): `parseEnv` in `internal/engine/condition_refs.go` has no optional syntax, so a
+  `.?` or `[?` condition reading `device` is not decided per device and fails at run time. No test yet.
+- Phase 41's read item stays open (12 of 14 done): the Walk tier's reads through the claim-time fetch; a coverage
+  record per observation, so a family's key can read absent; `inventory:read` for a run that reads facts on the Walk
+  tier.
+- No test holds every launch route to every refusal function (LESSONS 470); no guard keeps `fqcn:` out of test
+  fixtures (1348).
+- Carried from the last handoff and not re-checked here: identity facts on FreeBSD, macOS and Windows; 41c's
+  read-backs; 41d to 41g; 41h's Release Gate; FAILURE_PATTERNS 1267, 1291 and 1292.
 
 ### Next steps
 
-1. Merge #210 once its checks pass on its own head commit (CI_LESSONS 35); refresh the local PR log in the same
-   command (LESSONS 455).
-2. Commit these records, gate and merge them.
-3. Facts at rest, its own PR, by the owner's tokenization decision: key the fact hash with an HMAC; seal keys and
-   values; look rows up by a keyed token bound to the device; seal the Runner's `job.facts` batches to the
-   Controller; check whether the journal's `stat_keys` keeps item keys; vacuum after the migration; keep versioned keys
-   during rotation.
-4. Then Phase 41's order under Open.
+1. Commit these records on the branch.
+2. `make pr-check` on the committed, clean tree, then push, then `make branch-containers`.
+3. Open the pull request when both pass; put its number in the tracker note under Phase 41 ("PR number pending") and
+   refresh the local PR log in the same command (LESSONS 455).
+4. Then the open items above, 1344's credentials path first.
 
 ### Files changed
 
-#210 (46 files): `internal/catalog/facts` (the ports and files probes, ACLs, attached data, the Windows script and its
-standard-input transport, and their tests), `cmd/pleiades/facts_reader.go`, `run_pipeline.go` and the Windows lab gate,
-`internal/api/links.go` and `router.go`, `internal/apispec/apispec.go`, `internal/auth/hateoas.go`,
-`pkg/collection/facts_reserved.go`, `internal/forge/catalogdata/collections_gating.go`, two benchmarks, docs and the
-generated reference, and nine changelog fragments. This branch: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`,
-`LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md`, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
-`.SPECIFICATION/IMPLEMENTATION.md` (git-ignored) was updated in the session, not on this branch.
+The branch (64 files before the records): `internal/engine` (the `facts` root, the view, overlay, answer, check and
+condition files and their tests), `internal/validate/facts_rule.go`, `internal/dispatch/facts.go` and
+`worker_devices.go`, `internal/api/dispatcher.go` and `dispatcher_launchable.go`, `internal/adapters/native/validate.go`,
+`internal/facts/file_lookup.go` and `file_store.go`, `internal/runbook`, `pkg/wire/dispatch_version.go`,
+`cmd/pleiades` (`facts_dir.go`, `facts_reader.go`, `run_pipeline.go`, `validate.go`, the release gate),
+`internal/archtest`, `docs/04-writing-runbooks.md`, `docs/reference/task-keys.md`, `tools/gendocs/taskkeys.go`.
+Records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md`,
+`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, `changelog/facts-in-conditions.added.md` (edited),
+`changelog/condition-not-true-or-false-refused.breaking.md`, `changelog/relaunch-refused-422.fixed.md`,
+`changelog/facts-lost-master-key-not-replaced.fixed.md`. `.SPECIFICATION/IMPLEMENTATION.md` (git-ignored, main clone)
+has a dated note under Phase 41's read item, not ticked.
 
-Lab: changed. bsd-check now has a ZFS pool `pleiadesacl` at `/pleiades-acl` (lab runbook
-`~/pleiades-lab/runbooks/bsd/check-08-zfs-acl.yaml`, owner-approved); each ACL test run makes and destroys a dataset of
-its own in it. bsd-check started after the owner dropped WSL's page cache (1289). Both bsd-check and win-check were
-left powered off (ACPI shutdown, state `poweroff`); the Mac was cleaned after its runs (49 GB free).
+Lab: no change was reported for this branch; its gate runs in containers and names no lab VM. The lab state is as the
+previous handoff left it, not re-checked.

@@ -152,6 +152,13 @@ type Runbook struct {
 	// for a runbook that seeds nothing.
 	SeededLogins []string
 
+	// FactReads is engine.FactReadsOf the compiled DAG: each task whose
+	// condition reads its device's stored facts, and the keys it reads. A
+	// Runner holds no store and is handed none, so the Controller refuses
+	// such a job at admission, before it dispatches anything
+	// (internal/dispatch's facts.go). Empty for a runbook reading none.
+	FactReads []engine.FactRead
+
 	// Name, Description, Category and Labels are the catalog metadata a
 	// reader browsing runbooks needs and an executor does not. They come
 	// straight from the compiled WorkflowDef, so a runbook is described by

@@ -44,6 +44,10 @@ var controllerRegistryReaders = map[string]map[string]string{
 		"templateFileParam": executorOnly,
 		"templateOptions":   executorOnly,
 		"paramDecls":        executorOnly + " (rendering a task's params)",
+		// The check-mode taint, which the executor and validation compute and
+		// the Controller runs neither; with nothing registered it is false,
+		// leaving a check incomplete rather than wrong.
+		"ObservesInCheck": executorOnly + " (and validation's check warnings, which the Controller does not link)",
 		// Exported, so held below: no Controller-linked package outside
 		// internal/engine may call them.
 		"Checkable":       "validation only, which the Controller does not link",

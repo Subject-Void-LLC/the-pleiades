@@ -145,6 +145,12 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 		if err := methodsAdmit(device, prepared.Methods, prepared.Calls); err != nil {
 			return admission{mode: mode, outcome: OutcomeSkipped, reason: err.Error()}
 		}
+		// A Runner cannot read stored facts, so a runbook whose condition
+		// reads one is refused here, before any dispatch, as a failure: what
+		// the job asked for did not happen (facts.go).
+		if err := RefuseFactReads(prepared.FactReads); err != nil {
+			return admission{mode: mode, outcome: OutcomeFailed, reason: err.Error()}
+		}
 	}
 
 	// A device reached through a console server (a CML node with no address

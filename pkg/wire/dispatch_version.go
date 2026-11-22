@@ -32,6 +32,14 @@ import (
 // on a dispatch carrying a pinned graph and writes version 1 on every other
 // (PayloadVersionFor), so a Runner of an earlier release refuses exactly the
 // dispatches it would run unheld, and still runs rollbacks and playbooks.
+//
+// A runbook whose condition reads stored facts raises no version: a
+// Controller refuses it at admission and dispatches nothing, a Runner refuses
+// one an older Controller sent before its first task, and a Runner from
+// before the facts root fails to compile it (its condition language declares
+// no facts, and an undeclared name does not compile), so none runs it as if a
+// fact were missing. The release that dispatches fact reads to Runners raises
+// it.
 const DispatchPayloadVersion = 2
 
 // PinnedGraphPayloadVersion is the version a dispatch carrying a pinned graph

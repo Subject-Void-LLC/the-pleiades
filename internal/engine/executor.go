@@ -241,6 +241,10 @@ type NodeResult struct {
 	// factOrder is the observation's place in the order the recorder keeps
 	// (FactOrderer), unknown when it keeps none.
 	factOrder facts.Order
+	// observedKeys names which of Stats a read-only built-in emitted as
+	// facts while it was checked: observations a later checked task reads,
+	// never stored (facts_overlay.go). factMethod names its method.
+	observedKeys []string
 
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
@@ -765,6 +769,13 @@ type run struct {
 	// facts holds what set_fact tasks have set, by device (vars.go).
 	facts *factStore
 
+	// knowledge is what the run knows of its devices' stored facts, for
+	// the facts root a condition reads (facts_overlay.go), and factTaints
+	// each checked task whose condition reads one an earlier checked task
+	// would emit (facts_check.go).
+	knowledge  *factKnowledge
+	factTaints map[string][]FactTaint
+
 	// notified is, per device, which handlers wait to run (notify.go).
 	notified *notifiedHandlers
 
@@ -828,6 +839,10 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		facts:     newFactStore(),
 		notified:  newNotifiedHandlers(),
 		earlier:   newEarlierChanges(),
+		knowledge: newFactKnowledge(dag),
+		// Worked out once, before any task runs, by the rule validation
+		// warns with.
+		factTaints: CheckedFactReads(x.mode, dag),
 	}
 	// Predictions are kept only when the whole run is a check: the real tasks
 	// of a run that checks only some would change what they vouch for.
@@ -1086,7 +1101,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		return r.runPerDevice(ctx, nodeID, task, started, nil)
 	}
 
-	prepared, early := r.prepare(nodeID, task, started, "", nil)
+	prepared, early := r.prepare(ctx, nodeID, task, started, "", nil)
 	if early != nil {
 		return []NodeResult{*early}
 	}
@@ -1105,7 +1120,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 // to the condition's and the parameters' (error, the failure a rescue task
 // reads; device, the device a per-device task runs on), nil for none;
 // device names the device a per-device skip belongs to, empty otherwise.
-func (r *run) prepare(nodeID string, task *Task, started time.Time, device string, roots map[string]any) (*Task, *NodeResult) {
+func (r *run) prepare(ctx context.Context, nodeID string, task *Task, started time.Time, device string, roots map[string]any) (*Task, *NodeResult) {
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
 		tree, err := r.x.workflow.Read()
 		if err != nil {
@@ -1138,26 +1153,87 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 				condVars[k] = v
 			}
 		}
+		// The stored facts of the device this evaluation decides on, each
+		// answered before CEL runs, a key with no answer left a CEL unknown
+		// (facts_view.go). In a check, a key an earlier checked task would
+		// emit is unknown too (facts_check.go).
+		checked := r.modeFor(task) == collection.ModeCheck
+		factRoot := r.newFactsView(ctx, task, device, checked)
+		if checked {
+			factRoot.tainted = r.taintedKeys(nodeID, device)
+		}
+		factRoot.resolve()
+		condVars[TemplateRootFacts] = factRoot
+		unknownFacts := factRoot.unknowns()
 		var res ConditionResult
-		if r.modeFor(task) == collection.ModeCheck {
+		var undecided string
+		var deps unknownDeps
+		known := true
+		switch {
+		case checked:
 			// A condition the unchecked tasks before it leave undecided is
 			// a gap in the check, not a failed run: it is named, nothing
 			// is registered for it, and the walk carries on. One they do
 			// not decide is answered, and one that is wrong fails as the
 			// real run would (check_conditions.go).
-			var undecided string
-			res, undecided, err = r.checkCondition(task, cp, condVars, tree)
-			if err == nil && undecided != "" {
-				r.markUnchecked(task, "", true)
-				r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
-				skipped := finish(NodeResult{
-					NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
-				})
-				return nil, &skipped
+			res, undecided, deps, known, err = r.checkCondition(task, cp, condVars, tree, unknownFacts)
+		case len(unknownFacts) > 0:
+			// Three-valued: CEL decides what it can without the keys that
+			// have no answer (facts_condition.go).
+			res, known, deps, err = cp.evalPartialDeps(condVars, unknownFacts)
+			if err == nil && !known && len(deps.facts) == 0 {
+				deps.allFacts = true
 			}
-		} else {
+		default:
 			res, err = cp.Eval(condVars)
 		}
+		// A result left unknown by a key with no answer fails the task; one
+		// that is known stands, whatever keys it did not need.
+		if fail := factRoot.failure(nodeID, task, deviceNameOf(roots, device), deps); fail != nil {
+			failed := failedNode(nodeID, started, FailureStageConditionEval, fail)
+			failed.Device = device
+			return nil, &failed
+		}
+		if checked && err == nil && !known {
+			// In a check, a result that depends on a key an earlier checked
+			// task would emit is a gap of its own (facts_check.go); any other
+			// unknown is the undecided condition of the rule above.
+			if gap := factRoot.checkGap(deps); gap != "" {
+				return nil, r.uncheckedOn(nodeID, task, started, device, gap)
+			}
+			if undecided == "" {
+				undecided = "its condition depends on the result of a task that could not be checked"
+			}
+			if factRoot.used() {
+				undecided = factsUndecided
+			}
+			r.markUnchecked(task, "", true)
+			r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
+			skipped := finish(NodeResult{
+				NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
+			})
+			return nil, &skipped
+		}
+		if checked && err == nil && undecided != "" {
+			if factRoot.used() {
+				undecided = factsUndecided
+			}
+			r.markUnchecked(task, "", true)
+			r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
+			skipped := finish(NodeResult{
+				NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
+			})
+			return nil, &skipped
+		}
+		if err == nil && !known {
+			// Never expected: an unknown with no key behind it in a real run.
+			failed := failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to evaluate condition for %s: its result could not be decided", taskLabel(nodeID, task)))
+			failed.Device = device
+			return nil, &failed
+		}
+		// CEL's message about a stored value can quote it.
+		err = factRoot.sanitize(err)
 		if err != nil {
 			failed := failedNode(nodeID, started, FailureStageConditionEval,
 				fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err))
@@ -1536,6 +1612,13 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 				// The run order of the observation, taken now rather than when
 				// the level ends and the facts are stored (facts.go).
 				result.factOrder = r.observationOrder(cmd.Task.FQCN)
+			}
+		}
+		// What a read-only built-in emitted while checked is what it read off
+		// the device, which later checked tasks read (facts_check.go).
+		if mode == collection.ModeCheck && err == nil && ObservesInCheck(cmd.Task.FQCN) {
+			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
+				result.observedKeys, result.factMethod = keys, cmd.Task.FQCN
 			}
 		}
 	}

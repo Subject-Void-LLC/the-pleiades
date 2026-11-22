@@ -58,9 +58,12 @@ func (r *run) markUnchecked(task *Task, device string, whole bool) {
 	r.unknown.add(UnknownRegister{Name: task.Register, Device: device, Whole: whole})
 }
 
-// checkCondition evaluates task's condition in a check. It returns the
-// condition's result when the condition is decided; a non-empty undecided
-// reason when it is not; or an error when the real run would fail the
+// checkCondition evaluates task's condition in a check, with facts (the keys
+// of the facts root with no answer, or that a check cannot know) unknown
+// beside the registers no checked task produced. It returns the condition's
+// result when the condition is decided; a non-empty undecided reason when it
+// is not; what an unknown result depended on, with known false, for prepare
+// to judge a fact behind it by; or an error when the real run would fail the
 // same way.
 //
 // A condition is undecided in two cases. The first is that its answer
@@ -71,18 +74,23 @@ func (r *run) markUnchecked(task *Task, device string, whole bool) {
 // prediction can explain is a failure: the condition reads a result no
 // task in this run registers (a misspelled register), or reads none at
 // all, and the real run would stop on it too.
-func (r *run) checkCondition(task *Task, cp *ConditionProgram, vars map[string]interface{}, tree map[string]interface{}) (ConditionResult, string, error) {
-	res, known, err := cp.EvalPartial(vars, r.unknown.snapshot())
+func (r *run) checkCondition(task *Task, cp *ConditionProgram, vars map[string]interface{}, tree map[string]interface{}, facts []UnknownRegister) (ConditionResult, string, unknownDeps, bool, error) {
+	res, known, deps, err := cp.evalPartialDeps(vars, append(r.unknown.snapshot(), facts...))
 	switch {
 	case err == nil && known:
-		return res, "", nil
+		return res, "", unknownDeps{}, true, nil
 	case err == nil:
-		return ConditionResult{}, "its condition depends on the result of a task that could not be checked", nil
+		// Unknown: prepare decides what a fact behind it makes of it.
+		undecided := ""
+		if deps.other {
+			undecided = "its condition depends on the result of a task that could not be checked"
+		}
+		return ConditionResult{}, undecided, deps, false, nil
 	}
 
 	names, dynamic, readErr := ConditionReads(task.Conditional)
 	if readErr != nil || dynamic {
-		return ConditionResult{}, fmt.Sprintf("its condition could not be evaluated against predicted results, and which results it reads cannot be told before it runs: %v", err), nil
+		return ConditionResult{}, fmt.Sprintf("its condition could not be evaluated against predicted results, and which results it reads cannot be told before it runs: %v", err), unknownDeps{}, true, nil
 	}
 	readsPrediction := false
 	for _, name := range names {
@@ -91,11 +99,11 @@ func (r *run) checkCondition(task *Task, cp *ConditionProgram, vars map[string]i
 			readsPrediction = true
 		case r.unknown.has(name):
 		default:
-			return ConditionResult{}, "", fmt.Errorf("%w (no task before it in this run registers %q, so a real run would fail here too)", err, name)
+			return ConditionResult{}, "", unknownDeps{}, true, fmt.Errorf("%w (no task before it in this run registers %q, so a real run would fail here too)", err, name)
 		}
 	}
 	if readsPrediction {
-		return ConditionResult{}, fmt.Sprintf("its condition could not be evaluated against predicted results, which may not carry every field a real run's result would: %v", err), nil
+		return ConditionResult{}, fmt.Sprintf("its condition could not be evaluated against predicted results, which may not carry every field a real run's result would: %v", err), unknownDeps{}, true, nil
 	}
-	return ConditionResult{}, "", err
+	return ConditionResult{}, "", unknownDeps{}, true, err
 }

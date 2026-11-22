@@ -57,7 +57,7 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		if r.readsDevice(nodeID, task) {
 			return r.runPerDevice(ctx, nodeID, task, started, errorRoot)
 		}
-		prepared, early := r.prepare(nodeID, task, started, "", errorRoots(errorRoot))
+		prepared, early := r.prepare(ctx, nodeID, task, started, "", errorRoots(errorRoot))
 		if early != nil {
 			return []NodeResult{*early}
 		}
@@ -95,7 +95,7 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 	}
 
 	if !rescue && !r.readsDevice(nodeID, task) {
-		prepared, early := r.prepare(nodeID, task, started, "", nil)
+		prepared, early := r.prepare(ctx, nodeID, task, started, "", nil)
 		switch {
 		case early != nil && early.Err != nil && len(run) > 0:
 			// The task's own condition or parameters failed: that is each

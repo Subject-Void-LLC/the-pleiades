@@ -24,6 +24,15 @@ func (b *Builder) registerTask(dag *DAG, task *Task, id string) error {
 		return err
 	}
 
+	// What the condition reads of the facts root, and the reads the root
+	// refuses, before it compiles: a read another way than by a literal key
+	// is refused here, saying what is allowed (facts_root.go).
+	reads, err := checkFactPlacement(task, id)
+	if err != nil {
+		return err
+	}
+	task.factKeys, task.factsParsed = reads.Keys, true
+
 	// Compile this task's optional when/when_or/when_cel skip condition.
 	// An unconditional task yields a nil Program and no error, so it gets
 	// no entry in dag.Conditions.

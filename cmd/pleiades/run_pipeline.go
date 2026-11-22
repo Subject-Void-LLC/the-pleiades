@@ -184,6 +184,9 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// contacted, rather than at its task. The advice names --extra-vars only
 	// for the command that takes it.
 	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag}
+	// What a condition reading facts can be answered from: the project's
+	// store, when it has the key its facts are sealed under.
+	world.StoredFacts, world.StoredFactsReason = projectFactStore(opts.dir)
 	// --limit narrows every target the run resolves, before validation, so
 	// what is checked, planned and run are the same devices (run_limit.go).
 	if world, err = applyLimit(world, dag, opts.limit, opts.limitText); err != nil {
@@ -622,7 +625,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// A digest of a file not everyone may read is kept only keyed, under a
 		// key derived from the project's master key, which is read only when
 		// such a digest turns up (internal/facts' keyed digests).
-		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(vaultDir(opts.dir)) }, "project")),
+		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return factMasterKeyToWrite(opts.dir) }, "project")),
 		// --setting's values, for every task leaving the parameter out.
 		engine.WithRunSettings(opts.settings),
 	)

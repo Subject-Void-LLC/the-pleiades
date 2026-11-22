@@ -208,7 +208,7 @@ func (r *run) runTask(ctx context.Context, nodeID string, task *Task, started ti
 		task = &c
 	}
 	if !task.iterates() {
-		prepared, early := r.prepare(nodeID, task, started, key, roots)
+		prepared, early := r.prepare(ctx, nodeID, task, started, key, roots)
 		if early != nil {
 			return []NodeResult{*early}
 		}
