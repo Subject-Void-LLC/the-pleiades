@@ -33467,19 +33467,19 @@ reads no device.
 engine alone refuses it, and the guide says nothing checks it ahead of time. The false sentence in the guide never
 reached `main`.
 
-**Status.** Open. No validate rule and no test exist. This records pass read the corrected comment, the guide and
-`TemplateRule`; it did not run the probe again.
-
-**Resolved 2026-11-22 (fixed on `fix/validate-lock-all-one-question`, `ca6cac62` and `1c3d8c40`; on main until it
-merges).** The probe was run again first and failed as recorded: validate had no finding and the run refused at the
-rescue. Two changes. The builder now refuses the runbook (`refuseRescueLockAll`, `internal/engine/per_device.go`), as
-it refuses a handler's lock-all, so no tier runs a task of it. And the run and validate now ask one function,
-`engine.RunsPerDevice`, which names the cause; being a rescue task is one cause (`PerDeviceRescue`). The second
-change matters for the case the builder cannot refuse: a rescue in a block that runs as one unit may take the lock,
-and a tag selection can leave out the task that made the block a unit. Validate and the run then refuse the selected
-runbook in the same words. Tests: `TestLockAll_ValidateAndTheRunAgreeForEveryCause` and
-`TestLockAllTheBuilderRefuses` (`internal/validate`), and `TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun`
-(`cmd/pleiades`), which failed against the old engine and validate packages. Not proven on the Walk tier.
+**Resolved 2026-11-22 (fixed on `fix/validate-lock-all-one-question`, `ca6cac62` and `a75a5540`; on main until it
+merges).** When it was recorded no validate rule and no test existed. The probe was run again first and failed as
+recorded: validate had no finding and the run refused at the rescue. The run and validate now ask one function,
+`engine.RunsPerDevice`, which names the cause; being a rescue task outside a block that runs as one unit is one cause
+(`PerDeviceRescue`). Validate refuses it (`lockAllFindings`, `internal/validate/lock_all.go`), so `pleiades run`
+refuses it before its first task, in a check too, and a Runner refuses its dispatch. The builder does not refuse it.
+The first version of this fix did (`ca6cac62`), and review found that it blocked recovery: a rollback compiles the
+runbook its run ran, and `lock_acquisition` is part of `DAG.Version`, so a runbook that had run could no longer be
+rolled back. `a75a5540` removed that refusal. Tests: `TestLockAll_ValidateAndTheRunAgreeForEveryCause` and
+`TestLockAll_TheBuilderRefusesOnlyAHandler` (`internal/validate`),
+`TestCLI_ARescueTaskTakingEveryLockIsRefusedBeforeTheRun` (`cmd/pleiades`), which failed against the old engine and
+validate packages, and `TestRollbackFindsARunbookWhoseRescueTakesEveryLock`. Not run on the Walk tier: the Controller
+runs no validate rule (1356), so a launch is accepted and the Runner refuses each dispatch.
 
 **Lesson.** A comment that says another layer refuses something names the test that proves it, or it is not written.
 670's lesson stands: list every path, and here every layer, that should refuse, and give each a test.
