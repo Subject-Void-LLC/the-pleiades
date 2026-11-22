@@ -24,21 +24,20 @@ func TestFactsRoot_ARefusedReadIsRefusedWhenTheRunbookIsBuilt(t *testing.T) {
 	registerFactsRead(t)
 	const allowed = `facts["os.family"]`
 	for name, tc := range map[string]struct{ task, want string }{
-		"the root counted":          {`when_cel: 'size(facts) > 0'`, allowed},
-		"the root compared":         {`when_cel: 'facts == {}'`, allowed},
-		"the root iterated":         {`when_cel: 'facts.exists(k, k == "x")'`, allowed},
-		"the root to a function":    {`when_cel: 'json.encode(facts) != ""'`, allowed},
-		"the root in a list":        {`when_cel: 'facts in [facts]'`, allowed},
-		"a loop variable shadowing": {`when_cel: '[1].exists(facts, facts > 0)'`, allowed},
-		"a computed key":            {`when: facts[vars.key] == "x"`, "computed while the run goes"},
-		"a computed presence test":  {`when_cel: 'vars.key in facts'`, "computed while the run goes"},
-		"a computed optional key":   {`when_cel: 'facts[?vars.key].hasValue()'`, "computed while the run goes"},
-		"another device's":          {`when_cel: 'hostvars["web2"]["os.family"] == "debian"'`, "another device's facts"},
-		"not a fact name":           {`when: facts["a b"] == "x"`, "not a fact name"},
-		"in until":                  {"register: r\n    until: facts[\"tfx.kernel\"] == \"6.1\"\n    retries: 1\n    delay: 0", "its until reads facts"},
-		"in changed_when":           {"register: r\n    changed_when: facts[\"tfx.kernel\"] == \"6.1\"", "its changed_when reads facts"},
-		"in failed_when":            {"register: r\n    failed_when: facts[\"tfx.kernel\"] is defined", "its failed_when reads facts"},
-		"in a loop label":           {"loop: [1]\n    loop_control:\n      label: \"{{ facts['tfx.kernel'] }}\"", "loop_control label"},
+		"the root counted":         {`when_cel: 'size(facts) > 0'`, allowed},
+		"the root compared":        {`when_cel: 'facts == {}'`, allowed},
+		"the root iterated":        {`when_cel: 'facts.exists(k, k == "x")'`, allowed},
+		"the root to a function":   {`when_cel: 'json.encode(facts) != ""'`, allowed},
+		"the root in a list":       {`when_cel: 'facts in [facts]'`, allowed},
+		"a computed key":           {`when: facts[vars.key] == "x"`, "computed while the run goes"},
+		"a computed presence test": {`when_cel: 'vars.key in facts'`, "computed while the run goes"},
+		"a computed optional key":  {`when_cel: 'facts[?vars.key].hasValue()'`, "computed while the run goes"},
+		"another device's":         {`when_cel: 'hostvars["web2"]["os.family"] == "debian"'`, "another device's facts"},
+		"not a fact name":          {`when: facts["a b"] == "x"`, "not a fact name"},
+		"in until":                 {"register: r\n    until: facts[\"tfx.kernel\"] == \"6.1\"\n    retries: 1\n    delay: 0", "its until reads facts"},
+		"in changed_when":          {"register: r\n    changed_when: facts[\"tfx.kernel\"] == \"6.1\"", "its changed_when reads facts"},
+		"in failed_when":           {"register: r\n    failed_when: facts[\"tfx.kernel\"] is defined", "its failed_when reads facts"},
+		"in a loop label":          {"loop: [1]\n    loop_control:\n      label: \"{{ facts['tfx.kernel'] }}\"", "loop_control label"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := factsDAGErr("id: refused\nhosts: fleet\ntasks:\n  - name: t\n    " + tc.task + "\n    tfx.probe: {}\n")
@@ -74,6 +73,10 @@ func TestFactsRoot_EveryAllowedSpellingReadsItsLiteralKey(t *testing.T) {
 		`when_cel: 'facts["a.b"] == "x" || facts["c.d"] > 1'`: {"a.b", "c.d"},
 		`when_cel: 'facts["os.family"].startsWith("deb")'`:    {"os.family"},
 		`when_cel: '"facts" == vars.word'`:                    nil,
+		// A comprehension's own variable named facts is that variable, not
+		// the root; the root read beside it is still a read.
+		`when_cel: '["debian"].exists(facts, facts == "debian")'`:                         nil,
+		`when_cel: '["a"].exists(facts, facts == "a") && facts["os.family"] == "debian"'`: {"os.family"},
 	} {
 		dag, err := factsDAGErr("id: ok\nhosts: fleet\ntasks:\n  - name: t\n    " + cond + "\n    noop: {}\n")
 		if err != nil {

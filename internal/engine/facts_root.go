@@ -109,7 +109,12 @@ func factReadsOf(sources []string) (ConditionFacts, error) {
 func collectFactReads(root celast.Expr, keys map[string]bool) []string {
 	var problems []string
 	appearances, accounted := 0, 0
-	isFacts := func(e celast.Expr) bool { return e.Kind() == celast.IdentKind && e.AsIdent() == TemplateRootFacts }
+	// A comprehension's own variable named facts (["a"].exists(facts, ...))
+	// is that variable inside its loop, never the root.
+	bound := boundFactsIdents(root)
+	isFacts := func(e celast.Expr) bool {
+		return e.Kind() == celast.IdentKind && e.AsIdent() == TemplateRootFacts && !bound[e.ID()]
+	}
 	add := func(key string) {
 		if !facts.ReadableKey(key) {
 			problems = append(problems, fmt.Sprintf("a condition reads facts[%s], which is not a fact name (empty, too long, or holding a space, a slash or a control character)", strconv.Quote(key)))
@@ -122,7 +127,9 @@ func collectFactReads(root celast.Expr, keys map[string]bool) []string {
 		case celast.IdentKind:
 			switch e.AsIdent() {
 			case TemplateRootFacts:
-				appearances++
+				if !bound[e.ID()] {
+					appearances++
+				}
 			case hostVarsName:
 				problems = append(problems, factsOtherDevice)
 			}
@@ -160,6 +167,35 @@ func collectFactReads(root celast.Expr, keys map[string]bool) []string {
 		problems = append(problems, factsWholeRoot)
 	}
 	return problems
+}
+
+// boundFactsIdents is the ids of every facts identifier in root that names a
+// comprehension's own variable rather than the root: one inside the loop of a
+// comprehension binding facts as its iteration variable (either of them) or
+// its accumulator, or inside its result when the accumulator is facts.
+func boundFactsIdents(root celast.Expr) map[int64]bool {
+	bound := map[int64]bool{}
+	mark := func(e celast.Expr) {
+		celast.PreOrderVisit(e, celast.NewExprVisitor(func(x celast.Expr) {
+			if x.Kind() == celast.IdentKind && x.AsIdent() == TemplateRootFacts {
+				bound[x.ID()] = true
+			}
+		}))
+	}
+	celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.ComprehensionKind {
+			return
+		}
+		c := e.AsComprehension()
+		if c.IterVar() == TemplateRootFacts || c.IterVar2() == TemplateRootFacts || c.AccuVar() == TemplateRootFacts {
+			mark(c.LoopCondition())
+			mark(c.LoopStep())
+		}
+		if c.AccuVar() == TemplateRootFacts {
+			mark(c.Result())
+		}
+	}))
+	return bound
 }
 
 // stringLiteral returns e's text when e is a string literal.
@@ -220,8 +256,10 @@ func sourcesNameFacts(sources []string) (bool, error) {
 		if iss.Err() != nil {
 			return false, iss.Err()
 		}
-		celast.PreOrderVisit(ast.NativeRep().Expr(), celast.NewExprVisitor(func(e celast.Expr) {
-			if e.Kind() == celast.IdentKind && e.AsIdent() == TemplateRootFacts {
+		root := ast.NativeRep().Expr()
+		bound := boundFactsIdents(root)
+		celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+			if e.Kind() == celast.IdentKind && e.AsIdent() == TemplateRootFacts && !bound[e.ID()] {
 				found = true
 			}
 		}))
