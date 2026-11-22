@@ -1607,6 +1607,11 @@ after earlier tasks have already changed earlier devices. Both strategies lock p
 device, never a whole job, so two tasks targeting disjoint device sets never block each
 other.
 
+A task that runs on each device on its own cannot take `all_at_plan_time`, because its
+devices' locks are never taken together: a task with `loop:`, `with_items:` or `until:`,
+a task that reads `device` or variables that differ by device, and a rescue task.
+`pleiades validate` refuses each one, and so does a run before its first task.
+
 ### Safety versus dry-run
 
 `pleiades validate` checks a runbook without touching a device: it loads the inventory

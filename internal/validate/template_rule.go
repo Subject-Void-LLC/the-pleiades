@@ -62,8 +62,10 @@ func TemplateRule(world WorldView) []Finding {
 		// this comes before the parameters are looked at. A task reading
 		// variables that differ by device is decided on each device too, and
 		// the run refuses it the same way (engine.VarsDifferByDevice, which
-		// both ask).
-		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task) ||
+		// both ask). So is a task that loops or retries, whatever it reads:
+		// each device runs its own items and attempts (Task.Iterates, the
+		// question the run's readsDevice asks first).
+		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (task.Iterates() || engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task) ||
 			engine.VarsDifferByDevice(world.DAG, task, world.DAG.Conditional(pt.node) && pt.id == pt.node, eng, func() []inventory.InventoryItem { return varsDevices(world, task) })) {
 			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.ErrDeviceRootLockAll)})
 		}
