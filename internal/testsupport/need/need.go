@@ -34,6 +34,7 @@ const (
 	Docker          = "docker"
 	DockerDesktop   = "docker-desktop"
 	DockerSocket    = "docker socket"
+	Gosec           = "gosec"
 	IPv6Loopback    = "ipv6-loopback"
 	Landlock        = "landlock"
 	LandlockScoping = "landlock-scoping"
@@ -58,7 +59,7 @@ const All = "all"
 
 // Names lists every known need, the registry Env is checked against.
 var Names = []string{
-	CMLController, Docker, DockerDesktop, DockerSocket, IPv6Loopback, Landlock,
+	CMLController, Docker, DockerDesktop, DockerSocket, Gosec, IPv6Loopback, Landlock,
 	LandlockScoping, Linux, LocalStack, Memory, NonRoot, OpenFiles, POSIXModes,
 	PosixShell, PostgresClient, PTY, RefusingPort, Symlinks, Timeout, Toybox, Userns,
 }

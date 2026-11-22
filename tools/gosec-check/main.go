@@ -8,21 +8,26 @@
 // directory as a whole, so a genuinely new finding anywhere in the
 // module still fails the build.
 //
-// Usage: go run ./tools/gosec-check
+// Usage: go run ./tools/gosec-check [-timeout 30m] [-report file.json]
 //
 // gosec itself must already be on PATH (AGENTS.md's gopls/gosec/
-// govulncheck setup section).
+// govulncheck setup section). A package gosec would load in pieces from a
+// checkout with a long path is scanned from a short path (scan.go), and an
+// interrupt or the time limit stops gosec and every process it started
+// (process.go).
 package main
 
 import (
-	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
+	"time"
 )
 
 // gosecIssue is the subset of one gosec JSON finding this tool reads.
@@ -34,10 +39,19 @@ type gosecIssue struct {
 }
 
 // gosecReport is the subset of gosec's JSON report this tool reads: the
-// findings, and the files it could not type-check, by path.
+// findings, the files it could not type-check, by path, and its counts.
 type gosecReport struct {
 	Issues       []gosecIssue            `json:"Issues"`
 	GolangErrors map[string][]gosecError `json:"Golang errors"`
+	Stats        gosecStats              `json:"Stats"`
+}
+
+// gosecStats is gosec's count of what it scanned and found.
+type gosecStats struct {
+	Files int `json:"files"`
+	Lines int `json:"lines"`
+	Nosec int `json:"nosec"`
+	Found int `json:"found"`
 }
 
 // waiver is one accepted, individually-justified finding.
@@ -61,16 +75,20 @@ type waiverKey struct {
 	ruleID string
 }
 
+// main parses the flags and runs the check.
 func main() {
-	if err := run(); err != nil {
+	timeout := flag.Duration("timeout", 30*time.Minute, "stop gosec, and everything it started, after this long (0 for no limit)")
+	reportPath := flag.String("report", "", "also write the joined gosec report, as JSON, to this file")
+	flag.Parse()
+	if err := run(*timeout, *reportPath); err != nil {
 		fmt.Fprintln(os.Stderr, "gosec-check:", err)
 		os.Exit(1)
 	}
 }
 
-// run loads the waivers, runs gosec over the module, and judges what it
-// reported (judge).
-func run() error {
+// run loads the waivers, runs gosec over the module, stopping it on an
+// interrupt or after timeout, and judges what it reported (judge).
+func run(timeout time.Duration, reportPath string) error {
 	repoRoot, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getwd: %w", err)
@@ -80,12 +98,49 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("loading gosec-waivers.json: %w", err)
 	}
-
-	report, err := runGosec()
+	shortBase, err := defaultShortBase()
 	if err != nil {
 		return err
 	}
+
+	// An interrupt stops the scan, which stops gosec and what it started,
+	// rather than ending gosec-check and leaving them running.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(signals)
+	stop := make(chan struct{})
+	go func() {
+		if _, ok := <-signals; ok {
+			close(stop)
+		}
+	}()
+
+	s := scanner{gosec: "gosec", shortBase: shortBase, stop: stop, log: os.Stderr}
+	if timeout > 0 {
+		s.deadline = time.Now().Add(timeout)
+	}
+	report, err := s.scan(repoRoot)
+	if err != nil {
+		return err
+	}
+	if reportPath != "" {
+		if err := writeReport(reportPath, report); err != nil {
+			return err
+		}
+	}
 	return judge(report, waivers, skips, repoRoot, os.Stdout, os.Stderr)
+}
+
+// writeReport writes report to path as indented JSON.
+func writeReport(path string, report *gosecReport) error {
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("writing the report: %w", err)
+	}
+	return nil
 }
 
 // judge holds report, gosec's decoded output for the module at repoRoot, to
@@ -131,7 +186,7 @@ func judge(report *gosecReport, waivers map[waiverKey]waiver, skips []skipWaiver
 	}
 
 	if len(unwaived) == 0 && len(stale) == 0 && !skipped.failed() {
-		fmt.Fprintf(out, "gosec-check: %d finding(s), all individually waived in gosec-waivers.json\n", len(report.Issues))
+		fmt.Fprintf(out, "gosec-check: %d finding(s) in %d file(s), all individually waived in gosec-waivers.json\n", len(report.Issues), report.Stats.Files)
 		return nil
 	}
 
@@ -179,24 +234,6 @@ func loadWaivers(path string) (map[waiverKey]waiver, []skipWaiver, error) {
 		}
 	}
 	return out, wf.Skips, nil
-}
-
-// runGosec scans the module from the working directory and decodes the report.
-func runGosec() (*gosecReport, error) {
-	cmd := exec.Command("gosec", "-exclude-generated", excludeAgentDirs, excludeIgnoredDirs, "-fmt=json", "./...")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-
-	report, err := decodeReport(stdout.Bytes())
-	if err != nil {
-		// gosec exits non-zero whenever it finds anything at all, so a
-		// non-zero exit alone is not an error; a body that will not parse
-		// as its own JSON report is the real failure.
-		return nil, fmt.Errorf("gosec did not produce valid JSON output (exit error: %v): %w\nstderr:\n%s", runErr, err, stderr.String())
-	}
-	return report, nil
 }
 
 // decodeReport reads gosec's JSON report.
