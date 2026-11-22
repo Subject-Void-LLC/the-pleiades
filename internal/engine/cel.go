@@ -203,10 +203,20 @@ func CELLibraryOptions() []cel.EnvOption {
 	}
 }
 
+// conditionEnvOptions is every option a condition's CEL environment is built
+// from: the variables, then the libraries. The compile environment
+// (NewCELEvaluator) and the environment a condition is parsed in to read its
+// references (condition_refs.go's parseEnv) are both built from it, so the
+// two accept exactly the same syntax (the optional field and index, every
+// library's macros): a condition that compiles always parses for its
+// references (FAILURE_PATTERNS 1351).
+func conditionEnvOptions() []cel.EnvOption {
+	return append(CELVariableOptions(), CELLibraryOptions()...)
+}
+
 // NewCELEvaluator initializes a CEL execution environment.
 func NewCELEvaluator() (Evaluator, error) {
-	opts := append(CELVariableOptions(), CELLibraryOptions()...)
-	env, err := cel.NewEnv(opts...)
+	env, err := cel.NewEnv(conditionEnvOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL env: %w", err)
 	}

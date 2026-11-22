@@ -48,7 +48,11 @@ runbook, so they win over everything above, as they do in Ansible.
 A value may read other variables, such as `"{{ vars.base }}/app"`. A circle
 of variables that read each other fails the task and names the circle. A
 variable the run never gives is an error, not an empty string, unless the read
-is guarded with `| default(...)`.
+is guarded with `| default(...)`. In a condition the guard is `has(vars.name)`,
+`"name" in vars`, or CEL's optional field or index, `vars.?name.orValue("x")` or
+`vars[?"name"].hasValue()`; `validate` reads each of these as written for a
+missing name. The optional forms work on a registered result the same way
+(`result.?probe.hasValue()`).
 
 ```yaml
 # Writes the service's settings file from the runbook's variables.
@@ -704,8 +708,9 @@ each device, put the devices in `hosts:`.
 **A `when:` on a task with `target:` is decided for the target, not for the runbook's `hosts:`.**
 Such a task runs on the devices its `target:` names, and its condition goes with it. A condition
 that reads `device`, or a variable that can differ by device (a `set_fact`, a device's own
-variables), is decided on each target device with that device's values. A condition that reads
-only the run's data is decided once for the task.
+variables), is decided on each target device with that device's values, however it reads them:
+`device.name`, `device["name"]`, or CEL's optional `device.?name` and `device[?"name"]`. A condition
+that reads only the run's data is decided once for the task.
 
 ```text
 - name: save the core router's configuration when it is a Cisco IOS device

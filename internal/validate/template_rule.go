@@ -181,7 +181,8 @@ func loopExpression(task *engine.Task) (string, bool) {
 }
 
 // conditionReadsDevice reports whether task's condition reads the device
-// root.
+// root. A condition that cannot be read reports false here and is refused by
+// ConditionRule, so the runbook does not pass either way.
 func conditionReadsDevice(task *engine.Task) bool {
 	uses, err := engine.ConditionUsesRoot(task.Conditional, engine.TemplateRootDevice)
 	return err == nil && uses

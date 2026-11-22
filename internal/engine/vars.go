@@ -298,7 +298,9 @@ func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
 	// device, so the task's variables are worked out on each device too.
 	reads := r.rollbackReadsVars(task)
 	if !reads && r.dag.Conditions[nodeID] != nil {
-		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootVars); err == nil && uses {
+		// One whose references cannot be read is taken to read vars, so it
+		// is decided on each device when the variables can differ there.
+		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootVars); err != nil || uses {
 			reads = true
 		}
 	}

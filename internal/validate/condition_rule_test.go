@@ -59,12 +59,14 @@ func TestConditionRule_AWriterTagSelectionLeftOut(t *testing.T) {
 	}
 }
 
-// TestConditionRule_LeavesAnUnparsedConditionToTheBuilder: a DAG assembled
-// by hand with a condition that does not parse gets no finding from this
-// rule; parsing is the builder's refusal.
-func TestConditionRule_LeavesAnUnparsedConditionToTheBuilder(t *testing.T) {
+// TestConditionRule_RefusesAConditionItCannotRead: a DAG assembled by hand
+// with a condition that does not parse is refused, naming the task, rather
+// than taken to read nothing (FAILURE_PATTERNS 1351): the other rules that
+// read a condition skip one they cannot parse and rely on this refusal.
+func TestConditionRule_RefusesAConditionItCannotRead(t *testing.T) {
 	dag := &engine.DAG{Nodes: map[string]*engine.Task{"a": {FQCN: "noop", Conditional: engine.Conditional{When: []string{"x =="}}}}}
-	if findings := validate.ConditionRule(validate.WorldView{DAG: dag}); len(findings) != 0 {
+	findings := validate.ConditionRule(validate.WorldView{DAG: dag})
+	if len(findings) != 1 || findings[0].Node != "a" || !strings.Contains(findings[0].Message, "cannot be read") || !strings.Contains(findings[0].Message, "does not parse") {
 		t.Fatalf("findings %v for a condition that does not parse", findings)
 	}
 }

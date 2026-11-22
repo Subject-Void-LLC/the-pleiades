@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 
-	"cel.dev/cel-go/cel"
 	celast "cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/operators"
 	"cel.dev/cel-go/common/types"
@@ -259,30 +258,25 @@ func readsOf(eng render.Engine, pt paramTask) []varRead {
 	return reads
 }
 
-// newCELEnv builds the environment a condition is parsed in; a variable so a
-// test can make it fail.
-var newCELEnv = func() (*cel.Env, error) { return cel.NewEnv() }
-
 // conditionVarReads returns the names c reads as vars.<name> (or
-// vars["name"]) and the names it only tests for, with has(vars.<name>) or
-// "<name>" in vars, sorted. It parses and never evaluates, as
-// engine.ConditionUsesRoot does; a condition that does not parse reads
-// nothing here.
+// vars["name"]) and the names it only tests for, with has(vars.<name>),
+// "<name>" in vars, or the optional vars.?<name> or vars[?"<name>"], which
+// yield an empty optional rather than failing when the name is absent, sorted.
+// It parses with engine.ParseCondition, the parser every reader of a condition
+// shares, which accepts exactly the syntax a condition compiles with. A
+// condition that does not parse reads nothing here: ConditionRule refuses it,
+// so the runbook still does not pass.
 func conditionVarReads(c engine.Conditional) (read, tested []string) {
-	env, err := newCELEnv()
-	if err != nil {
-		return nil, nil
-	}
 	isVars := func(e celast.Expr) bool {
 		return e.Kind() == celast.IdentKind && e.AsIdent() == engine.TemplateRootVars
 	}
 	readSet, testedSet := map[string]bool{}, map[string]bool{}
 	for _, src := range c.Sources() {
-		ast, iss := env.Parse(src)
-		if iss.Err() != nil {
+		expr, err := engine.ParseCondition(src)
+		if err != nil {
 			continue
 		}
-		celast.PreOrderVisit(ast.NativeRep().Expr(), celast.NewExprVisitor(func(e celast.Expr) {
+		celast.PreOrderVisit(expr, celast.NewExprVisitor(func(e celast.Expr) {
 			switch e.Kind() {
 			case celast.SelectKind:
 				sel := e.AsSelect()
@@ -297,10 +291,16 @@ func conditionVarReads(c engine.Conditional) (read, tested []string) {
 				call := e.AsCall()
 				args := call.Args()
 				switch call.FunctionName() {
-				case operators.Index, operators.OptIndex:
+				case operators.Index, operators.OptIndex, operators.OptSelect:
 					if len(args) == 2 && isVars(args[0]) && args[1].Kind() == celast.LiteralKind {
 						if key, ok := args[1].AsLiteral().(types.String); ok {
-							readSet[string(key)] = true
+							// vars["name"] fails without the name; the
+							// optional forms are written for its absence.
+							if call.FunctionName() == operators.Index {
+								readSet[string(key)] = true
+							} else {
+								testedSet[string(key)] = true
+							}
 						}
 					}
 				case operators.In:
