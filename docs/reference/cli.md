@@ -167,7 +167,7 @@ store an encrypted credential for a device
 
 `pleiades add-credential ubuntu-lab --username root --generate`
 
-`pleiades add-credential old-switch --username admin --generate --key-type rsa-3072 --no-password`
+`pleiades add-credential fips-host --username root --generate --key-type ecdsa-p256`
 
 `pleiades add-credential web01 --username root --password-file web01.sealed`
 

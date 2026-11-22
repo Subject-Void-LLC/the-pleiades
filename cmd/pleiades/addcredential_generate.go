@@ -25,10 +25,12 @@ var generateOnlyFlags = []string{"replace", "key-type", "no-password", "json"}
 
 // rsaSignatureNote is what generating an RSA key prints on stderr. The line
 // says ssh-rsa because that names the key's format; the signature a device
-// sees is another matter, and a device that takes only SHA-1 refuses it.
+// sees is another matter: rsa-sha2-512 or rsa-sha2-256, and a server that
+// advertises neither refuses the key unless the device's record allows the
+// SHA-1 ssh-rsa signature.
 const rsaSignatureNote = "note: an RSA key's public key line starts with ssh-rsa because that names the key's format, not how it signs: " +
-	"Pleiades signs with it using rsa-sha2-256 or rsa-sha2-512, so a device that accepts only SHA-1 ssh-rsa signatures refuses it " +
-	"unless that device sets ssh_allow_legacy_user_key_signatures"
+	"Pleiades signs with it using rsa-sha2-512 or rsa-sha2-256, so a server that does not advertise a SHA-2 signature refuses the key " +
+	"unless the device's record allows ssh-rsa signatures (ssh_allow_legacy_user_key_signatures)"
 
 // generateRequest is one add-credential --generate call, its flags already
 // checked.

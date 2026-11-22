@@ -209,9 +209,10 @@ The key is ed25519 unless `--key-type` names another: `rsa-3072`, `rsa-4096`, `e
 RSA user keys needs an RSA type, and a host in FIPS mode may refuse ed25519 and take
 `ecdsa-p256`. A 2048-bit RSA key is not generated; one made elsewhere can still be stored with
 `--key`. An RSA key's line starts with `ssh-rsa`, which names the key's format, not how it signs:
-Pleiades signs with `rsa-sha2-256` or `rsa-sha2-512`, and says so on standard error each time it
-makes one, so a device that takes only SHA-1 `ssh-rsa` signatures refuses the key unless it sets
-`ssh_allow_legacy_user_key_signatures`. Every type is stored in OpenSSH's own form.
+Pleiades signs with it using `rsa-sha2-512` or `rsa-sha2-256`, and says so on standard error each
+time it makes one. A server that does not advertise a SHA-2 signature refuses such a key unless the
+device's record allows `ssh-rsa` signatures (`ssh_allow_legacy_user_key_signatures`). Every type is
+stored in OpenSSH's own form.
 
 The password is for what a key cannot reach, such as a VM's console. A login holding both offers
 the key first and the password after it, so a device that refuses the key can still let the
