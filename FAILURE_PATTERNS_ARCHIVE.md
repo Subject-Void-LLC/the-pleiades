@@ -33993,3 +33993,100 @@ earlier entry is this test failing in CI.
 **Lesson.** CI_LESSONS 42. A test that reads the whole module's source runs on every pr-check, whatever the
 branch changes, because no import ties it to the file that breaks it. And a skip names a registered need; its
 reason goes in the skip's message, not in the name.
+
+## 1369. Linux read a VirtualBox guest as a cloud instance: `cloudProviders` listed `oracle`, which systemd-detect-virt prints for Oracle VM VirtualBox, so `hardware.virtualization` was `cloud:oracle` (fixed on `feat/41-identity-facts`, `8a8fd430`; never released; in kind of LESSONS 234 and 379)
+
+**Symptom.** 2026-11-22, lab guest `ubuntu-lab` (VirtualBox, Ubuntu, systemd 255.4). `facts.gather` from `main` at
+`02d4b75b` emitted `hardware.virtualization: cloud:oracle`. On the guest, `systemd-detect-virt --vm` printed
+`oracle`.
+
+**Why it matters.** This fact exists to tell an RMA on metal from a routine event on a VM. A VM on the owner's own
+host read as a cloud instance, so the one question the fact answers was answered wrong.
+
+**Root cause.** `cloudProviders` in `internal/catalog/facts/gather_identity.go` listed `oracle` as a cloud
+provider. In systemd-detect-virt's vocabulary the id `oracle` means Oracle VM VirtualBox, not Oracle Cloud. The
+list was added in #205 (`1a1c8aae`). Its unit test, `TestGatherVirtualization_AnAbsentToolIsNoFactNotPhysical`,
+had no `oracle` case, and no VirtualBox guest was measured before the mapping was written. The defect came after
+v0.3.0 and was never released (no tag contains `1a1c8aae`).
+
+**Fix.** `8a8fd430`. `oracle` is removed from `cloudProviders`, so a VirtualBox guest reads `vm:oracle`, and
+systemd-detect-virt's `vm-other` maps to `vm:other`. Test: `TestLinuxVirtualization_VirtualBoxIsAVirtualMachine`
+(`internal/catalog/facts/gather_identity_platforms_internal_test.go`). Proven on `ubuntu-lab` with the branch's
+binary, which emitted `vm:oracle`. The fact's description now says that `oracle` is VirtualBox on every platform.
+
+**Searched.** By "systemd-detect-virt", "VirtualBox", "virtualization", "cloud:", "oracle" and "cloudProviders",
+and by the class (a vendor tool's id read by what its name sounds like). No earlier entry. The nearest rules are
+LESSONS 234 (test against the program itself, on real input, early) and 379 (measure the primitive on the real
+target before building on it).
+
+**Lesson.** As LESSONS 234 and 379. A tool's id means what the tool's own documentation and output say it means,
+measured on a real target, not what the word suggests. A unit test whose cases were written from the same reading
+of the word cannot find this; only a real guest can.
+
+## 1370. FreeBSD reported `os.machine_id` through Linux's read, whose container guard cannot see a jail, so every jail of one image would read as one machine, while the changelog said FreeBSD reported none (fixed on `feat/41-identity-facts`, `8a8fd430`; never released; the jail form of the container defect #209 fixed for Linux, which has no pattern number; the changelog half in kind of 571 and 989)
+
+**Symptom.** 2026-11-22, lab guest `bsd-lab` (FreeBSD 15.1, VirtualBox). `facts.gather` from `main` emitted
+`os.machine_id`, read from `/etc/machine-id`. FreeBSD's rc writes the host UUID there without dashes, so the read
+succeeds. Two problems followed from it:
+
+- The read had no jail guard. A jail of one image would read as one machine.
+- The changelog fragment `changelog/facts-identity-linux.added.md` said "FreeBSD, macOS and Windows do not report
+  these yet". That was false for FreeBSD.
+
+**Root cause.** `bsdHostProbes` in `internal/catalog/facts/gather_bsd.go` kept every `min` probe for FreeBSD,
+Linux's `gatherMachineIDCommand` included. That command's guard, `gatherNotInContainer`, looks for Docker and
+Podman marker files and asks `systemd-detect-virt`. Neither can see a FreeBSD jail. This is the defect #209
+(`7c619582`) fixed for Linux containers only: a container, or a jail, sees its image's machine id. #209 recorded
+no failure pattern for it, so there is no number to cite as the earlier entry. Nothing held the changelog sentence
+to FreeBSD's probe list.
+
+**Fix.** `8a8fd430`. FreeBSD has its own reads (kenv and `/etc/machine-id`), each behind `freebsdNotJailed` in
+`internal/catalog/facts/gather_identity_bsd.go`. It reads only when `security.jail.jailed` is exactly `0`, so any
+other answer, or none, reads nothing (fail closed). A jail reads `container:jail`. Linux's read no longer runs on
+FreeBSD. Test: `TestFreeBSDIdentityReads_SkipAJail`. The Linux-only fragment is replaced by
+`changelog/facts-identity.added.md`, which names FreeBSD, macOS and Windows and the jail rule.
+
+**Not proven.** A real jail. bsd-lab's login has no root and no sudo, so no jail could be made there. The guard is
+proven by its unit test only.
+
+**Searched.** By "machine-id", "machine_id", "jail", "gatherNotInContainer", "bsdHostProbes", `7c619582` and
+`1a1c8aae`. 928 names a FreeBSD jail in passing (a hidden daemon read as unknown), a different defect. No entry for
+the container identity defect itself. For the changelog half: 571, 976, 987, 989 and 1327 are text that claimed
+more than the code did; this one claimed less, and was false the same way.
+
+**Lesson.** A guard moved to another platform along with the read it guards is checked against that platform's own
+isolation; a Linux container check says nothing about a jail. And a changelog sentence that says a platform does
+not do something is checked against that platform's probe list before it is written.
+
+## 1371. `pleiades run`'s end reads every other journal in the project and sleeps 200 ms before a second try at each one it cannot read, so 1,996 journals an older binary could not read made every lab run take about 435 s against a 13 s task (open; fix not started; in kind of 855)
+
+**Symptom.** 2026-11-22, lab project `~/pleiades-lab`, with 9,668 journal files (about 4,800 runs, 40 MB). The
+lab's binary `~/pleiades-lab/bin/pleiades`, built Oct 24, could not read 1,996 journals written Nov 13 by a newer
+build. Every run then took about 435 s against a 13 s task. A SIGQUIT goroutine dump showed main parked in
+`time.Sleep` under `journal.ChangesDuring`, called from `concurrency.end` (`cmd/pleiades/run_concurrent.go`).
+The run's `--json` output carried 1,996 `concurrent_unknown` warnings (463 KB). The current binary reads all of
+them: 11 s and no warnings.
+
+**Root cause.** `journal.ChangesDuring` (`internal/journal/active.go`, the function at line 317 and the retry at
+lines 333 to 339 as of `8a8fd430`) reads every other journal in the project at the end of every run. For a
+journal it cannot read, it sleeps 200 ms and tries once more. It does this even for a run whose `.end` file says
+it finished. The retry was written for a journal still being written (its doc comment:
+"one still being written can end mid-line"), and it is applied to every journal it cannot read, whatever the
+reason.
+
+**What remains in current code.** The old binary's case was 1,996 unreadable journals. With the current binary:
+
+- A finished journal that stays unreadable costs 200 ms on every run, for good.
+- Each run's end reads the whole history, so its cost grows with the number of runs in the project.
+
+**Status.** Open. Fix not started. No test reproduces it.
+
+**Searched.** By `ChangesDuring`, `active.go`, `run_concurrent`, `concurrent_unknown`, "journal", "sleep",
+"200 ms", "whole history" and "older build". 628 and 805 are earlier defects in `ChangesDuring` (a file in the
+directory's place on Windows; a window decided by wall clock), not this one. 855 is the same class (a read of the
+whole history on every write, its cost growing with the history) in the Crawl fact store. 1098 and 1103 are the
+mixed-version class, an older build meeting a newer build's records, on the Controller.
+
+**Lesson.** A retry for a transient cause is applied only where the record says that cause can hold: a journal
+whose run recorded its end is no longer expected to be mid-write, so one more read a moment later buys nothing. And a read that runs at the end of every
+run is sized against the project's whole history, not one run's.
