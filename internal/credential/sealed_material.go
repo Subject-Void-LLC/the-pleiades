@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -68,12 +69,39 @@ func sealedUnderMasterKey(dir string) ([]sealedMaterial, error) {
 	return found, nil
 }
 
+// sectionNouns names what one entry of each section of the credential file
+// is, by its YAML key. credentialSections reads the sections themselves off
+// credentialsDocument, so a section added there is counted even before it
+// has a noun here (TestEveryCredentialSectionIsNamed asks for one).
+var sectionNouns = map[string]string{
+	"devices": "device credential", "registries": "registry account",
+	"databases": "database connection", "secrets": "named secret",
+}
+
+// everyFieldSealed are the sections whose every value is ciphertext, with no
+// _encrypted suffix to mark it: a named secret's fields.
+var everyFieldSealed = map[string]bool{"secrets": true}
+
+// credentialSections returns the YAML key of each section of the credential
+// file, in credentialsDocument's field order.
+func credentialSections() []string {
+	typ := reflect.TypeFor[credentialsDocument]()
+	keys := make([]string, 0, typ.NumField())
+	for i := range typ.NumField() {
+		if key, _, _ := strings.Cut(typ.Field(i).Tag.Get("yaml"), ","); key != "" && key != "-" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 // credentialFileSealed says what path's credential file holds sealed, in
 // words ("1 device credential, 2 named secrets"), or "" when it is missing or
 // holds no ciphertext. A field holds ciphertext by the file's one naming rule,
-// a key ending in _encrypted (TestEveryCiphertextFieldIsNamedEncrypted holds
-// the structs to it), and every value under secrets: is ciphertext. It reads
-// the file as Lookup does, so a file another account may read is refused.
+// a key ending in _encrypted at any depth (TestEveryCiphertextFieldIsNamedEncrypted
+// holds the structs to it), and every value of a section in everyFieldSealed
+// is ciphertext. It reads the file as Lookup does, so a file another account
+// may read is refused.
 func credentialFileSealed(path string) (string, error) {
 	data, err := crypto.ReadPrivateFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -87,34 +115,47 @@ func credentialFileSealed(path string) (string, error) {
 		return "", fmt.Errorf("%s does not parse: %w", path, err)
 	}
 	var parts []string
-	for _, section := range []struct{ key, noun string }{
-		{"devices", "device credential"}, {"registries", "registry account"},
-		{"databases", "database connection"}, {"secrets", "named secret"},
-	} {
+	for _, section := range credentialSections() {
 		n := 0
-		for _, entry := range doc[section.key] {
-			if holdsCiphertext(entry, section.key == "secrets") {
+		for _, entry := range doc[section] {
+			if holdsCiphertext(entry, everyFieldSealed[section]) {
 				n++
 			}
 		}
+		noun, ok := sectionNouns[section]
+		if !ok {
+			noun = section + " entry"
+		}
 		if n > 0 {
-			parts = append(parts, plural(n, section.noun))
+			parts = append(parts, plural(n, noun))
 		}
 	}
 	return strings.Join(parts, ", "), nil
 }
 
 // holdsCiphertext reports whether one entry of the credential file holds a
-// sealed value: a non-empty field whose key ends in _encrypted, or, for a
-// named secret (every field ciphertext), any non-empty field.
+// sealed value: a non-empty string under a key ending in _encrypted, at any
+// depth of nested mappings and lists, or, when everyField is set (a named
+// secret, every field ciphertext), any non-empty string.
 func holdsCiphertext(entry any, everyField bool) bool {
-	fields, ok := entry.(map[string]any)
-	if !ok {
-		return false
-	}
-	for k, v := range fields {
-		if s, ok := v.(string); ok && s != "" && (everyField || strings.HasSuffix(k, "_encrypted")) {
-			return true
+	switch v := entry.(type) {
+	case map[string]any:
+		for k, field := range v {
+			if s, ok := field.(string); ok {
+				if s != "" && (everyField || strings.HasSuffix(k, "_encrypted")) {
+					return true
+				}
+				continue
+			}
+			if holdsCiphertext(field, everyField) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if holdsCiphertext(item, everyField) {
+				return true
+			}
 		}
 	}
 	return false

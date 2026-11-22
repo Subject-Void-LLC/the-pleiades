@@ -30,8 +30,9 @@ func factsDir(projectDir string) string {
 // writer to the same rule over what the vault's .pleiades holds sealed (its
 // credentials, named secrets, seal key and, when the vault is the project, these
 // facts), so no command makes a key beside any of it (FAILURE_PATTERNS 1344).
-// The check here is for the facts under --dir when --vault names another
-// directory, which ResolveMasterKey does not look in.
+// The check here runs first only to say it in the facts' own words; without it
+// ResolveMasterKey would refuse the same write. It is no guard for a --vault
+// elsewhere: that flag refuses a vault with no key before any command runs.
 func factKeysToWrite(projectDir string) *facts.Keys {
 	return facts.NewLazyKeys(func() ([]byte, error) { return factMasterKeyToWrite(projectDir) }, "project")
 }
@@ -51,6 +52,14 @@ func factMasterKeyToWrite(projectDir string) ([]byte, error) {
 		return nil, fmt.Errorf("the project has no master key, and whether its fact store holds facts sealed under one cannot be told (%w): no new key is made", openErr)
 	default:
 		holds, holdsErr := store.HoldsAny()
+		if holds && holdsErr == nil {
+			// A fact is stored only under a key that exists, so one stored since
+			// the look above (another command, or this run's other keys, making
+			// the project's first key) comes with its key: take it.
+			if key, err := credential.ExistingMasterKey(vaultDir(projectDir)); !errors.Is(err, credential.ErrNoMasterKey) {
+				return key, err
+			}
+		}
 		if holds || holdsErr != nil {
 			return nil, fmt.Errorf("the project's stored facts are sealed under a master key it no longer has: restore .pleiades/master.key or set PLEIADES_MASTER_KEY; no fact is stored until then, and no new key is made beside them (%w)", err)
 		}

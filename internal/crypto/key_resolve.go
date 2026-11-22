@@ -37,11 +37,13 @@ const keySize = 32
 //     0o600, then the raw key bytes are returned.
 //
 // This is the generic form of the resolution logic internal/credential's
-// ResolveMasterKey originally implemented directly; that package now calls
-// through here with its own envVar/fileName, and any other caller needing
-// the identical env-var/file/generate-and-persist shape (for example, the
-// envelope encryption KEK) uses this directly with its own distinct
-// envVar/fileName so the two never collide on the same key material.
+// ResolveMasterKey originally implemented directly, and that function is its
+// only caller: it makes a key only where nothing is sealed under one yet, and
+// calls here only after checking (FAILURE_PATTERNS 1344). Nothing else calls
+// this, since a key made here without that check would be made beside data
+// sealed under a lost one; internal/archtest's
+// TestOnlyResolveMasterKeyMakesTheMasterKey holds the module to it. A reader
+// that must never make a key calls ExistingKey.
 func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
 	key, err := ExistingKey(dir, envVar, fileName)
 	if errors.Is(err, ErrNoKey) {

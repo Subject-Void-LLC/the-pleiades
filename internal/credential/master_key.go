@@ -88,9 +88,25 @@ func ResolveMasterKey(dir string) ([]byte, error) {
 		return nil, err
 	}
 	if scanErr != nil {
+		// As below: a key made meanwhile by another caller is the answer.
+		if key, err := ExistingMasterKey(dir); !errors.Is(err, ErrNoMasterKey) {
+			return key, err
+		}
 		return nil, fmt.Errorf("the project has no master key, and whether %s holds what one sealed cannot be told (%w): no new key is made", filepath.Join(dir, masterKeyDirName), scanErr)
 	}
 	if len(found) > 0 {
+		// Look once more before refusing. Another command, or another caller
+		// in this process, may have made the project's first key and sealed
+		// something under it between the first look and the scan. Nothing is
+		// sealed under a key file before that file is in place: the key is
+		// written whole to a temporary file and only then linked to its name
+		// (crypto's generateAndSaveKey), and only a caller holding the linked
+		// key seals. So material sealed under the file's key always finds the
+		// file here; material that still finds none was sealed under a key
+		// this project does not hold.
+		if key, err := ExistingMasterKey(dir); !errors.Is(err, ErrNoMasterKey) {
+			return key, err
+		}
 		return nil, lostKeyError(dir, found)
 	}
 	return crypto.ResolveKey(dir, masterKeyEnvVar, filepath.Join(masterKeyDirName, masterKeyFileName))

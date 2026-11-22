@@ -9,11 +9,14 @@ package credential_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,4 +302,109 @@ func snapshot(t *testing.T, dir string) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
+}
+
+// TestResolveMasterKey_ConcurrentFirstUseConverges: many callers making a new
+// project's key at once, each sealing a credential as soon as it has the key,
+// all succeed and all hold the one key. A caller that found no key, then found
+// a credential another caller had sealed under the key it had just made, once
+// refused that project as one whose key was lost.
+func TestResolveMasterKey_ConcurrentFirstUseConverges(t *testing.T) {
+	withoutKeyEnv(t)
+	const callers = 16
+	for round := range 20 {
+		dir := t.TempDir()
+		keys := make([][]byte, callers)
+		errs := make([]error, callers)
+		var start, done sync.WaitGroup
+		start.Add(1)
+		for i := range callers {
+			done.Add(1)
+			go func() {
+				defer done.Done()
+				start.Wait()
+				key, err := credential.ResolveMasterKey(dir)
+				if err == nil {
+					err = credential.SaveSecretField(dir, key, fmt.Sprintf("s%d", i), "f", "s3cret-value")
+				}
+				keys[i], errs[i] = key, err
+			}()
+		}
+		start.Done()
+		done.Wait()
+		for i := range callers {
+			if errs[i] != nil {
+				t.Fatalf("round %d, caller %d: %v", round, i, errs[i])
+			}
+			if !bytes.Equal(keys[i], keys[0]) {
+				t.Fatalf("round %d: callers %d and 0 hold different keys", round, i)
+			}
+		}
+	}
+}
+
+// TestLazyFileStore_TriesAgainOnceTheKeyIsRestored: a lookup refused because
+// the key file was missing beside the credential it sealed is not remembered:
+// once the file is restored the same store reads the credential, with no new
+// store (a Controller with no restart).
+func TestLazyFileStore_TriesAgainOnceTheKeyIsRestored(t *testing.T) {
+	withoutKeyEnv(t)
+	dir := t.TempDir()
+	key, err := credential.ResolveMasterKey(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credential.SaveFileStore(dir, key, "web01", credential.Credential{Username: "u", Password: "s3cret-pw"}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(keyPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(keyPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	store := credential.NewLazyFileStore(dir)
+	if _, err := store.Lookup(context.Background(), "web01"); !errors.Is(err, credential.ErrSealedWithoutKey) {
+		t.Fatalf("Lookup with the key gone = %v, want ErrSealedWithoutKey", err)
+	}
+	writePrivate(t, keyPath(dir), string(saved))
+	got, err := store.Lookup(context.Background(), "web01")
+	if err != nil || got.Password != "s3cret-pw" {
+		t.Fatalf("Lookup after the key was restored failed: %v", err)
+	}
+}
+
+// TestResolveMasterKey_AnEnvironmentKeyIsUsedAsGiven pins what the rule does
+// not cover, so a change to it is deliberate: a set, well-formed
+// PLEIADES_MASTER_KEY is used as it is, with no look at what the project holds
+// sealed, though it is not the key that sealed it (a key file holding another
+// key, or one that is gone). What is stored meanwhile is sealed under it, and
+// what the other key sealed fails only when it is read.
+func TestResolveMasterKey_AnEnvironmentKeyIsUsedAsGiven(t *testing.T) {
+	withoutKeyEnv(t)
+	dir := sealedProject(t, func(t *testing.T, dir string, key []byte) {
+		if err := credential.SaveFileStore(dir, key, "web01", credential.Credential{Username: "u", Password: "s3cret-pw"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	other := bytes.Repeat([]byte{7}, 32)
+	t.Setenv("PLEIADES_MASTER_KEY", base64.StdEncoding.EncodeToString(other))
+	got, err := credential.ResolveMasterKey(dir)
+	if err != nil || !bytes.Equal(got, other) {
+		t.Fatalf("ResolveMasterKey with an environment key = %v; want that key, used as given", err)
+	}
+	if _, statErr := os.Stat(keyPath(dir)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("an environment key wrote a key file: %v", statErr)
+	}
+	if err := credential.SaveFileStore(dir, got, "web02", credential.Credential{Username: "u", Password: "s3cret-two"}); err != nil {
+		t.Fatalf("a save under the environment key: %v", err)
+	}
+	store, err := credential.NewFileStore(dir, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Lookup(context.Background(), "web01"); err == nil {
+		t.Error("the credential the other key sealed opened under the environment key")
+	}
 }
