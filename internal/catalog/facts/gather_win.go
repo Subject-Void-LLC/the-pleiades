@@ -57,7 +57,8 @@ $node = [string]$cs.DNSHostName
 if ($cs.PartOfDomain -and $cs.Domain) { $node = $node + '.' + $cs.Domain }
 $arch = [string]$env:PROCESSOR_ARCHITEW6432
 if (-not $arch) { $arch = [string]$env:PROCESSOR_ARCHITECTURE }
-$guid = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
+$guid = $null
+if (-not (Get-Service -Name cexecsvc -ErrorAction SilentlyContinue)) { $guid = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid }
 $out = [ordered]@{
   'host.name' = [string]$env:COMPUTERNAME
   'host.nodename' = $node
@@ -96,7 +97,9 @@ function N($v) { if ($null -eq $v) { $null } else { [int64]$v } }
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
-$product = Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue
+$container = [bool](Get-Service -Name cexecsvc -ErrorAction SilentlyContinue)
+$product = $null
+if (-not $container) { $product = Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue }
 $mem = $null
 if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
 $cores = $null
@@ -114,6 +117,7 @@ $out = [ordered]@{
   'computer_manufacturer' = [string]$cs.Manufacturer
   'computer_model' = [string]$cs.Model
   'hypervisor_present' = $cs.HypervisorPresent
+  'in_container' = $container
 }` + windowsJSONOut
 
 // windowsPackagesScript prints every program the machine's Uninstall keys

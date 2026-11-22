@@ -19,7 +19,9 @@ const (
 
 // identityPlaceholders are the values firmware and OEM tools write where a
 // real serial or UUID belongs. Compared lowercased and trimmed. Measured per OS
-// is the owner's rule; this is the set seen on Linux DMI tables.
+// is the owner's rule; this is the set seen on Linux DMI tables, applied to
+// FreeBSD's, macOS's and Windows's readings of the same firmware too, where no
+// placeholder has been measured yet (their lab guests reported real values).
 var identityPlaceholders = map[string]bool{
 	"to be filled by o.e.m.":               true,
 	"0":                                    true,

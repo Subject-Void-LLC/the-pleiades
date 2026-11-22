@@ -19,6 +19,23 @@ func labIdentity(stats map[string]any) (machineID, uuid, serial, virt string) {
 	return get("os.machine_id"), get("hardware.system_uuid"), get("hardware.serial"), get("hardware.virtualization")
 }
 
+// labFirmwarePlaceholders are the firmware placeholders facts.gather leaves
+// out, lowercased, which this gate expects absent rather than equal.
+var labFirmwarePlaceholders = map[string]bool{
+	"": true, "0": true, "none": true, "na": true, "not specified": true, "default string": true,
+	"to be filled by o.e.m.": true, "system serial number": true, "system product name": true,
+	"00000000-0000-0000-0000-000000000000": true, "ffffffff-ffff-ffff-ffff-ffffffffffff": true,
+}
+
+// labExpected is what the gather stores for a value the device's own tool
+// printed: the value itself, or nothing for a placeholder.
+func labExpected(raw string) string {
+	if labFirmwarePlaceholders[strings.ToLower(strings.TrimSpace(raw))] {
+		return ""
+	}
+	return raw
+}
+
 func TestCLI_FactsGatherOnFreeBSDReportsItsIdentity(t *testing.T) {
 	m := labMachine{os.Getenv(envBSDProject), os.Getenv(envBSDDevice)}
 	if m.dir == "" || m.host == "" {
@@ -31,10 +48,10 @@ func TestCLI_FactsGatherOnFreeBSDReportsItsIdentity(t *testing.T) {
 	if want := labShell(t, m, "cat /etc/machine-id"); machineID != want || len(want) != 32 {
 		t.Errorf("os.machine_id = %q, /etc/machine-id holds %q", machineID, want)
 	}
-	if want := strings.ToLower(labShell(t, m, "kenv -q smbios.system.uuid")); uuid != want || want == "" {
+	if want := labExpected(strings.ToLower(labShell(t, m, "kenv -q smbios.system.uuid"))); uuid != want {
 		t.Errorf("hardware.system_uuid = %q, kenv says %q", uuid, want)
 	}
-	if want := labShell(t, m, "kenv -q smbios.system.serial"); serial != want {
+	if want := labExpected(labShell(t, m, "kenv -q smbios.system.serial")); serial != want {
 		t.Errorf("hardware.serial = %q, kenv says %q", serial, want)
 	}
 	switch guest := labShell(t, m, "sysctl -n kern.vm_guest"); {
@@ -56,10 +73,10 @@ func TestCLI_FactsGatherOnMacOSReportsItsIdentity(t *testing.T) {
 	property := func(name string) string {
 		return labShell(t, m, `ioreg -rd1 -c IOPlatformExpertDevice | awk -F'"' '$2 == "`+name+`" { print $4 }'`)
 	}
-	if want := strings.ToLower(property("IOPlatformUUID")); uuid != want || want == "" {
+	if want := labExpected(strings.ToLower(property("IOPlatformUUID"))); uuid != want {
 		t.Errorf("hardware.system_uuid = %q, ioreg says %q", uuid, want)
 	}
-	if want := property("IOPlatformSerialNumber"); serial != want || want == "" {
+	if want := labExpected(property("IOPlatformSerialNumber")); serial != want {
 		t.Errorf("hardware.serial = %q, ioreg says %q", serial, want)
 	}
 	if present := labShell(t, m, "sysctl -n kern.hv_vmm_present"); (present == "0") != (virt == "physical") || (present == "1" && !strings.HasPrefix(virt, "vm:")) {
@@ -77,10 +94,10 @@ func TestCLI_FactsGatherOnWindowsReportsItsIdentity(t *testing.T) {
 	if want := strings.ReplaceAll(strings.ToLower(guid), "-", ""); machineID != want || len(want) != 32 {
 		t.Errorf("os.machine_id = %q, MachineGuid is %q", machineID, guid)
 	}
-	if want := strings.ToLower(labPowerShell(t, m, `(Get-CimInstance Win32_ComputerSystemProduct).UUID`)); uuid != want || want == "" {
+	if want := labExpected(strings.ToLower(labPowerShell(t, m, `(Get-CimInstance Win32_ComputerSystemProduct).UUID`))); uuid != want {
 		t.Errorf("hardware.system_uuid = %q, CIM says %q", uuid, want)
 	}
-	if want := labPowerShell(t, m, `(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber`); serial != want {
+	if want := labExpected(labPowerShell(t, m, `(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber`)); serial != want {
 		t.Errorf("hardware.serial = %q, CIM says %q", serial, want)
 	}
 	model := labPowerShell(t, m, `$c = Get-CimInstance Win32_ComputerSystem; [string]$c.Model + '|' + [string]$c.HypervisorPresent`)

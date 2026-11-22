@@ -7,9 +7,16 @@
 package facts
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 func TestFreeBSDVirtualization_ReadsTheJailAndTheGuest(t *testing.T) {
@@ -52,19 +59,27 @@ func TestFreeBSDIdentityReads_SkipAJail(t *testing.T) {
 			t.Errorf("%q reads an identity without skipping a jail", c)
 		}
 	}
-	keys := map[string]int{}
-	for _, p := range bsdHostProbes(platformFreeBSD) {
-		if p.command == gatherMachineIDCommand {
-			t.Errorf("FreeBSD runs Linux's machine id read %q", p.command)
-		}
-		for _, k := range []string{gatherFactMachineID, gatherFactSystemUUID, gatherFactSerial, gatherFactVirtualization} {
-			if gatherWanted(p.keys, k) {
-				keys[k]++
+	// Each platform declares each of its identity keys exactly once, and runs
+	// none of Linux's identity reads, whose container guard cannot see a jail.
+	linux := map[string]bool{gatherMachineIDCommand: true, gatherSystemUUIDCommand: true, gatherSerialCommand: true, gatherVirtualizationCommand: true}
+	for platform, want := range map[string]map[string]int{
+		platformFreeBSD: {gatherFactMachineID: 1, gatherFactSystemUUID: 1, gatherFactSerial: 1, gatherFactVirtualization: 1},
+		platformDarwin:  {gatherFactSystemUUID: 1, gatherFactSerial: 1, gatherFactVirtualization: 1},
+	} {
+		keys := map[string]int{}
+		for _, p := range bsdHostProbes(platform) {
+			if linux[p.command] {
+				t.Errorf("%s runs Linux's identity read %q", platform, p.command)
+			}
+			for _, k := range []string{gatherFactMachineID, gatherFactSystemUUID, gatherFactSerial, gatherFactVirtualization} {
+				if gatherWanted(p.keys, k) {
+					keys[k]++
+				}
 			}
 		}
-	}
-	if len(keys) != 4 || keys[gatherFactMachineID] != 1 {
-		t.Errorf("FreeBSD's identity probes declare %v, want each of the four keys once", keys)
+		if !reflect.DeepEqual(keys, want) {
+			t.Errorf("%s's identity probes declare %v, want %v", platform, keys, want)
+		}
 	}
 	// What bsd-lab printed: kenv's UUID, the machine id its rc wrote from it,
 	// and VirtualBox's serial; a planar serial of 0 is a placeholder.
@@ -76,6 +91,42 @@ func TestFreeBSDIdentityReads_SkipAJail(t *testing.T) {
 	}
 	if got := gatherIdentityValue(gatherFactSerial)("0\n"); got != nil {
 		t.Errorf("serial 0 stored %v", got)
+	}
+}
+
+// TestFreeBSDJailGuard_FailsClosed runs the guard itself through /bin/sh with
+// a stand-in sysctl: it reads only when the answer is exactly 0, and reads
+// nothing for a jail, an empty answer, a failed sysctl or none at all.
+func TestFreeBSDJailGuard_FailsClosed(t *testing.T) {
+	need.POSIXShell(t)
+	cmd := freebsdNotJailed + "echo read; true"
+	for name, c := range map[string]struct {
+		script string // the stand-in sysctl's body, or "" for no sysctl
+		want   string
+	}{
+		"not a jail":   {"echo 0", "read"},
+		"a jail":       {"echo 1", ""},
+		"empty answer": {"true", ""},
+		"failed":       {"echo 0 >&2; exit 1", ""},
+		"other answer": {"echo 00", ""},
+		"no sysctl":    {"", ""},
+	} {
+		dir := t.TempDir()
+		if c.script != "" {
+			if err := os.WriteFile(filepath.Join(dir, "sysctl"), []byte("#!/bin/sh\n"+c.script+"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run := exec.Command(need.ShellPath, "-c", cmd)
+		// Only the stand-in on PATH: the shell's own test and echo answer the rest.
+		run.Env = []string{"PATH=" + dir}
+		out, err := run.Output()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := strings.TrimSpace(string(out)); got != c.want {
+			t.Errorf("%s: the guard printed %q, want %q", name, got, c.want)
+		}
 	}
 }
 
@@ -166,6 +217,11 @@ func TestWindowsIdentity_ReadsTheGuidTheProductAndTheModel(t *testing.T) {
 	}{
 		{"Microsoft Corporation", "Virtual Machine", "true", "vm:microsoft"},
 		{"VMware, Inc.", "VMware20,1", "true", "vm:vmware"},
+		// A guest whose hypervisor hides its CPUID bit is still known by its
+		// firmware's vendor, never read as physical.
+		{"QEMU", "Standard PC (Q35 + ICH9, 2009)", "false", "vm:qemu"},
+		{"Xen", "HVM domU", "false", "vm:xen"},
+		{"Amazon EC2", "m5.large", "true", "cloud:amazon"},
 		{"Dell Inc.", "OptiPlex 7090", "false", "physical"},
 		// A physical host running virtualization-based security reports a
 		// hypervisor too, so an unknown model with one makes no fact.
@@ -181,6 +237,51 @@ func TestWindowsIdentity_ReadsTheGuidTheProductAndTheModel(t *testing.T) {
 	odd := valuesOf(parseWindowsHardware(`{"hardware.system_uuid":"00000000-0000-0000-0000-000000000000","hardware.serial":"To be filled by O.E.M.","computer_model":"x","hypervisor_present":false}`))
 	if !reflect.DeepEqual(odd, map[string]any{gatherFactVirtualization: "physical"}) {
 		t.Errorf("placeholders = %v", odd)
+	}
+	// A Windows container is container:windows and keeps no identity, even
+	// one that came all the same.
+	ctr := valuesOf(parseWindowsHardware(`{"hardware.memory_mb":512,"hardware.system_uuid":"EF335D38-E91D-4A7F-866B-54B0C9465672","hardware.serial":"S1",` +
+		`"computer_manufacturer":"Dell Inc.","computer_model":"PowerEdge R650","hypervisor_present":false,"in_container":true}`))
+	if !reflect.DeepEqual(ctr, map[string]any{gatherFactMemoryMB: 512, gatherFactVirtualization: "container:windows"}) {
+		t.Errorf("container = %v", ctr)
+	}
+	// The scripts skip every identity read in a container, by the one marker.
+	for _, script := range []string{windowsMinScript, windowsHardwareScript} {
+		if !strings.Contains(script, "Get-Service -Name cexecsvc -ErrorAction SilentlyContinue") {
+			t.Errorf("a Windows script reads an identity without checking for a container:\n%s", script)
+		}
+	}
+}
+
+// TestGather_AWindowsHostReportsItsIdentity drives Gather over the WinRM host
+// model with what win-lab printed, so the scripts' identity lines reach the
+// facts through their parsers: the MachineGuid as a machine id, the UUID
+// lowercased, and VirtualBox as vm:oracle, with no raw value kept.
+func TestGather_AWindowsHostReportsItsIdentity(t *testing.T) {
+	answerWindows(t, map[string]winrmexec.Result{
+		gatherSubsetMin: {Stdout: `{"host.nodename":"win-lab","os.kernel.name":"windows","os.machine_id":"c69e0132-de7c-4d77-84e4-80398ef0f423","processor_architecture":"AMD64"}`},
+		gatherSubsetHardware: {Stdout: `{"hardware.memory_mb":2047,"hardware.system_uuid":"EF335D38-E91D-4A7F-866B-54B0C9465672","hardware.serial":"VirtualBox-ef335d38-e91d-4a7f-866b-54b0c9465672",` +
+			`"computer_manufacturer":"innotek GmbH","computer_model":"VirtualBox","hypervisor_present":true,"in_container":false}`},
+	})
+	rc := &winTestContext{facts: map[string]any{}}
+	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		gatherFactMachineID:      "c69e0132de7c4d7784e480398ef0f423",
+		gatherFactSystemUUID:     "ef335d38-e91d-4a7f-866b-54b0c9465672",
+		gatherFactSerial:         "VirtualBox-ef335d38-e91d-4a7f-866b-54b0c9465672",
+		gatherFactVirtualization: "vm:oracle",
+	}
+	for k, v := range want {
+		if rc.facts[k] != v {
+			t.Errorf("%s = %v, want %v", k, rc.facts[k], v)
+		}
+	}
+	for k := range windowsRawKeys {
+		if _, ok := rc.facts[k]; ok {
+			t.Errorf("the raw value %s became a fact: %v", k, rc.facts)
+		}
 	}
 }
 
