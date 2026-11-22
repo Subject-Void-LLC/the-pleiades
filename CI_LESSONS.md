@@ -80,6 +80,14 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     docs-gen-check`; a command or help text needs the help golden. Running the changed packages whole reaches none of
     the first two, so run each before `pr-check`, and name each in the brief of whoever builds the change.
     FAILURE_PATTERNS 661, 1311, 1322; LESSONS_LEARNED 462, 465.
+42. **A test that reads the whole module's source runs on every `pr-check`, whatever the branch changes.** Such a
+    test imports none of the packages it reads, so the changed-package scope and its direct-importer rule never
+    select it, and a line added anywhere fails it first in CI. Its package goes in `PR_CHECK_ALWAYS` in the commit
+    that adds the test. `internal/testsupport/need`'s registry test was outside that list, and a `Require` call
+    given a sentence as its need failed `fast` after `pr-check` and `branch-containers` had passed. A skip names a
+    need registered in `need.Names` (rule 32); the reason goes in the message, not the name. The list is kept by
+    hand: no rule yet finds the other module-wide readers outside it, and they have not been counted. A case of
+    rule 1 that no import shows. FAILURE_PATTERNS 631, 756, 1047, 1368.
 
 ## Tests that do not fail by luck
 

@@ -33930,3 +33930,63 @@ already required the Controller's build. This was read from code, not executed.
 
 **Lesson.** LESSONS 478. A brief states what code does only with a file and line read in this session. Anything
 else is written as a question for the receiver to answer first.
+
+## 1368. A test's `Require` call named a need that is not in `need.Names`, and pull request #226's `fast` job failed after `make pr-check` and `make branch-containers` passed: the registry test reads every `Require` call in the module, and its package was neither changed nor in `PR_CHECK_ALWAYS` (a repeat of 631; in kind of 756, 1311 and 1322; CI_LESSONS 1, 32 and 42) (fixed on `fix/walk-launch-compile-error`, `b31dd05d`; the rerun's result not known when written)
+
+**Symptom.** 2026-11-22, pull request #226, branch `fix/walk-launch-compile-error`, commit `f6d49012`. The
+required `fast` job failed (run 45032180209, job 137237967463). `make pr-check` and `make branch-containers` had
+both passed at that commit. There was one failure, and it failed again when re-run alone:
+`internal/testsupport/need` `TestEveryRequireCallNamesAKnownNeed`:
+
+    internal/api/dispatcher_rollback_runbook_test.go:63: Require is given need "an unprivileged user", which is not in need.Names
+
+The ci-triager classed it as real, not contention, and new: no ledger entry held this test.
+
+**Root cause.** Two things, one in the change and one in the gate.
+
+The change. Commit `3221c5d0` on this branch added the line. A subagent wrote a test that makes a file
+unreadable with mode 000 and skips where that cannot work, and it gave `Require` a free-text reason as the need's
+name. A need is a registered name (`need.Names`), not a sentence. pr-check ran `internal/api` with the line in it and passed, so nothing
+refused the name where the test ran; the registry test is what refuses it, by reading the module's source (1047,
+1190).
+
+The gate. `TestEveryRequireCallNamesAKnownNeed` lives in `internal/testsupport/need` and reads every `Require`
+call in the module. pr-check runs the packages a branch changes, the packages that directly import them, a fixed
+census, and `PR_CHECK_ALWAYS`. The branch changed `internal/api`, not `internal/testsupport/need`, and that
+package was not in `PR_CHECK_ALWAYS`. So the one test that could fail on this line never ran before the push.
+`make branch-containers` covers the branch's changed container packages only, so it could not reach it either.
+
+**Why 631's fix did not hold.** 631 was fixed by prscope's direct-importer rule: a package that imports a changed
+one runs too. That rule follows imports. This test does not depend on `internal/api` by import; it parses the
+module's Go files. A test that reads source has every package as its input and none as its import, so no import
+rule selects it. 756 is the same hole from the other side: a module-wide check (`internal/archtest`) that the
+gate stopped running. `PR_CHECK_ALWAYS` was the fix there, and it is a hand-kept list that this package was never
+added to when its registry test was written (1047).
+
+**Why the written rules did not prevent it.** CI_LESSONS 32 says to register a new need in `need.Names` when a
+test first calls `Require` with it. LESSONS 462 says to run the whole of every package a change touches and all
+of `internal/archtest` before handing work back; this checker is in neither, so following 462 to the letter
+would still have passed. LESSONS 465 and CI_LESSONS 39 list the checkers that sit outside the packages a change
+touches (schemacompat, docs-gen-check, the help golden); the need registry was not on that list. Whether the
+subagent's brief named the need registry was not given to this records pass.
+
+**Fix.** Commit `b31dd05d`, two files. The call in `internal/api/dispatcher_rollback_runbook_test.go` names the
+registered `posix-modes` need. `internal/testsupport/need` is added to `PR_CHECK_ALWAYS` in the `Makefile`, with a
+comment saying why: its registry test reads every `Require` call in the module, so a test file changed anywhere
+can fail it while its own package is unchanged. The package ran in 7.5 s locally.
+
+**Not done, and not known.**
+
+- The rerun of the pull request's checks at `b31dd05d` had no result when this was written.
+- No `internal/archtest` rule and no prscope rule was added. `PR_CHECK_ALWAYS` is still a list kept by hand.
+- Open question: which other tests read the whole module's source and live outside `PR_CHECK_ALWAYS`? They were
+  not enumerated. Each one has this same hole until it is listed or selected by a rule.
+- The Actions ledger was not annotated: it held no entry for this run when this was written.
+
+**Searched.** By the test's name, `need.Names`, `testsupport/need` and `PR_CHECK_ALWAYS`, and by the class (a
+failure only CI showed because pr-check did not run the package): 559, 631, 755, 756, 1047, 1190, 1311, 1322. No
+earlier entry is this test failing in CI.
+
+**Lesson.** CI_LESSONS 42. A test that reads the whole module's source runs on every pr-check, whatever the
+branch changes, because no import ties it to the file that breaks it. And a skip names a registered need; its
+reason goes in the skip's message, not in the name.
