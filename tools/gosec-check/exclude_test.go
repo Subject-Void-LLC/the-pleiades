@@ -5,23 +5,26 @@
 package main
 
 import (
-	"fmt"
 	"regexp"
-	"strings"
 	"testing"
 )
 
 // gosecExcludeRegexp compiles an -exclude-dir value exactly as gosec v2.30.0's
-// ExcludedDirsRegExp does.
-func gosecExcludeRegexp(flag string) *regexp.Regexp {
-	value := strings.TrimPrefix(flag, "-exclude-dir=")
-	return regexp.MustCompile(fmt.Sprintf(`([\\/])?%s([\\/])?`, strings.ReplaceAll(value, "/", `\/`)))
+// ExcludedDirsRegExp does (gosecDirRegexp), failing the test on a bad one.
+func gosecExcludeRegexp(t *testing.T, value string) *regexp.Regexp {
+	t.Helper()
+	re, err := gosecDirRegexp(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return re
 }
 
 // excluded reports whether any of gosec-check's exclusions matches path.
-func excluded(path string) bool {
-	for _, flag := range []string{excludeAgentDirs, excludeIgnoredDirs} {
-		if gosecExcludeRegexp(flag).MatchString(path) {
+func excluded(t *testing.T, path string) bool {
+	t.Helper()
+	for _, value := range excludeDirs {
+		if gosecExcludeRegexp(t, value).MatchString(path) {
 			return true
 		}
 	}
@@ -42,7 +45,7 @@ func TestExclusions_LeaveOutOnlyTheIgnoredDirectories(t *testing.T) {
 		"internal/ent/runtime.go",
 		"tools/myclaude/x.go",
 	} {
-		if excluded(scanned) {
+		if excluded(t, scanned) {
 			t.Errorf("%s is excluded, want it scanned", scanned)
 		}
 	}
@@ -53,11 +56,11 @@ func TestExclusions_LeaveOutOnlyTheIgnoredDirectories(t *testing.T) {
 		".claude/worktrees/tag-only/internal/sealed/passphrase.go",
 		".IGNORE/claude-api/burn5/x.go",
 	} {
-		if !excluded(left) {
+		if !excluded(t, left) {
 			t.Errorf("%s is scanned, want it left out", left)
 		}
 	}
-	if old := gosecExcludeRegexp("-exclude-dir=.claude"); !old.MatchString("/tmp/claude-1000/scratch/copy/internal/ent/runtime.go") {
+	if old := gosecExcludeRegexp(t, ".claude"); !old.MatchString("/tmp/claude-1000/scratch/copy/internal/ent/runtime.go") {
 		t.Error("the old pattern no longer shows the defect this test exists for")
 	}
 }

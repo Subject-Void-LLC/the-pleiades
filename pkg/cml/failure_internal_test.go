@@ -6,6 +6,8 @@ package cml
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -63,6 +65,33 @@ func TestClientFor_AControllerThatStopsAnsweringIsCutOff(t *testing.T) {
 				t.Errorf("cut off after %s, want about %s", took, requestTimeout)
 			}
 		})
+	}
+}
+
+// TestCall_AnAnswerCutOffPartwayIsAnError: a controller that closes the
+// connection partway through an answer, short of the length it stated, fails
+// the call while reading the answer, naming the call. The "partway" case
+// above reaches the same read only when the answer's headers arrive before
+// requestTimeout; on a starved runner they can arrive after it, the call
+// then fails before any answer, that case still passes, and the read's error
+// went unrun (FAILURE_PATTERNS 1292). This drives it every time.
+func TestCall_AnAnswerCutOffPartwayIsAnError(t *testing.T) {
+	ctl := cmltest.New(t, "admin", "pw")
+	c := connectFor(t, ctl)
+	onCall(ctl, func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/v0/labs" {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte(`["00000000-0000-4000-8000-`))
+		w.(http.Flusher).Flush()
+		// Ends the answer here, closing the connection short of its length.
+		panic(http.ErrAbortHandler)
+	})
+	_, err := c.Labs(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "GET /api/v0/labs: reading the answer") || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("Labs from a controller that cut its answer off = %v, want the read's error, naming the call", err)
 	}
 }
 
