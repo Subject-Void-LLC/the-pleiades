@@ -171,17 +171,46 @@ func factsOf(device string, keys []ssh.PublicKey, more bool) ([]Fact, []string) 
 	return out, warnings
 }
 
-// Record emits, through rc, the facts Read returns for the read's connections,
-// and returns Read's warnings for the caller to carry. It emits facts only, no
-// stat, as facts.gather emits everything it learns.
-func Record(rc sdk.RunbookContext, device string, seen ...remoteexec.HostKeys) ([]string, error) {
+// MaxFacts is the most facts one Record call emits: one per key type, so
+// len(FactKeys). A caller counts it against
+// collection.MaxFactsPerObservation before calling, since Record emits as it
+// goes.
+const MaxFacts = 6
+
+// Record emits, through rc, the facts Read returns for the read's connections
+// that want accepts (nil accepts every one, a task's filter is what a caller
+// passes), and returns how many it emitted and Read's warnings for the caller
+// to carry. When want accepts none of FactKeys it reads nothing and warns of
+// nothing, so a task that filtered these facts out is not told why none was
+// recorded. It emits at most MaxFacts facts, and facts only, no stat, as
+// facts.gather emits everything it learns; it is the call a network facts
+// method reaching a device over SSH makes with its connections' host keys.
+func Record(rc sdk.RunbookContext, device string, want func(key string) bool, seen ...remoteexec.HostKeys) (int, []string, error) {
+	if want != nil && !wantsAny(want) {
+		return 0, nil, nil
+	}
 	facts, warnings := Read(device, seen...)
+	emitted := 0
 	for _, f := range facts {
+		if want != nil && !want(f.Key) {
+			continue
+		}
 		if err := rc.EmitFact(f.Key, f.Value); err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Key, err)
+			return emitted, nil, fmt.Errorf("%s: %w", f.Key, err)
+		}
+		emitted++
+	}
+	return emitted, warnings, nil
+}
+
+// wantsAny reports whether want accepts any of FactKeys.
+func wantsAny(want func(key string) bool) bool {
+	for _, key := range FactKeys {
+		if want(key) {
+			return true
 		}
 	}
-	return warnings, nil
+	return false
 }
 
 // factFor is the fact a key's fingerprint is recorded under: its own type's,

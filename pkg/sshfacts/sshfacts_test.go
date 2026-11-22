@@ -120,9 +120,9 @@ func TestRecord_AVerifiedSessionRecordsItsKeyAsSSHKeygenPrintsIt(t *testing.T) {
 	srv := startServer(t, remoteexectest.Options{})
 	seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, srv.Addr(), srv.HostKey)}, remoteexec.Target{Host: srv.Host, Port: srv.Port}, srv)
 	rc := newRecorder()
-	warnings, err := sshfacts.Record(rc, "web1", seen)
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("Record = %q, %v; want no warning", warnings, err)
+	n, warnings, err := sshfacts.Record(rc, "web1", nil, seen)
+	if err != nil || len(warnings) != 0 || n != 1 {
+		t.Fatalf("Record = %d, %q, %v; want one fact and no warning", n, warnings, err)
 	}
 	want := keygenFingerprint(t, srv.HostKey)
 	if got := rc.facts[sshfacts.FactED25519]; got != want {
@@ -141,7 +141,7 @@ func TestRecord_ASkippedVerificationRecordsNothingAndSaysSo(t *testing.T) {
 	srv := startServer(t, remoteexectest.Options{})
 	seen := session(t, remoteexec.Options{InsecureSkipHostKeyVerify: true}, remoteexec.Target{Host: srv.Host, Port: srv.Port}, srv)
 	rc := newRecorder()
-	warnings, err := sshfacts.Record(rc, "vm7", seen)
+	_, warnings, err := sshfacts.Record(rc, "vm7", nil, seen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestRecord_ALegacyRSAKeyIsRecordedAsRSA(t *testing.T) {
 	target := remoteexec.Target{Host: srv.Host, Port: srv.Port, Legacy: remoteexec.Legacy{KeyExchange: true, HostKeys: true}}
 	seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, srv.Addr(), srv.HostKey)}, target, srv)
 	rc := newRecorder()
-	if _, err := sshfacts.Record(rc, "sw3", seen); err != nil {
+	if _, _, err := sshfacts.Record(rc, "sw3", nil, seen); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := rc.facts[sshfacts.FactRSA], keygenFingerprint(t, srv.HostKey); got != want {
@@ -196,7 +196,7 @@ func TestRecord_TwoServersBehindOneNameRecordNone(t *testing.T) {
 			target := remoteexec.Target{Host: front.Host, Port: front.Port, Legacy: tc.legacy}
 			seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, front.Addr(), front.FirstKey, srv.HostKey)}, target, srv)
 			rc := newRecorder()
-			warnings, err := sshfacts.Record(rc, "web1", seen)
+			_, warnings, err := sshfacts.Record(rc, "web1", nil, seen)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +233,7 @@ func TestRecord_AFailedEmitIsReturned(t *testing.T) {
 	seen := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, srv.Addr(), srv.HostKey)}, remoteexec.Target{Host: srv.Host, Port: srv.Port}, srv)
 	rc := newRecorder()
 	rc.fail = true
-	if _, err := sshfacts.Record(rc, "web1", seen); err == nil || !strings.Contains(err.Error(), sshfacts.FactED25519) {
+	if _, _, err := sshfacts.Record(rc, "web1", nil, seen); err == nil || !strings.Contains(err.Error(), sshfacts.FactED25519) {
 		t.Errorf("Record = %v, want an error naming %s", err, sshfacts.FactED25519)
 	}
 }
@@ -249,5 +249,32 @@ func TestReturns_DocumentsEveryFact(t *testing.T) {
 		if r.Name != sshfacts.FactKeys[i] || r.Type != "string" || r.Description == "" || !strings.HasPrefix(r.Name, sshfacts.Family) {
 			t.Errorf("Returns()[%d] = %+v, want %s, a described string", i, r, sshfacts.FactKeys[i])
 		}
+	}
+}
+
+// TestRecord_TheFilterNarrowsAndBoundsWhatIsEmitted: a filter wanting none of
+// the facts reads nothing and warns of nothing, even for a session that
+// skipped verification; one wanting another type emits none of this one; and
+// a call never emits more than MaxFacts.
+func TestRecord_TheFilterNarrowsAndBoundsWhatIsEmitted(t *testing.T) {
+	srv := startServer(t, remoteexectest.Options{})
+	target := remoteexec.Target{Host: srv.Host, Port: srv.Port}
+	verified := session(t, remoteexec.Options{KnownHostsPath: knownHostsFile(t, srv.Addr(), srv.HostKey)}, target, srv)
+	skipped := session(t, remoteexec.Options{InsecureSkipHostKeyVerify: true}, target, srv)
+
+	rc := newRecorder()
+	osOnly := func(key string) bool { return strings.HasPrefix(key, "os.") }
+	if n, w, err := sshfacts.Record(rc, "web1", osOnly, skipped); err != nil || n != 0 || len(w) != 0 {
+		t.Errorf("Record with a filter wanting no host key = %d, %q, %v; want nothing and no warning", n, w, err)
+	}
+	rsaOnly := func(key string) bool { return key == sshfacts.FactRSA }
+	if n, _, err := sshfacts.Record(rc, "web1", rsaOnly, verified); err != nil || n != 0 || len(rc.facts) != 0 {
+		t.Errorf("Record with a filter wanting rsa over an ed25519 session = %d, %v, facts %v; want none", n, err, rc.facts)
+	}
+	if n, _, _ := sshfacts.Record(rc, "web1", nil, verified, verified); n != 1 || n > sshfacts.MaxFacts {
+		t.Errorf("Record over two connections to one server emitted %d, want 1 and at most %d", n, sshfacts.MaxFacts)
+	}
+	if sshfacts.MaxFacts != len(sshfacts.FactKeys) {
+		t.Errorf("MaxFacts = %d, want one per key type (%d)", sshfacts.MaxFacts, len(sshfacts.FactKeys))
 	}
 }
