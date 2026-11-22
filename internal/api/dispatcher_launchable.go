@@ -117,9 +117,10 @@ func (d *Dispatcher) unattended(ctx context.Context, req launchable.Request) (la
 	// same RefuseSeededLogins and RefuseFactReads, naming the task. So is a
 	// runbook that does not compile, with the builder's message
 	// (refuseUncompiled), except for a schedule that already launched this
-	// template and is not being turned on (req.Standing): that write changes
-	// nothing about what fires, and refusing it would leave the schedule
-	// impossible to rename or pause until somebody else's runbook is fixed.
+	// template and is not being turned on (req.Standing): that write can
+	// change when the schedule fires but not what it launches or whether it
+	// does, and refusing it would leave the schedule impossible to rename or
+	// pause until somebody else's runbook is fixed.
 	// A runbook the source cannot find or read is left to the launch, as
 	// LaunchTemplate leaves it.
 	if d.runbooks != nil && launch.ResolveKind(tmpl.KindName) == launch.DefaultKind {

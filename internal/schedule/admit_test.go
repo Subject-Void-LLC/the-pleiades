@@ -276,3 +276,185 @@ func TestUpdate_TellsTheTypeWhetherTheEditLeavesStandingWhatFires(t *testing.T) 
 		t.Errorf("Preflight was told %v, want %v (a create is never standing)", standing, want)
 	}
 }
+
+// pausingAdmitter is standingAdmitter with another writer in it: during its
+// first Preflight, which runs between the store's read of the schedule and
+// its write, it pauses the schedule, as a second request would.
+//
+// With refuseEnable it objects to every write that is not standing, as a job
+// template whose runbook does not compile does.
+type pausingAdmitter struct {
+	standingAdmitter
+	pause        func()
+	done         *bool
+	refuseEnable bool
+}
+
+func (a pausingAdmitter) Preflight(ctx context.Context, req launchable.Request) error {
+	if !*a.done {
+		*a.done = true
+		a.pause()
+	}
+	if a.refuseEnable && !req.Standing {
+		return launchable.Refusal{Field: launchable.TargetField, Message: "its runbook does not compile"}
+	}
+	return a.standingAdmitter.Preflight(ctx, req)
+}
+
+// TestUpdate_AConcurrentPauseDoesNotMakeAnEnableLookStanding: an edit that
+// keeps a schedule on is judged standing from the row as it was read. When
+// another write pauses the schedule before the edit is written, the edit
+// would turn it back on, so it is not written over the pause: it is judged
+// again from the stored row, and the type is asked as for any enable. A type
+// that objects then refuses it and the schedule stays paused.
+func TestUpdate_AConcurrentPauseDoesNotMakeAnEnableLookStanding(t *testing.T) {
+	client := newAdmitClient(t)
+	ctx := context.Background()
+	org := client.Organization.Query().OnlyX(ctx)
+	inv := client.Inventory.Create().SetName("edge").SetOrganization(org).SaveX(ctx)
+	tmpl := client.Template.Create().SetName("first").SetKind("runbook").SetDefinition("first").
+		SetOrganization(org).SetInventory(inv).SaveX(ctx)
+	target := client.Launchable.Create().SetType(launchable.TypeJobTemplate).SetName("first").
+		SetOrganization(org).SetTemplate(tmpl).SaveX(ctx)
+
+	var standing []bool
+	plain := schedule.NewEntStore(client, standingAdmitter{standing: &standing})
+	sched := scheduleFor(launchable.Target{ID: target.ID})
+	sched.OrganizationID = org.ID
+	created, err := plain.Create(ctx, sched, launchable.Everything())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	standing = nil
+	paused := false
+	racing := schedule.NewEntStore(client, pausingAdmitter{
+		standingAdmitter: standingAdmitter{standing: &standing},
+		done:             &paused,
+		pause: func() {
+			client.Schedule.Update().SetEnabled(false).ExecX(ctx)
+		},
+	})
+	edit := created
+	edit.Name = "nightly, renamed"
+	updated, err := racing.Update(ctx, edit, launchable.Everything())
+	if err != nil {
+		t.Fatalf("Update = %v", err)
+	}
+	if len(standing) != 2 || !standing[0] || standing[1] {
+		t.Errorf("the type was told standing = %v, want [true false]: judged again, as an enable, once the pause was seen", standing)
+	}
+	if !updated.Enabled || updated.Name != "nightly, renamed" {
+		t.Errorf("the edit, admitted as an enable, wrote %+v", updated)
+	}
+
+	// The same race against a type that objects to an enable: refused, and the
+	// pause stands with nothing of the edit written.
+	paused = false
+	refusing := schedule.NewEntStore(client, pausingAdmitter{
+		standingAdmitter: standingAdmitter{standing: &standing},
+		done:             &paused,
+		pause:            func() { client.Schedule.Update().SetEnabled(false).ExecX(ctx) },
+		refuseEnable:     true,
+	})
+	edit = updated
+	edit.Name = "nightly, renamed again"
+	var refused schedule.FieldError
+	if _, err := refusing.Update(ctx, edit, launchable.Everything()); !errors.As(err, &refused) || refused.Field != schedule.TargetField {
+		t.Fatalf("Update over a concurrent pause, by a type that objects to an enable = %v, want its refusal", err)
+	}
+	stored, err := plain.Get(ctx, org.ID, created.ScheduleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled || stored.Name != "nightly, renamed" {
+		t.Errorf("after the refusal the schedule reads enabled %v, name %q; want it paused and unchanged", stored.Enabled, stored.Name)
+	}
+}
+
+// meddlingAdmitter approves everything and runs meddle during each Preflight,
+// which is between the store's read of a schedule and its write.
+type meddlingAdmitter struct {
+	meddle func()
+}
+
+func (a meddlingAdmitter) Get(_ context.Context, id int) (launchable.Target, error) {
+	target := admittedTarget()
+	target.ID = id
+	return target, nil
+}
+
+func (a meddlingAdmitter) Preflight(context.Context, launchable.Request) error {
+	a.meddle()
+	return nil
+}
+
+// TestUpdate_AStandingEditIsHeldToTheRowItWasJudgedAgainst covers the rest of
+// that rule: a standing edit of a schedule with a saved configuration is
+// written (the configuration is part of what was judged), an edit that finds
+// the row changed every time gives up with an error and writes nothing, and
+// an edit that is not standing reports a schedule deleted under it as gone.
+func TestUpdate_AStandingEditIsHeldToTheRowItWasJudgedAgainst(t *testing.T) {
+	client := newAdmitClient(t)
+	ctx := context.Background()
+	org := client.Organization.Query().OnlyX(ctx)
+	inv := client.Inventory.Create().SetName("edge").SetOrganization(org).SaveX(ctx)
+	launchableFor := func(name string) (*ent.Template, *ent.Launchable) {
+		tmpl := client.Template.Create().SetName(name).SetKind("runbook").SetDefinition(name).
+			SetOrganization(org).SetInventory(inv).SaveX(ctx)
+		return tmpl, client.Launchable.Create().SetType(launchable.TypeJobTemplate).SetName(name).
+			SetOrganization(org).SetTemplate(tmpl).SaveX(ctx)
+	}
+	tmpl, first := launchableFor("first")
+	_, second := launchableFor("second")
+	cfg := client.SavedLaunchConfig.Create().SetName("core only").
+		SetFields(map[string]any{"limit": "core-*"}).SetTemplate(tmpl).SaveX(ctx)
+
+	meddle := func() {}
+	store := schedule.NewEntStore(client, meddlingAdmitter{meddle: func() { meddle() }})
+	sched := scheduleFor(launchable.Target{ID: first.ID})
+	sched.OrganizationID = org.ID
+	sched.SavedConfigID = cfg.ID
+	created, err := store.Create(ctx, sched, launchable.Everything())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A standing edit of a schedule that has a saved configuration.
+	edit := created
+	edit.Name = "nightly, renamed"
+	renamed, err := store.Update(ctx, edit, launchable.Everything())
+	if err != nil || renamed.Name != "nightly, renamed" || renamed.SavedConfigID != cfg.ID {
+		t.Fatalf("a standing edit keeping its saved configuration = %+v, %v", renamed, err)
+	}
+
+	// Another writer flips the schedule on and off during every attempt, so no
+	// attempt's write finds the row it was judged against.
+	flips := 0
+	meddle = func() {
+		flips++
+		client.Schedule.Update().SetEnabled(flips%2 == 0).ExecX(ctx)
+	}
+	edit = renamed
+	edit.Enabled = false
+	edit.Name = "never written"
+	if _, err := store.Update(ctx, edit, launchable.Everything()); err == nil {
+		t.Error("an edit whose row changed under every attempt was written")
+	}
+	if flips < 2 {
+		t.Errorf("the edit was judged %d times, want it judged again after the row changed", flips)
+	}
+	if got := client.Schedule.Query().OnlyX(ctx); got.Name != "nightly, renamed" {
+		t.Errorf("the abandoned edit wrote the name %q", got.Name)
+	}
+
+	// An edit that is not standing (it points the schedule elsewhere), whose
+	// schedule is deleted before it is written.
+	meddle = func() { client.Schedule.Delete().ExecX(ctx) }
+	edit = renamed
+	edit.LaunchableID = second.ID
+	edit.SavedConfigID = 0
+	if _, err := store.Update(ctx, edit, launchable.Everything()); !errors.Is(err, schedule.ErrNotFound) {
+		t.Errorf("an edit of a schedule deleted under it = %v, want ErrNotFound", err)
+	}
+}

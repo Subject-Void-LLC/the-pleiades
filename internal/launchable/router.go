@@ -43,8 +43,9 @@ type Request struct {
 	SavedConfigID int
 
 	// Standing says a Preflight is asked about a write that leaves standing
-	// what already fires: an edit of a saved schedule that keeps its target
-	// and its saved configuration and does not turn the schedule on. A type
+	// what already launches: an edit of a saved schedule that keeps its
+	// target and its saved configuration and does not turn the schedule on
+	// (it may change when the schedule fires, not what it launches). A type
 	// may let through an objection that the write did not cause and that
 	// refusing would not cure (a job template whose runbook has stopped
 	// compiling), so the schedule can still be renamed or paused; the

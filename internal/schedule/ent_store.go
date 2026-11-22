@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
@@ -122,9 +124,34 @@ func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.
 		return Schedule{}, err
 	}
 
+	// An edit judged standing is written only onto the row it was judged
+	// against (updateOnce). When another write changed that row in between,
+	// the edit is judged again from what is stored now. Each attempt reads
+	// the row afresh, so this ends as soon as one read and its write see the
+	// same row; the bound is for a schedule being rewritten in a loop.
+	for range updateAttempts {
+		updated, again, err := s.updateOnce(ctx, sched, reach)
+		if err != nil {
+			return Schedule{}, err
+		}
+		if !again {
+			return updated, nil
+		}
+	}
+	return Schedule{}, fmt.Errorf("schedule: update %s: it kept changing while this edit was written; try again", sched.ScheduleID)
+}
+
+// updateAttempts bounds how often Update judges one edit again because the
+// stored schedule changed between its read and its write.
+const updateAttempts = 5
+
+// updateOnce reads the stored schedule, admits the edit against it and writes
+// it. again is true when the edit was judged standing and the stored row no
+// longer matched what that judgment read, in which case nothing was written.
+func (s *entStore) updateOnce(ctx context.Context, sched Schedule, reach launchable.Reach) (updated Schedule, again bool, err error) {
 	existing, err := s.Get(ctx, sched.OrganizationID, sched.ScheduleID)
 	if err != nil {
-		return Schedule{}, err
+		return Schedule{}, false, err
 	}
 
 	// The target is admitted again on every edit, not only at create: an edit
@@ -132,19 +159,20 @@ func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.
 	// was admissible when the schedule was written may not be now.
 	//
 	// An edit that keeps the target and its saved configuration, and does not
-	// turn the schedule on, changes nothing about what fires. The type is told
-	// so (standing), and may then leave an objection the edit did not cause to
-	// the firing, so a schedule whose target broke can still be renamed or
+	// turn the schedule on, starts no firing that was not already going to
+	// happen (it can still change when the schedule fires). The type is told
+	// so (standing), and may then leave an objection the edit did not cause
+	// to the firing, so a schedule whose target broke can still be renamed or
 	// paused.
 	standing := sched.LaunchableID == existing.LaunchableID &&
 		sched.SavedConfigID == existing.SavedConfigID &&
 		(existing.Enabled || !sched.Enabled)
 	target, err := s.admit(ctx, sched, reach, standing)
 	if err != nil {
-		return Schedule{}, err
+		return Schedule{}, false, err
 	}
 	if target.OrganizationID != existing.OrganizationID {
-		return Schedule{}, FieldError{
+		return Schedule{}, false, FieldError{
 			Field:   TargetField,
 			Message: "That belongs to a different organization.",
 			Cause:   launchable.ErrCrossTenant,
@@ -153,10 +181,29 @@ func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.
 
 	next, err := sched.ComputeNextRun(time.Now().UTC())
 	if err != nil {
-		return Schedule{}, err
+		return Schedule{}, false, err
 	}
 
-	update := s.client.Schedule.UpdateOneID(existing.ID).
+	// Standing was judged from the row as it was read. Another write may have
+	// paused the schedule or pointed it elsewhere since, and writing this
+	// edit over that would turn a paused schedule on, or keep a target, with
+	// the type's objection never asked. So a standing edit is written only
+	// where the stored row still holds what the judgment read, in the one
+	// statement that writes it. An edit that is not standing was asked every
+	// objection and needs no such condition.
+	where := []predicate.Schedule{entschedule.IDEQ(existing.ID)}
+	if standing {
+		where = append(where,
+			entschedule.EnabledEQ(existing.Enabled),
+			predicate.Schedule(sql.FieldEQ(entschedule.LaunchableColumn, existing.LaunchableID)))
+		if existing.SavedConfigID != 0 {
+			where = append(where, predicate.Schedule(sql.FieldEQ(entschedule.SavedConfigColumn, existing.SavedConfigID)))
+		} else {
+			where = append(where, predicate.Schedule(sql.FieldIsNull(entschedule.SavedConfigColumn)))
+		}
+	}
+
+	update := s.client.Schedule.Update().Where(where...).
 		SetName(sched.Name).
 		SetDescription(sched.Description).
 		SetEnabled(sched.Enabled).
@@ -179,17 +226,27 @@ func (s *entStore) Update(ctx context.Context, sched Schedule, reach launchable.
 		update = update.ClearSavedConfig()
 	}
 
-	if _, err := update.Save(ctx); err != nil {
+	written, err := update.Save(ctx)
+	if err != nil {
 		if ent.IsConstraintError(err) {
-			return Schedule{}, FieldError{
+			return Schedule{}, false, FieldError{
 				Field:   "name",
 				Message: "A schedule with that name already exists in this organization.",
 				Cause:   ErrNameTaken,
 			}
 		}
-		return Schedule{}, fmt.Errorf("schedule: update: %w", err)
+		return Schedule{}, false, fmt.Errorf("schedule: update: %w", err)
 	}
-	return s.Get(ctx, existing.OrganizationID, existing.ScheduleID)
+	if written == 0 {
+		if standing {
+			// The row is not what the judgment read: judge again.
+			return Schedule{}, true, nil
+		}
+		// Deleted between the read and the write.
+		return Schedule{}, false, ErrNotFound
+	}
+	updated, err = s.Get(ctx, existing.OrganizationID, existing.ScheduleID)
+	return updated, false, err
 }
 
 // Get returns one schedule, scoped to an organization.
