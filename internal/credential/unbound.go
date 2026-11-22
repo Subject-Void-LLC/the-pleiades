@@ -14,6 +14,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 )
 
 // CredentialInfo is one stored device credential as a listing shows it:
@@ -85,8 +86,15 @@ func ListCredentials(dir string) ([]CredentialInfo, error) {
 // reporting whether it had one. Nothing else in the file changes, and
 // nothing is decrypted.
 func BindFileStore(dir, deviceName string) (bool, error) {
+	return BindFileStoreContext(context.Background(), dir, deviceName)
+}
+
+// BindFileStoreContext is BindFileStore whose wait for the credential file
+// lock ends when ctx does, for a caller inside a run, which must not sit
+// behind another command's save.
+func BindFileStoreContext(ctx context.Context, dir, deviceName string) (bool, error) {
 	cleared := false
-	err := updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	err := updateCredentialsDocument(ctx, dir, func(doc *credentialsDocument) error {
 		if e, ok := doc.Devices[deviceName]; ok && e.Unbound {
 			e.Unbound = false
 			doc.Devices[deviceName] = e
@@ -96,6 +104,11 @@ func BindFileStore(dir, deviceName string) (bool, error) {
 	})
 	return cleared, err
 }
+
+// unboundBindWait is how long a lookup waits for the credential file lock to
+// clear an unbound mark before it leaves the mark for a later run. A variable
+// so a test can shorten it.
+var unboundBindWait = 2 * time.Second
 
 // noticeUnbound is a Store that announces the first lookup of each unbound
 // entry and then clears its mark.
@@ -151,8 +164,14 @@ func (n *noticeUnbound) Lookup(ctx context.Context, deviceName string) (Credenti
 		n.notice(deviceName)
 		// The mark is cleared once the run has said so. A failure to write
 		// it leaves the mark, so a later run says so again, which is the
-		// harmless direction.
-		_, _ = BindFileStore(n.dir, deviceName)
+		// harmless direction; that is why the error is dropped. The write
+		// waits for the credential file lock, so it is bounded: the lookup's
+		// own ctx ends it, and so does unboundBindWait, after which the
+		// credential is returned with the mark still set. A run never waits
+		// the full save bound behind another command for a mark.
+		bindCtx, cancel := context.WithTimeout(ctx, unboundBindWait)
+		_, _ = BindFileStoreContext(bindCtx, n.dir, deviceName)
+		cancel()
 	}
 	return cred, nil
 }

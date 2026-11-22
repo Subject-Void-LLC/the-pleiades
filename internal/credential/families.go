@@ -10,6 +10,7 @@
 package credential
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
@@ -53,7 +54,7 @@ func SaveFileStoreWith(dir string, key []byte, deviceName string, cred Credentia
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential encryption: %w", err)
 	}
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	return updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if doc.Devices == nil {
 			doc.Devices = make(map[string]credentialEntry)
 		}

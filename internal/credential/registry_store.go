@@ -32,7 +32,7 @@ func SaveRegistryCredential(dir string, key []byte, host, username, password str
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential encryption: %w", err)
 	}
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	return updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if doc.Registries == nil {
 			doc.Registries = make(map[string]credentialEntry)
 		}

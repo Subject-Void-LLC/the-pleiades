@@ -119,6 +119,19 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+Every command that writes `credentials.yaml` takes its turn: it holds a lock on
+`.pleiades/credentials.lock` while it reads the file and writes it back, so several
+`add-credential` commands started together each keep their entry. The lock file is empty
+and stays in place; the operating system releases the lock when the command ends, a crash
+included. A command that waits 30 seconds for the lock stops with an error naming the
+file. One writer does not stop: a run that uses a credential stored with `--no-device` for
+the first time says so and clears that mark, and if it cannot get the lock within two
+seconds it goes on with the mark still set, so the next run says so again. Reading a
+credential takes no lock. Three limits: a `pleiades` older than this lock takes none, so
+do not mix versions writing one project at once; a project on a network share may not have
+the lock kept between machines; and the lock (`flock` on Linux, macOS and FreeBSD,
+`LockFileEx` on Windows) has been run on Linux only so far.
+
 **A master key is never made beside what a lost one sealed.** The key is made on first use,
 by whichever command first needs it (reading ones included), only in a project that holds
 nothing sealed under one. Once `.pleiades/` holds a stored credential, a named secret, a
@@ -207,7 +220,7 @@ $ pleiades run runbooks/patch.yaml --vault ~/pleiades-lab --inventory ~/pleiades
 ```
 
 Everything secret moves with `--vault`: `master.key`, `credentials.yaml` with its named
-secrets, `seal.key`, and the key that fact digests are keyed with, which comes from the
+secrets and its lock file `credentials.lock`, `seal.key`, and the key that fact digests are keyed with, which comes from the
 master key. The journal, the fact store, `run.lock` and the rest of `.pleiades/` stay under
 `--dir`. `group_vars/` and `host_vars/` are read beside the `--inventory` file. A `--vault`
 holding no `master.key` is refused, naming the file it looked for, rather than given a new

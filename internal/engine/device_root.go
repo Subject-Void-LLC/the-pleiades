@@ -124,11 +124,29 @@ func ParamsReadRoot(eng render.Engine, params map[string]any, root string) bool 
 // its devices' locks cannot all be taken together.
 const ErrDeviceRootLockAll = "a task that reads device runs on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
 
+// ErrIterationLockAll is why a task that loops or retries cannot take
+// lock_acquisition: all_at_plan_time: each device runs its own items and
+// attempts, so the task runs on each device on its own whatever it reads, and
+// its devices' locks cannot all be taken together.
+const ErrIterationLockAll = "a task with loop:, with_items: or until: runs its items and attempts on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
+
+// PerDeviceLockAllReason is why task, a task that runs on each device on its
+// own, cannot take lock_acquisition: all_at_plan_time. It names the cause in
+// the order readsDevice finds it: iteration first, then a read of the device.
+// The run and validation both ask it, so both give one reason for one task.
+func PerDeviceLockAllReason(task *Task) string {
+	if task.iterates() {
+		return ErrIterationLockAll
+	}
+	return ErrDeviceRootLockAll
+}
+
 // ErrRescueLockAll is why a rescue task cannot take lock_acquisition:
 // all_at_plan_time: it runs on each device on its own, reading that device's
-// failure, so its devices' locks cannot all be taken together. Validation
-// refuses it too; this is the engine's own backstop for a runbook that did not
-// pass through it.
+// failure, so its devices' locks cannot all be taken together. The engine
+// alone refuses it, when the run reaches the rescue: validation has no rule
+// for a rescue task as such (it refuses one only for another cause, such as
+// a loop or a read of device).
 const ErrRescueLockAll = "a rescue task runs on each device on its own, reading that device's failure, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
 
 // readsRoot reports whether tmpl has an expression reading root.
@@ -171,7 +189,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 		return []NodeResult{failedNode(nodeID, started, stage, err)}
 	}
 	if task.LockAcquisition == AcquisitionAllAtPlanTime {
-		return fail(FailureStageLockAll, fmt.Errorf("%s: %s", taskLabel(nodeID, task), ErrDeviceRootLockAll))
+		return fail(FailureStageLockAll, fmt.Errorf("%s: %s", taskLabel(nodeID, task), PerDeviceLockAllReason(task)))
 	}
 	if r.x.renderer != nil {
 		// The target may not read device, and what it does read is held to

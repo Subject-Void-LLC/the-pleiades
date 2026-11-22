@@ -33359,3 +33359,169 @@ the review was given a false statement by the sender, and a review cannot be exp
 **Fix.** None in code. The practice is LESSONS 471. The cost of the batch was not given to this records pass.
 
 **Lesson.** LESSONS 471. Each factual sentence in a review's brief is checked in the code before the brief is sent.
+
+## 1353. Every writer of the CLI's credential file read it, changed one entry and renamed a new file into place with no lock between processes, so commands started together lost each other's entries (fixed on this branch; on main until it merges; a repeat of 135, 528 and 830)
+
+**Symptom.** Found 2026-11-22 while pull request #223 was being built; the defect is on `main`. Every writer of
+`.pleiades/credentials.yaml` (eight exported functions, all through `updateCredentialsDocument` in
+`internal/credential/file_store_save.go`) read the file, changed one entry and renamed a new file into place, with
+nothing held between processes. Proven before the fix, three ways. Ten real processes each saving one device left 2
+stored; with the children released together it left 1, and the test was red 3 runs of 3 under `-race` with the lock
+call removed. Twelve goroutines of each of four writer kinds left 0 devices, 0 secrets, 2 registries and 1 database.
+The real CLI with 12 writers left 11.
+
+**Root cause.** A read-modify-write on a shared file with nothing ordering the writers. Each rename was whole, so the
+file was never torn; the last writer to rename simply replaced what the others had added. #223's own multi-process
+test asserted only `len(listed) == 0`, so it tolerated the loss and did not show it.
+
+**Search.** The index and both archives for a lost concurrent writer, read-modify-write, `flock`, `LockFileEx`,
+"between processes" and `credentials.yaml`: 135, 528 and 830 are the class. 1217 is the same file for another cause
+(its ownership and mode).
+
+**Why 135, 528 and 830 did not prevent it.** 135's lesson is that "two processes cannot lose one another's work" must
+hold for every file a design writes. 528 noted that runs take `.pleiades/run.lock` shared, so it orders nothing
+between two commands. 830 fixed the same class in the fact store three weeks ago, with a lesson written for "a
+store that reads, compares and writes a shared file". Each fix locked the one file its review named. None was
+followed by a list of every file under `.pleiades/` that is read, changed and written back, so the credential file,
+which is older than all three entries, kept the defect.
+
+**Fix.** `fc741f6f`, `21d4bff0`. Every writer holds an operating system advisory lock on
+`.pleiades/credentials.lock` (`flock` with `O_NOFOLLOW` on Unix, `LockFileEx` on Windows;
+`internal/credential/save_lock.go`, `save_lock_unix.go`, `save_lock_windows.go`) from before the read until after
+the rename. It tries without blocking every 5 ms for at most 30 s, then returns `ErrCredentialsBusy` naming the lock
+file. The caller's context ends the wait. Readers take no lock. Tests: `TestSave_SeparateProcessesEachKeepTheirEntry`,
+`TestSave_WritersStartedTogetherEachKeepTheirEntry`, `TestSaveLock_AHolderThatDiesLeavesNoLockBehind`,
+`TestSaveLock_AWriterWaitsOnlySoLongAndNamesTheLockFile`, `TestSaveLock_ACancelledContextEndsTheWait`,
+`TestSaveLock_ReadersNeverWaitForIt` and `TestSaveLock_ALinkWhereTheLockFileGoesIsNotFollowed`.
+
+**Caught in review, fixed before push.** The first multi-process test started its children at a shared future
+instant. It passed without the fix whenever the children started late, since they then ran one after another. The
+children are now released together after each reports ready, and the test was confirmed red with the lock call
+removed (LESSONS 473). Its helper child slept for an hour, so it outlived a killed test binary; it now blocks on
+standard input and exits at end of file (LESSONS 474).
+
+**Limits.** The lock has run on Linux only; Windows, macOS and FreeBSD are vet-only until CI runs them. A writer that
+takes no lock (an older binary, an editor) still races. A network filesystem that does not honor `flock` is not
+protected. This is the third private copy of a `flock` and `LockFileEx` pair, beside `internal/journal/runlock_*.go`
+and `internal/facts/lock_*.go`; they are not yet folded into one package, which 830 already noted for the second.
+
+**Not done.** No list was made on this branch of the other files under `.pleiades/` that are read, changed and
+written back. Until one is, the class can be found a fourth time.
+
+**Lesson.** 830's lesson stands and is widened: when one shared file is found to lose writers, list every file the
+project reads, changes and writes back, and give each the lock or a written reason it needs none. A test of two
+writers at once asserts that every entry is present, and is run once with the lock removed (LESSONS 473).
+
+## 1354. `validate` passed `lock_acquisition: all_at_plan_time` on a task with `loop:`, `with_items:` or `until:`, which the run refuses only when it reaches the task; the first fix then gave the "reads device" reason for a loop that reads no device (fixed on this branch; on main until it merges; a repeat in kind of 657, 670 and 784; the wrong reason caught in review, in kind of 270, 1051 and 1345)
+
+**Symptom.** Found 2026-11-22, branch `fix/credential-save-lock`; the defect is on `main`. The run sends a task that
+iterates to `runPerDevice` (`readsDevice` returns true first for `task.iterates()`), and `runPerDevice` refuses
+lock-all. `validate` passed the same runbook, so the refusal came at run time, after earlier tasks had changed
+devices.
+
+**Root cause.** 657's validate rule (`ac7af458`, 2026-10-26) asked two of the questions the run asks: does a
+parameter read `device`, and does the condition. Loops and retries arrived the next day (`dad90e5b`, 2026-10-27) and
+were added to the run's `readsDevice`. Nothing tied the validate rule to that function, so the new cause reached the
+run only.
+
+**Why 657, 670 and 784 did not prevent it.** 657 and 670 each added a refusal to the path their review named. 784's
+lesson is to list every existing key a new feature can be combined with and honor or refuse each one; loops were
+the new feature, and for lock-all that was done in the run and not in validation. Through all three the validate
+rule stayed a hand-written copy of the run's questions. #223 moved one of them to a shared function
+(`engine.VarsDifferByDevice`), and iteration was still not asked.
+
+**Fix.** `c0eb0881`: `validate.TemplateRule` asks `Task.Iterates()`. `26acb12f`: both tiers take the message from
+`engine.PerDeviceLockAllReason`. `TestLockAllOnATaskThatIterates_ValidateAndTheRunAgree` holds ten cases; four
+failed before the fix. This is a breaking change for `validate`: a runbook it passed may now be refused.
+
+**Caught in review, fixed before push.** The first version reused `ErrDeviceRootLockAll` ("a task that reads device
+...") for a loop that reads no device. That is a refusal reused for a second cause, the class of 270, 1051 and 1345.
+`engine.ErrIterationLockAll` now names the loop or retry, and `PerDeviceLockAllReason` names iteration first, as
+`readsDevice` finds it.
+
+**Not built.** `TemplateRule` still lists the run's questions one by one (`Task.Iterates()`, `ParamsReadRoot`,
+`conditionReadsDevice`, `VarsDifferByDevice`). Only the reason is shared. A fifth cause added to `readsDevice` can be
+missed the same way.
+
+**Lesson.** When validation refuses what the run refuses, it asks the run's own function for the decision, not a
+copy of its parts. A message written for one cause is not reused for another: a new cause gets its own text.
+
+## 1355. `validate` does not refuse `lock_acquisition: all_at_plan_time` on a rescue task; only the engine does, when the run reaches the rescue, and an engine comment said validation refuses it too (open; on main; found and not fixed; the comment corrected on this branch; a repeat in kind of 670 and 784)
+
+**Symptom.** Found 2026-11-22, branch `fix/credential-save-lock`; on `main`. A block whose rescue task sets lock-all
+passes `validate`. A probe by the session that found it called `validate.Validate` on such a block and got no
+issues. The engine refuses it with `ErrRescueLockAll` (`internal/engine/handlers_run.go`), at run time, and only
+when the rescue is reached, which is after a task has already failed on a device.
+
+**Root cause.** Validation has no rule for a rescue task as such. It refuses one only for another cause (a loop, or
+a read of `device`). The comment on `ErrRescueLockAll` has said "Validation refuses it too; this is the engine's own
+backstop" since `33e1e945` (2026-10-26), which is 670's fix.
+
+**Why 670 did not prevent it.** 670 is the mirror case: the engine lacked the refusal for a rescue task reading
+`device`, and validate had it, because such a task reads `device`. 670's title and the comment written with its fix
+then said validate refuses a rescue task, which is true only of that one case. Nobody tested a rescue task that
+reads no device.
+
+**Found beside it.** On this branch, `c0eb0881` wrote the same false claim into
+`docs/10-running-in-production.md`, taken from the comment. `26acb12f` corrected both: the comment now says the
+engine alone refuses it, and the guide says nothing checks it ahead of time. The false sentence in the guide never
+reached `main`.
+
+**Status.** Open. No validate rule and no test exist. This records pass read the corrected comment, the guide and
+`TemplateRule`; it did not run the probe again.
+
+**Lesson.** A comment that says another layer refuses something names the test that proves it, or it is not written.
+670's lesson stands: list every path, and here every layer, that should refuse, and give each a test.
+
+## 1356. The Controller's launch and schedule writes run no `validate` rule, so a runbook that validation refuses is accepted on the Walk tier and then refused by the Runner on every device (open; not a regression; a limit left by 322; a repeat in kind of 1214 and 1343)
+
+**Symptom.** Recorded 2026-11-22, branch `fix/credential-save-lock`, when 1354 added a validate rule. A Walk-tier
+launch of a runbook that a validate rule refuses is accepted and makes a job. The Runner's `validateDispatch`
+(`internal/adapters/native/validate.go`, called from `adapter.go`) then refuses each dispatch with "it fails
+validation, so no task ran". A schedule of such a template is accepted at the write and would fail at every firing.
+No task runs, so no device is changed.
+
+**Root cause.** 322's fix put plan-time validation on the Runner, where execution starts. The Controller was never
+given it. A bounded text search on this branch found `internal/validate` imported, outside tests, only by
+`cmd/pleiades` and `internal/adapters/native`: nothing under `cmd/controller`, `internal/api` or `internal/dispatch`
+imports it.
+
+**Why 1214 and 1343 do not cover it.** Each moved one named refusal (seeded logins, stored fact reads) to the launch,
+check, relaunch and schedule writes through a function of its own. Neither records that every other validate rule is
+still answered only by the Runner. This entry is that general case, so each new validate rule is a new instance of
+it; 1354's rule is the latest.
+
+**Status.** Open. Not a regression: the Walk tier has behaved this way since 322's fix. The branch's changelog
+fragment says so. Whether the Controller can run the rules at all is not settled here: it links no Collection and
+reads the module catalog it embeds (837), and some rules read the registry.
+
+**Lesson.** LESSONS 470 covers it: a refusal belongs at every write that can be refused. Until the Controller runs
+the rules, a change that adds a validate rule says in its changelog what the Walk tier does with it.
+
+## 1357. A subagent was briefed to build a guard on a false premise, "the parser refuses a task written as `fqcn:` plus `params:`"; the parser reads that form and only the owner's rule refuses it (process; a repeat of 1352 one day later; LESSONS 471)
+
+**Symptom.** 2026-11-22, the orchestrating session. A subagent was briefed to build a guard on the premise that the
+parser refuses a task written as `fqcn:` plus `params:`. It does not. `fqcn` and `params` are reserved task keys,
+`internal/engine/task_syntax.go` rewrites the key form into that shape, and `validate.TaskFormWarnings` only warns.
+The form is refused by the owner's rule alone (531, 1348).
+
+**What limited the cost.** The brief told the subagent to check the premise first. It did, and stopped. It counted
+308 `fqcn:` lines in 63 Go test files, and about 55 allowlist entries for a precise guard.
+`TestShippedRunbooksNameTheirMethodAsKey` (`internal/archtest/taskform_test.go`) already guards shipped files; it
+does not read Go test fixtures.
+
+**Root cause.** The premise was written from memory and not checked in the code before the brief was sent, as in
+1352.
+
+**Why 1352 and LESSONS 471 did not prevent it.** They were written the day before, about a paid outside review, and
+471's rule sentence names a paid review. This brief went to a subagent and cost no money, so the rule was not
+applied to it. The premise is the same kind of claim either way.
+
+**Checked.** 531 and 1348 do not claim the parser refuses the form. 531 says the engine still reads the old form and
+that `validate` warns. Neither needed a correction.
+
+**Fix.** None in code. The guard was not built. The owner is to choose between a per-file ratchet and converting
+about 250 fixture lines first. The practice is LESSONS 472.
+
+**Lesson.** LESSONS 472. Every brief is held to 471, whoever receives it, and it keeps the instruction to check the
+premise first, which is what stopped this one.

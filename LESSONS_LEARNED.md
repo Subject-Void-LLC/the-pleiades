@@ -504,6 +504,9 @@ story, per `.AGENTS/AGENTS.md`.
 469. A declaration says what a method can emit, never what one call looked for: reading a key as absent needs a record of the question asked (FAILURE_PATTERNS 1342; an extension of LESSONS 379 and 391; in kind of FAILURE_PATTERNS 13, 723, 925 and 926) (2026-11-21)
 470. A refusal belongs at every write that can be refused: find the places by listing the routes that start the work, not by fixing the route where it was reported (FAILURE_PATTERNS 1343; a repeat of FAILURE_PATTERNS 1214's lesson; an extension of LESSONS 436 from scopes to refusals) (2026-11-21)
 471. Check a question's premise in the code before sending it to a paid review: a review reasons from its brief and cannot refute it (FAILURE_PATTERNS 1352; a repeat of LESSONS 210 on the sender's side; an extension of LESSONS 419; in kind of FAILURE_PATTERNS 1202) (2026-11-21)
+472. LESSONS 471 holds for every brief, a subagent's included: check each premise in the code before sending, and keep the line telling the receiver to check it first (FAILURE_PATTERNS 1357; a repeat of LESSONS 471 one day later; in kind of FAILURE_PATTERNS 1352) (2026-11-22)
+473. A test of processes racing releases them together after each reports ready, never at a shared future instant, and is run once with the fix removed to see it fail (FAILURE_PATTERNS 1353; an extension of LESSONS 338 and of FAILURE_PATTERNS 830's lesson) (2026-11-22)
+474. A helper process a test starts blocks on standard input and exits at end of file; it never sleeps for a fixed long time (FAILURE_PATTERNS 1353; in kind of FAILURE_PATTERNS 729 and LESSONS 327) (2026-11-22)
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
