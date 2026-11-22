@@ -152,10 +152,13 @@ func recordKey(entry *loginEntry, cred Credential) {
 // checkKeyRecord holds cred, as Lookup decrypted it, to the type and
 // fingerprint entry records, reading the key the passphrase seals, never the
 // header beside it. An entry recording neither is one stored before they were
-// recorded, or whose key could not be read then, and is not checked. Any
-// other difference is refused, ErrKeyHeaderMismatch for a file whose header
-// names another key and ErrKeyMismatch otherwise, naming which part differs
-// and never a value.
+// recorded, or whose key could not be read then, and is not checked. A key
+// this cannot read or name is not checked either: the login's own parse of it
+// decides, and refusing it here would only put a vaguer error in front of
+// that one. What is refused is a definite difference: a record beside no key,
+// a key whose fingerprint or type is not the one recorded
+// (ErrKeyMismatch), and a file whose header names another key
+// (ErrKeyHeaderMismatch), each naming which part differs and never a value.
 //
 // What this proves is that the record and the key agree, not that either is
 // the one first stored there: the vault seals each field with no associated
@@ -172,11 +175,11 @@ func checkKeyRecord(cred Credential, entry loginEntry) error {
 		return err
 	}
 	if err != nil {
-		return fmt.Errorf("%w: the stored private key cannot be read to compare", ErrKeyMismatch)
+		return nil
 	}
 	info, err := describePublicKey(pub)
 	if err != nil {
-		return fmt.Errorf("%w: the stored private key cannot be named to compare", ErrKeyMismatch)
+		return nil
 	}
 	if info.Fingerprint != entry.KeyFingerprint {
 		return fmt.Errorf("%w: its fingerprint is not the one recorded", ErrKeyMismatch)
