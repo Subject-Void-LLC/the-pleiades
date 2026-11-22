@@ -201,7 +201,9 @@ func TestFactDeclarers_NamesMethodsByKeyAndByFamily(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := collection.InstallCatalog([]byte(`{"decltest.catalogued":{"status":"implemented","facts":[{"key":"decl.kernel","kind":"stable","type":"string","description":"a key"}]}}`)); err != nil {
+	// The catalog names a registered method too, which is named once.
+	if err := collection.InstallCatalog([]byte(`{"decltest.catalogued":{"status":"implemented","facts":[{"key":"decl.kernel","kind":"stable","type":"string","description":"a key"}]},` +
+		`"decltest.gather":{"status":"implemented","facts":[{"key":"decl.kernel","kind":"stable","type":"string","description":"a key"}]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	byName, byFamily := collection.FactDeclarers("decl.kernel")
