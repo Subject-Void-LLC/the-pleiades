@@ -211,7 +211,7 @@ func TestLegacyWarnings_ABastionsWeakeningIsWarnedToo(t *testing.T) {
 	hop := &Conn{
 		client:    base.client,
 		chain:     []*ssh.Client{base.client},
-		hopLegacy: []hopLegacy{{addr: "bastion.example:22", legacy: Legacy{KeyExchange: true, HostKeys: true}}},
+		hopLegacy: []hopLegacy{{addr: "bastion.example:22", legacy: Legacy{KeyExchange: true, HostKeys: true}, client: base.client}},
 	}
 	warnings := strings.Join(hop.LegacyWarnings("sw-l2"), "\n")
 	if !strings.Contains(warnings, "bastion bastion.example:22 carrying sw-l2") || !strings.Contains(warnings, "used legacy SSH key exchange "+ssh.InsecureKeyExchangeDH14SHA1) {
@@ -219,7 +219,7 @@ func TestLegacyWarnings_ABastionsWeakeningIsWarnedToo(t *testing.T) {
 	}
 
 	// A hop whose record allows nothing adds no warning of its own.
-	none := &Conn{client: base.client, chain: []*ssh.Client{base.client}, hopLegacy: []hopLegacy{{addr: "bastion.example:22"}}}
+	none := &Conn{client: base.client, chain: []*ssh.Client{base.client}, hopLegacy: []hopLegacy{{addr: "bastion.example:22", client: base.client}}}
 	if w := none.LegacyWarnings("sw-l2"); w != nil {
 		t.Errorf("a hop that allows nothing warned %q", w)
 	}
@@ -263,10 +263,14 @@ func TestParseLegacy_TakesOnlyABoolean(t *testing.T) {
 		bad   string
 	}{
 		{"none", nil, Legacy{}, ""},
-		{"all true", map[string]any{LegacyKeyExchangeProperty: true, LegacyHostKeysProperty: true, LegacyCiphersProperty: true}, Legacy{true, true, true}, ""},
+		{"all true", map[string]any{LegacyKeyExchangeProperty: true, LegacyHostKeysProperty: true, LegacyCiphersProperty: true, LegacyUserKeySignaturesProperty: true}, Legacy{true, true, true, true}, ""},
 		{"false", map[string]any{LegacyKeyExchangeProperty: false}, Legacy{}, ""},
 		{"a word", map[string]any{LegacyHostKeysProperty: "yes"}, Legacy{}, LegacyHostKeysProperty},
 		{"a number", map[string]any{LegacyCiphersProperty: 1}, Legacy{}, LegacyCiphersProperty},
+		// The user key flag is a boolean of its own: "yes" is refused, and
+		// true sets it and nothing else.
+		{"user key signatures", map[string]any{LegacyUserKeySignaturesProperty: true}, Legacy{UserKeySignatures: true}, ""},
+		{"user key signatures as a word", map[string]any{LegacyUserKeySignaturesProperty: "yes"}, Legacy{}, LegacyUserKeySignaturesProperty},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -290,7 +294,7 @@ func TestLegacy_WarningsNameEachFlag(t *testing.T) {
 	if w := (Legacy{}).Warnings("d"); w != nil {
 		t.Errorf("no flag warned %q", w)
 	}
-	w := strings.Join(Legacy{KeyExchange: true, HostKeys: true, Ciphers: true}.Warnings("d"), "\n")
+	w := strings.Join(Legacy{KeyExchange: true, HostKeys: true, Ciphers: true, UserKeySignatures: true}.Warnings("d"), "\n")
 	for _, p := range LegacyProperties() {
 		if !strings.Contains(w, p) {
 			t.Errorf("warnings %q do not name %s", w, p)

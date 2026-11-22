@@ -221,7 +221,7 @@ func (p *Pool) lendLocked(device string, e *pooled) *Conn {
 
 // lend wraps e's connection in a borrowed Conn. p.mu must be held.
 func (p *Pool) lend(device string, e *pooled) *Conn {
-	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, lease: &lease{pool: p, device: device, entry: e}}
+	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, userKey: e.conn.userKey, lease: &lease{pool: p, device: device, entry: e}}
 }
 
 // forget removes e from the Pool when it is still device's entry.

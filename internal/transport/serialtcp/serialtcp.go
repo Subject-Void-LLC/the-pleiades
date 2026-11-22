@@ -42,6 +42,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport/hopchain"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	realserialtcp "github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
 )
 
@@ -106,6 +107,10 @@ func (t *rawPassthroughTransport) Exec(ctx context.Context, target transport.Tar
 			return transport.Result{}, fmt.Errorf("serialtcp: %w", dialErr)
 		}
 		defer func() { _ = conn.Close() }()
+		// A bastion's legacy SSH weakening, or a key it did not use, is
+		// warned about on the task, though a console's raw stream rides the
+		// route.
+		sdk.NoteRoute(ctx, conn)
 		result, err = realserialtcp.ExecOverConn(ctx, conn, t.opts, command)
 	}
 	if err != nil {

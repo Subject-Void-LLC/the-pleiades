@@ -461,5 +461,12 @@ func sshTryFailed(err error) error {
 	if errors.As(err, &hostKey) || errors.As(err, &legacy) {
 		return &stopWaiting{err: fmt.Errorf("the device answered, and this side refused what it presented before any credential was sent, so the wait stops here rather than try it again: %w", err)}
 	}
+	// A stored key this side would not sign with, since the device takes it
+	// only with a legacy signature the record does not allow, is this side's
+	// refusal too when the key was the only method: nothing was signed. One
+	// wrapping a refused password is the device's refusal of that password.
+	if signature, ok := errors.AsType[*remoteexec.LegacySignatureRefusedError](err); ok && errors.Unwrap(signature) == nil {
+		return &stopWaiting{err: fmt.Errorf("the device answered, and this side refused to sign the login the only way the device takes the stored key, so the wait stops here rather than try it again: %w", err)}
+	}
 	return &stopWaiting{err: fmt.Errorf("the device answered and refused this login, so the wait stops here rather than try it again: %w", err)}
 }

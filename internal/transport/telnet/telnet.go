@@ -41,6 +41,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport/hopchain"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	realtelnetexec "github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
 )
 
@@ -107,6 +108,9 @@ func (t *telnetTransport) Exec(ctx context.Context, target transport.Target, cre
 			return transport.Result{}, fmt.Errorf("telnet: %w", dialErr)
 		}
 		defer func() { _ = conn.Close() }()
+		// A bastion's legacy SSH weakening, or a key it did not use, is
+		// warned about on the task, though Telnet rides the route.
+		sdk.NoteRoute(ctx, conn)
 		result, err = realtelnetexec.ExecOverConn(ctx, conn, opts, command)
 	}
 	if err != nil {

@@ -122,6 +122,26 @@ func severerFor(raw net.Conn) func() {
 	return func() { _ = raw.Close() }
 }
 
+// routeHops returns what each hop of raw's route allowed and did, when the
+// route is this package's own (DialThroughHops), and nothing for a connection
+// some other dialer opened, which has no hops this package dialed.
+func routeHops(raw net.Conn) []hopLegacy {
+	if t, ok := raw.(*hopTunneledConn); ok {
+		return t.hops
+	}
+	return nil
+}
+
+// RouteWarnings says, for the named device, what each bastion hop of conn's
+// route did with each legacy SSH algorithm its record allows, and a stored
+// key it did not use, as Conn.LegacyWarnings says for an SSH connection's
+// hops. conn is what DialThroughHops returned, for a protocol other than SSH
+// over the route (telnet, a serial console, an API); any other connection has
+// no hops this package dialed, and yields nothing.
+func RouteWarnings(conn net.Conn, device string) []string {
+	return hopWarnings(device, routeHops(conn))
+}
+
 // routedConn is a connection opened through a route, reporting as its peer
 // the address the route was asked for.
 type routedConn struct {

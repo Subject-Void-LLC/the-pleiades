@@ -2599,7 +2599,10 @@ Every SSH connection names the algorithms it may agree to, the SSH library's sec
 more: no SHA-1 key exchange, no `ssh-rsa` (SHA-1) or DSA host key signature, no CBC, 3DES or RC4
 cipher and no `hmac-sha1-96`, although the library itself would still offer some of these to a
 client that names none. An RSA host key is still accepted, proved with a SHA-2 signature
-(`rsa-sha2-256` or `rsa-sha2-512`), which OpenSSH 7.2 and later, and current IOS XE, offer.
+(`rsa-sha2-256` or `rsa-sha2-512`), which OpenSSH 7.2 and later, and current IOS XE, offer. The
+same holds for the login: a stored RSA key signs with `rsa-sha2-512` or `rsa-sha2-256`, not with
+`ssh-rsa` (SHA-1), and a DSA key, which can sign only with `ssh-dss`, does not sign at all, unless
+the device's record allows it (below).
 
 An old device that offers nothing better (an IOSvL2 15.2 switch offers only
 `diffie-hellman-group14-sha1` and an `ssh-rsa` host key) is refused, naming what it offered and
@@ -2612,6 +2615,45 @@ weakening, on any device reached over SSH (a `linux_server`, `generic_ssh`, `gen
 | `ssh_allow_legacy_key_exchange: true` | SHA-1 Diffie-Hellman key exchange: `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1`, and the 1024-bit `diffie-hellman-group1-sha1`. |
 | `ssh_allow_legacy_host_keys: true` | A host key proved with `ssh-rsa` (SHA-1), or a DSA key (`ssh-dss`), and their certificates. |
 | `ssh_allow_legacy_ciphers: true` | The CBC, 3DES and RC4 ciphers and the truncated `hmac-sha1-96` MAC. |
+| `ssh_allow_legacy_user_key_signatures: true` | A stored RSA key signing the login with `ssh-rsa` (SHA-1), or a DSA key with `ssh-dss`, and their certificates. |
+
+An RSA key signs with SHA-2 only on a server that advertises SHA-2 for user keys. An OpenSSH set
+to `PubkeyAcceptedAlgorithms ssh-rsa` advertises `ssh-rsa` alone (measured on OpenSSH 10.3), and
+OpenSSH before 7.2 and some older network devices are documented to advertise nothing at all (not
+measured here). On such a server a login with an RSA key is refused, saying the server did not
+advertise a SHA-2 signature for the key and naming `ssh_allow_legacy_user_key_signatures`, but
+only once the server has said it would take the key with `ssh-rsa`; a server that refuses the key
+outright gets a plain refused login. A machine in the middle can remove a server's advertisement
+on a server without strict key exchange (the Terrapin attack), and the refusal then looks exactly
+the same. So set the property only for a device you know cannot take SHA-2: if the device runs
+OpenSSH 7.2 or later, or is known to take `rsa-sha2-256`, do not set it, and find out what is
+changing its traffic. `ssh_allow_legacy_host_keys` does not allow a SHA-1 login signature, and
+this property does not allow a SHA-1 host key. A Pleiades build in FIPS 140 mode refuses the SHA-1
+signature whatever the record says, naming FIPS rather than the property.
+
+A credential holding both a key and a password logs in with the password instead, as it does when
+a server refuses the key, and that connection warns, on every run and every onboarding, that the
+stored key was not used. Where the key used to log in, the stored password is now sent: if it is
+out of date, every connection to the device costs one failed login, which counts toward an
+account lockout (`pam_faillock`, a directory's lockout policy). Update or remove a stale password
+before upgrading.
+
+On the Walk tier a Runner reads the property from its Controller, and a Controller that predates
+it does not pass it on, so a Runner refuses the key even on a record that sets it. Upgrade the
+Controllers before the Runners. A Runner that predates the property keeps signing with `ssh-rsa`
+without a warning, as it did before, until it is upgraded.
+
+A project synced over SSH (`scm_type: git` with an SSH URL and a key credential) is held the same
+way, with no property to lift it, since a git server has no device record: an RSA key signs with
+SHA-2 only, and a git server that advertises no SHA-2 signature for the key is refused, naming no
+property. Give such a project an ed25519 or ECDSA key, or move the repository to a server that
+takes `rsa-sha2-256`.
+
+Two paths are outside this rule. An Ansible playbook run through the Ansible path is handed the
+private key, and `ansible-playbook` and its SSH client sign as they are set to. An external
+Collection that connects through `sdk.Connect` is held to this as a built-in method is; one that
+uses the private key it is handed some other way is not, and nothing can stop it signing with
+SHA-1.
 
 The secure algorithms are always offered first, so a device that can do better still does.
 Every connection to a device with a flag set warns, on every run and every onboarding, either
@@ -2622,7 +2664,9 @@ its NETCONF port 830. A flag that is not `true` or `false` is refused when the r
 or loaded, and so is one set on a device type no SSH connection is made to. `trust-host --first-connect`
 negotiates under the same flags, so the keys of an old device are trusted only once its record
 allows them. A hop of a route and a console server are held to their own records' flags, never
-to the device's behind them.
+to the device's behind them, and what a hop did (a legacy algorithm it used, a key it did not use)
+is warned about on the task whatever rides the route: SSH, Telnet, a serial console's raw stream,
+or a method's own connection through the route.
 
 A host key that does not match the one known_hosts trusts is refused, and stays refused: a
 machine in the middle presents a changed key too. The refusal names the port, the key the host

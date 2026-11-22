@@ -32,6 +32,7 @@ func TestSSHTryFailed_SaysWhichSideRefused(t *testing.T) {
 	changed := &remoteexec.HostKeyError{Addr: "192.0.2.1:22", Presented: key, Known: []knownhosts.KnownKey{{Key: key, Filename: "kh", Line: 1}}}
 	legacy := &remoteexec.LegacyRefusedError{Addr: "192.0.2.1:22", What: "key exchange", Offered: []string{"old"}, Property: remoteexec.LegacyKeyExchangeProperty}
 	login := errors.New("ssh: unable to authenticate, attempted methods [none password]")
+	unsigned := &remoteexec.LegacySignatureRefusedError{Addr: "192.0.2.1:22", Key: "RSA key", Algorithm: ssh.KeyAlgoRSA, Property: remoteexec.LegacyUserKeySignaturesProperty}
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -40,6 +41,7 @@ func TestSSHTryFailed_SaysWhichSideRefused(t *testing.T) {
 		{"a changed host key", &remoteexec.DialError{Addr: "192.0.2.1:22", Err: changed}, "this side refused what it presented"},
 		{"an old offer", &remoteexec.DialError{Addr: "192.0.2.1:22", Err: legacy}, "this side refused what it presented"},
 		{"a refused login", &remoteexec.DialError{Addr: "192.0.2.1:22", Err: login}, "the device answered and refused this login"},
+		{"a key the device takes only with ssh-rsa", &remoteexec.DialError{Addr: "192.0.2.1:22", Err: unsigned}, "this side refused to sign the login"},
 	} {
 		var stop *stopWaiting
 		if got := sshTryFailed(tc.err); !errors.As(got, &stop) || !strings.Contains(got.Error(), tc.want) {

@@ -37,6 +37,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // userinfoPattern matches a URL's embedded credentials. Deliberately broad
@@ -366,6 +368,16 @@ func authMethod(a Auth) (transport.AuthMethod, error) {
 			// same problem to the person fixing it.
 			return nil, fmt.Errorf("the SSH key could not be read: check that it is a private key and that the passphrase is correct")
 		}
+		// go-git hands the parsed key to the SSH library as it is, and the
+		// library signs an RSA login with ssh-rsa (SHA-1) whenever the git
+		// server does not advertise SHA-2. A git server has no device record
+		// to allow that, so the key is held to SHA-2 with no opt-in, and a
+		// DSA key does not sign at all (pkg/remoteexec's HoldToSHA2).
+		held, err := remoteexec.HoldToSHA2(keys.Signer)
+		if err != nil {
+			return nil, fmt.Errorf("the SSH key could not be read: %w", err)
+		}
+		keys.Signer = held
 		return keys, nil
 
 	default:

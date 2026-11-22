@@ -79,6 +79,28 @@ func StartSSHD(ctx context.Context) (*SSHD, error) {
 // it can serve as a bastion to a test container reachable only there (a
 // Kubernetes API server known by its alias on that network).
 func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
+	return startSSHD(ctx, "", networks)
+}
+
+// startSSHD starts the container StartSSHDOn describes, with extraConfig, when
+// not empty, as one more sshd_config.d file (StartSSHDConfigured).
+func startSSHD(ctx context.Context, extraConfig string, networks []string) (*SSHD, error) {
+	// The image's init script adds an Include for this directory only when it
+	// exists, and sshd takes the first occurrence of a keyword, so this "yes"
+	// wins over the later default "no". internal/transport/ssh's
+	// requireSSHContainer records how that was confirmed.
+	files := []testcontainers.ContainerFile{{
+		Reader:            strings.NewReader("AllowTcpForwarding yes\n"),
+		ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
+		FileMode:          0o644,
+	}}
+	if extraConfig != "" {
+		files = append(files, testcontainers.ContainerFile{
+			Reader:            strings.NewReader(extraConfig),
+			ContainerFilePath: "/config/sshd/sshd_config.d/test.conf",
+			FileMode:          0o644,
+		})
+	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        SSHDImage,
@@ -91,16 +113,7 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 				"USER_NAME":       SSHDUser,
 				"USER_PASSWORD":   SSHDPassword,
 			},
-			// The image's init script adds an Include for this directory
-			// only when it exists, and sshd takes the first occurrence of
-			// a keyword, so this "yes" wins over the later default "no".
-			// internal/transport/ssh's requireSSHContainer records how
-			// that was confirmed.
-			Files: []testcontainers.ContainerFile{{
-				Reader:            strings.NewReader("AllowTcpForwarding yes\n"),
-				ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
-				FileMode:          0o644,
-			}},
+			Files: files,
 			// The image's own final startup line, logged once sshd is
 			// listening inside the container, then its banner through the
 			// mapped port, which is the path every caller dials.
@@ -296,11 +309,7 @@ func (s *SSHD) InstallClientKey(ctx context.Context, dir string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("deriving the public key: %w", err)
 	}
-	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
-	script := fmt.Sprintf("mkdir -p %[1]s/.ssh && printf '%%s\\n' '%[2]s' >> %[1]s/.ssh/authorized_keys && "+
-		"chown -R 1000:1000 %[1]s/.ssh && chmod 700 %[1]s/.ssh && chmod 600 %[1]s/.ssh/authorized_keys",
-		SSHDHome, authorized)
-	if _, err := s.RootExec(ctx, script); err != nil {
+	if err := s.AuthorizeKey(ctx, signer.PublicKey()); err != nil {
 		return "", err
 	}
 	return keyPath, nil

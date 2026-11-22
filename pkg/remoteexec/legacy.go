@@ -12,11 +12,13 @@
 // An old device that offers nothing better (an IOSvL2 15.2 switch offers only
 // SHA-1 key exchange and an ssh-rsa host key) is reached through a per-device
 // opt-in on its record, one per kind, as pkg/devicetls does for TLS and
-// pkg/snmp for SNMP: ssh_allow_legacy_key_exchange, ssh_allow_legacy_host_keys
-// and ssh_allow_legacy_ciphers. One weakening never brings another with it,
-// each is reported as a warning on every connection that has it, and the
-// names of the weak algorithms are written in this package alone, which
-// internal/archtest holds.
+// pkg/snmp for SNMP: ssh_allow_legacy_key_exchange, ssh_allow_legacy_host_keys,
+// ssh_allow_legacy_ciphers, and ssh_allow_legacy_user_key_signatures for a
+// stored RSA or DSA key that the server takes only with a SHA-1 or DSA
+// signature (userkey.go). One weakening never brings another with it, each is
+// reported as a warning on every connection that has it, and the names of the
+// weak algorithms are written in this package alone, which internal/archtest
+// holds.
 package remoteexec
 
 import (
@@ -48,7 +50,7 @@ const (
 // LegacyProperties returns every property Legacy is read from, for a device
 // type's dispatch allowlist.
 func LegacyProperties() []string {
-	return []string{LegacyKeyExchangeProperty, LegacyHostKeysProperty, LegacyCiphersProperty}
+	return []string{LegacyKeyExchangeProperty, LegacyHostKeysProperty, LegacyCiphersProperty, LegacyUserKeySignaturesProperty}
 }
 
 // Legacy is which legacy SSH algorithms one device's record allows. The zero
@@ -63,6 +65,10 @@ type Legacy struct {
 	HostKeys bool
 	// Ciphers allows the CBC, 3DES and RC4 ciphers and hmac-sha1-96.
 	Ciphers bool
+	// UserKeySignatures allows a stored key to sign the login with ssh-rsa
+	// (SHA-1) or ssh-dss, when the server takes the key no other way
+	// (userkey.go).
+	UserKeySignatures bool
 }
 
 // ParseLegacy reads Legacy from a device's properties. Each flag must be a
@@ -78,6 +84,7 @@ func ParseLegacy(props inventory.Properties) (Legacy, error) {
 		{LegacyKeyExchangeProperty, &l.KeyExchange},
 		{LegacyHostKeysProperty, &l.HostKeys},
 		{LegacyCiphersProperty, &l.Ciphers},
+		{LegacyUserKeySignaturesProperty, &l.UserKeySignatures},
 	} {
 		v, present := raw[flag.key]
 		if !present {
@@ -212,8 +219,15 @@ func (l Legacy) Warnings(device string) []string {
 	if l.Ciphers {
 		out = append(out, fmt.Sprintf("device %q allows legacy SSH ciphers (%s): CBC, 3DES and RC4 ciphers and hmac-sha1-96 are broken or weak; keep it only while the device cannot be upgraded", device, LegacyCiphersProperty))
 	}
+	if l.UserKeySignatures {
+		out = append(out, fmt.Sprintf("device %q allows legacy SSH user key signatures (%s): %s; keep it only while the device cannot be upgraded", device, LegacyUserKeySignaturesProperty, userKeySignatureWhy))
+	}
 	return out
 }
+
+// userKeySignatureWhy is what a legacy user key signature weakens, for its
+// warnings.
+const userKeySignatureWhy = "an ssh-rsa (SHA-1) or DSA signature is a weaker proof of this login's identity"
 
 // legacyUse is what one connection negotiated that only l allowed, by kind.
 type legacyUse struct {
@@ -240,13 +254,15 @@ func usedLegacy(algs ssh.NegotiatedAlgorithms) legacyUse {
 }
 
 // connectionWarnings says, for the named device, what one connection that
-// negotiated algs under l did with each weakening l allows: that it used one,
-// naming it, or that it did not need it, which the record should then drop.
-// A flag a connection did not need is a warning and never a refusal: only a
-// connection can tell, and one device may serve SSH on two ports with two
-// different servers (a Catalyst 8000V runs Cisco's SSH on 22 and OpenSSH on
-// 830), so another connection to the same device may need it.
-func connectionWarnings(device string, l Legacy, algs ssh.NegotiatedAlgorithms) []string {
+// negotiated algs under l, its stored key doing key, did with each weakening l
+// allows: that it used one, naming it, or that it did not need it, which the
+// record should then drop. The user key signature comes from key, since the
+// negotiated algorithms do not carry it. A flag a connection did not need is
+// a warning and never a refusal: only a connection can tell, and one device
+// may serve SSH on two ports with two different servers (a Catalyst 8000V
+// runs Cisco's SSH on 22 and OpenSSH on 830), so another connection to the
+// same device may need it.
+func connectionWarnings(device string, l Legacy, algs ssh.NegotiatedAlgorithms, key userKeyOutcome) []string {
 	use := usedLegacy(algs)
 	var out []string
 	add := func(allowed bool, used, property, kind, why string) {
@@ -261,6 +277,10 @@ func connectionWarnings(device string, l Legacy, algs ssh.NegotiatedAlgorithms) 
 	add(l.KeyExchange, use.keyExchange, LegacyKeyExchangeProperty, "key exchange", "SHA-1 Diffie-Hellman is open to known attacks")
 	add(l.HostKeys, use.hostKey, LegacyHostKeysProperty, "host key algorithm", "an ssh-rsa (SHA-1) or DSA signature is a weaker proof of the device's identity")
 	add(l.Ciphers, strings.Join(use.ciphers, ", "), LegacyCiphersProperty, "cipher", "CBC, 3DES and RC4 ciphers and hmac-sha1-96 are broken or weak")
+	// A key refused while the record allowed the signature (FIPS 140 mode)
+	// needed the property and could not use it: skippedKeyWarnings says so,
+	// and "did not need it, remove it" would be false beside it.
+	add(l.UserKeySignatures && key.refused == "", key.legacySigned(), LegacyUserKeySignaturesProperty, "user key signature", userKeySignatureWhy)
 	return out
 }
 

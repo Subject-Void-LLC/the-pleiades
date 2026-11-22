@@ -56,7 +56,16 @@ func routeDial(route []transport.Hop) (sdk.RouteDial, error) {
 		if err != nil || port <= 0 || port > 65535 {
 			return nil, fmt.Errorf("dialing %q through a route: the port is not a TCP port", address)
 		}
-		return runner.DialThroughHops(ctx, hops, remoteexec.Target{Host: host, Port: port})
+		conn, err := runner.DialThroughHops(ctx, hops, remoteexec.Target{Host: host, Port: port})
+		if err != nil {
+			return nil, err
+		}
+		// A bastion's legacy SSH weakening, or a key it did not use, is
+		// warned about on the task whatever the method speaks over the route.
+		// An SSH connection over it reports the same warnings again, which
+		// the collector keeps once.
+		sdk.NoteRoute(ctx, conn)
+		return conn, nil
 	}, nil
 }
 
