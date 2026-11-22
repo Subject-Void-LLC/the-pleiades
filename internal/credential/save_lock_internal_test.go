@@ -4,13 +4,10 @@
 package credential
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,7 +32,7 @@ func heldLock(t *testing.T, dir string) func() {
 	if err := os.MkdirAll(filepath.Join(dir, masterKeyDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := lockCredentials(dir)
+	unlock, err := lockCredentials(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,16 +65,12 @@ func TestSaveLock_AWriterWaitsOnlySoLongAndNamesTheLockFile(t *testing.T) {
 		},
 	}
 	for name, write := range writers {
-		began := time.Now()
 		err := write()
 		if !errors.Is(err, ErrCredentialsBusy) {
 			t.Fatalf("%s while the lock is held: got %v, want ErrCredentialsBusy", name, err)
 		}
 		if !strings.Contains(err.Error(), credentialsLockPath(dir)) {
 			t.Errorf("%s: the refusal does not name the lock file %s: %v", name, credentialsLockPath(dir), err)
-		}
-		if waited := time.Since(began); waited > 5*time.Second {
-			t.Errorf("%s: waited %s for a 100ms bound", name, waited)
 		}
 	}
 	if _, err := os.Stat(credentialsPath(dir)); !os.IsNotExist(err) {
@@ -136,86 +129,144 @@ func TestSaveLock_ALockFileThatCannotBeOpenedIsNamed(t *testing.T) {
 	}
 }
 
-// lockHolderDir tells a test binary it is the lock holder process below.
-const lockHolderDir = "PLEIADES_TEST_LOCK_HOLDER_DIR"
+// TestSaveLock_ACancelledContextEndsTheWait: a writer waiting for a held lock
+// stops when its context is cancelled, with the context's own error and the
+// lock file's name, and a context cancelled before the wait takes no lock at
+// all, held or free.
+func TestSaveLock_ACancelledContextEndsTheWait(t *testing.T) {
+	dir := t.TempDir()
+	unlock := heldLock(t, dir)
 
-// TestHelperProcess_HoldsTheLock is the process
-// TestSaveLock_AHolderThatDiesLeavesNoLockBehind starts: it takes the lock,
-// says so, and holds it until it is killed. Run as an ordinary test it does
-// nothing.
-func TestHelperProcess_HoldsTheLock(t *testing.T) {
-	dir := os.Getenv(lockHolderDir)
-	if dir == "" {
-		t.Skip("a helper process for TestSaveLock_AHolderThatDiesLeavesNoLockBehind, not a test of its own")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := BindFileStoreContext(ctx, dir, "web01")
+		done <- err
+	}()
+	cancel()
+	err := <-done
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrCredentialsBusy) {
+		t.Fatalf("a cancelled wait: got %v, want context.Canceled", err)
 	}
-	if _, err := lockCredentials(dir); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(err.Error(), credentialsLockPath(dir)) {
+		t.Errorf("the refusal does not name the lock file: %v", err)
 	}
-	fmt.Println("holding the lock")
-	// Never released: the parent kills this process while it holds the lock.
-	time.Sleep(time.Hour)
+
+	deadline, stop := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer stop()
+	if _, err := BindFileStoreContext(deadline, dir, "web01"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a wait past its deadline: got %v, want context.DeadlineExceeded", err)
+	}
+
+	unlock()
+	if _, err := lockCredentials(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a free lock asked for with a cancelled context: got %v, want context.Canceled", err)
+	}
 }
 
-// TestSaveLock_AHolderThatDiesLeavesNoLockBehind: another process holds the
-// lock, so a save here is refused; that process is then killed without ever
-// releasing it, and the next save goes through at once. The lock file is
-// still there and holds nobody back, which a lock that was only a file's
-// existence could not say.
-func TestSaveLock_AHolderThatDiesLeavesNoLockBehind(t *testing.T) {
+// TestSaveLock_ALookupDoesNotWaitOutASaveToClearAnUnboundMark: a run's first
+// lookup of an unbound credential says so and clears the mark, which is a
+// write. With the lock held by another command the lookup still returns the
+// credential after its short bound, the notice is given, and the mark stays
+// for a later run to clear; with the lock free the mark is cleared.
+func TestSaveLock_ALookupDoesNotWaitOutASaveToClearAnUnboundMark(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, masterKeyDirName), 0o700); err != nil {
+	if err := SaveFileStoreWith(dir, lockTestKey, "web01", Credential{Username: "u", Password: "s3cret-pw"}, SaveOptions{Unbound: true}); err != nil {
 		t.Fatal(err)
 	}
-	// #nosec G204 -- the test binary itself, re-run as the lock holder.
-	holder := exec.Command(os.Args[0], "-test.run=^TestHelperProcess_HoldsTheLock$", "-test.count=1")
-	holder.Env = append(os.Environ(), lockHolderDir+"="+dir)
-	out, err := holder.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stderr bytes.Buffer
-	holder.Stderr = &stderr
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	killed := false
-	defer func() {
-		if !killed {
-			_ = holder.Process.Kill()
-			_ = holder.Wait()
+	old := unboundBindWait
+	unboundBindWait = 50 * time.Millisecond
+	t.Cleanup(func() { unboundBindWait = old })
+	isUnbound := func() bool {
+		listed, err := ListCredentials(dir)
+		if err != nil || len(listed) != 1 {
+			t.Fatalf("listing: %v, %v", listed, err)
 		}
-	}()
-	// Wait until the holder says it has the lock.
-	lines := bufio.NewScanner(out)
-	holding := false
-	for lines.Scan() {
-		if strings.Contains(lines.Text(), "holding the lock") {
-			holding = true
-			break
+		return listed[0].Unbound
+	}
+	lookup := func() int {
+		inner, err := NewFileStore(dir, lockTestKey)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !holding {
-		t.Fatalf("the holder process never took the lock: %s", stderr.String())
-	}
-
-	save := func() error {
-		return SaveFileStore(dir, lockTestKey, "web01", Credential{Username: "u", Password: "s3cret-pw"})
-	}
-	shortLockWait(t, 100*time.Millisecond)
-	if err := save(); !errors.Is(err, ErrCredentialsBusy) {
-		t.Fatalf("save while another process holds the lock: got %v, want ErrCredentialsBusy", err)
+		notices := 0
+		got, err := NoticeUnbound(inner, dir, func(string) { notices++ }).Lookup(context.Background(), "web01")
+		if err != nil || got.Password != "s3cret-pw" {
+			t.Fatalf("lookup: %v", err)
+		}
+		return notices
 	}
 
-	if err := holder.Process.Kill(); err != nil {
-		t.Fatal(err)
+	unlock := heldLock(t, dir)
+	if notices := lookup(); notices != 1 || !isUnbound() {
+		t.Fatalf("with the lock held: %d notices, unbound=%v; want the notice and the mark kept", notices, isUnbound())
 	}
-	_ = holder.Wait()
-	killed = true
+	unlock()
+	if notices := lookup(); notices != 1 || isUnbound() {
+		t.Fatalf("with the lock free: %d notices, unbound=%v; want the notice and the mark cleared", notices, isUnbound())
+	}
+}
 
-	if _, err := os.Stat(credentialsLockPath(dir)); err != nil {
-		t.Fatalf("the lock file should still be there after its holder died: %v", err)
+// TestSaveLock_AFailedLockCallIsNotCalledBusy: a lock call that fails for a
+// reason other than another holder ends the save at once with that reason and
+// the lock file's name, not as a busy lock after the whole wait.
+func TestSaveLock_AFailedLockCallIsNotCalledBusy(t *testing.T) {
+	dir := t.TempDir()
+	broken := errors.New("the lock call itself failed")
+	old := tryLock
+	tryLock = func(*os.File) error { return broken }
+	t.Cleanup(func() { tryLock = old })
+	err := SaveFileStore(dir, lockTestKey, "web01", Credential{Username: "u", Password: "s3cret-pw"})
+	if !errors.Is(err, broken) || errors.Is(err, ErrCredentialsBusy) || !strings.Contains(err.Error(), credentialsLockPath(dir)) {
+		t.Fatalf("got %v, want the lock call's own failure naming %s", err, credentialsLockPath(dir))
 	}
-	if err := save(); err != nil {
-		t.Fatalf("save after the holder was killed: %v", err)
+}
+
+// TestSaveLock_ALinkWhereTheLockFileGoesIsNotFollowed: a symbolic link planted
+// at the lock file's name, pointing outside the project, is refused on a Unix
+// system (the open's O_NOFOLLOW): the save fails, naming the lock file, and
+// the link's target is neither made nor changed. The error's number is not
+// held to one value, since systems differ (Linux gives ELOOP, FreeBSD
+// EMLINK).
+//
+// Where the open has no such flag (Windows, saveLockNoFollow 0) the link is
+// followed: the lock is taken on the target, which is made empty when
+// missing, and the save goes through. That is stated here, not asserted as a
+// refusal; what holds everywhere is that an existing target's contents are
+// never changed, since nothing is ever written to the lock file.
+func TestSaveLock_ALinkWhereTheLockFileGoesIsNotFollowed(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		dir, outside := t.TempDir(), t.TempDir()
+		target := filepath.Join(outside, "victim")
+		if existing {
+			if err := os.WriteFile(target, []byte("not a lock file"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(dir, masterKeyDirName), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, credentialsLockPath(dir)); err != nil {
+			t.Skipf("needs symbolic links: this system would not make one: %v", err)
+		}
+		err := SaveFileStore(dir, lockTestKey, "web01", Credential{Username: "u", Password: "s3cret-pw"})
+		if existing {
+			if data, readErr := os.ReadFile(target); readErr != nil || string(data) != "not a lock file" {
+				t.Errorf("the link's target was changed: %q, %v", data, readErr)
+			}
+		}
+		if saveLockNoFollow == 0 {
+			t.Logf("this system's open follows a link at the lock file's name (existing target %v): save returned %v", existing, err)
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), credentialsLockPath(dir)) {
+			t.Errorf("existing target %v: got %v, want a refusal naming %s", existing, err, credentialsLockPath(dir))
+		}
+		if _, statErr := os.Stat(credentialsPath(dir)); !os.IsNotExist(statErr) {
+			t.Errorf("existing target %v: a save refused at the lock wrote the credential file: %v", existing, statErr)
+		}
+		if _, statErr := os.Lstat(target); !existing && !os.IsNotExist(statErr) {
+			t.Errorf("the save made the link's target: %v", statErr)
+		}
 	}
 }

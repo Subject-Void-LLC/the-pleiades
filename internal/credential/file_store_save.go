@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -46,7 +47,9 @@ func SaveFileStore(dir string, key []byte, deviceName string, cred Credential) e
 // none writes the file back without another's entry. The directory is made
 // first because the lock file lives in it; a change that is then refused
 // leaves the directory and the empty lock file, and no credential file.
-func updateCredentialsDocument(dir string, change func(doc *credentialsDocument) error) error {
+// ctx bounds only the wait for the lock (lockCredentials); once the lock is
+// held the save runs to its end.
+func updateCredentialsDocument(ctx context.Context, dir string, change func(doc *credentialsDocument) error) error {
 	path := credentialsPath(dir)
 	dirPath := filepath.Dir(path)
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {
@@ -66,7 +69,7 @@ func updateCredentialsDocument(dir string, change func(doc *credentialsDocument)
 		return fmt.Errorf("failed to set permissions on %s: %w", dirPath, err)
 	}
 
-	unlock, err := lockCredentials(dir)
+	unlock, err := lockCredentials(ctx, dir)
 	if err != nil {
 		return err
 	}
@@ -224,7 +227,7 @@ func atomicWriteCredentialsFile(path string, data []byte) error {
 // and nothing is decrypted, so no master key is needed.
 func RemoveFileStore(dir, deviceName string) (bool, error) {
 	removed := false
-	err := updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	err := updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if _, ok := doc.Devices[deviceName]; ok {
 			delete(doc.Devices, deviceName)
 			removed = true

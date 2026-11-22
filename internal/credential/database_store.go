@@ -56,7 +56,7 @@ func SaveDatabaseConnection(dir string, key []byte, conn wire.DatabaseConnection
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential encryption: %w", err)
 	}
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	return updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if doc.Databases == nil {
 			doc.Databases = make(map[string]databaseEntry)
 		}
@@ -80,7 +80,7 @@ func SaveDatabaseConnection(dir string, key []byte, conn wire.DatabaseConnection
 // whether there was one.
 func RemoveDatabaseConnection(dir, name string) (bool, error) {
 	removed := false
-	err := updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	err := updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if _, ok := doc.Databases[name]; ok {
 			delete(doc.Databases, name)
 			removed = true

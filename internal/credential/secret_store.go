@@ -69,7 +69,7 @@ func SaveSecretField(dir string, key []byte, name, field, value string) error {
 	if err != nil {
 		return fmt.Errorf("failed to encrypt secret %s.%s: %w", name, field, err)
 	}
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	return updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		if doc.Secrets == nil {
 			doc.Secrets = make(map[string]map[string]string)
 		}
@@ -86,7 +86,7 @@ func SaveSecretField(dir string, key []byte, name, field, value string) error {
 // secret left with no fields is removed too.
 func RemoveSecret(dir, name, field string) (bool, error) {
 	removed := false
-	err := updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+	err := updateCredentialsDocument(context.Background(), dir, func(doc *credentialsDocument) error {
 		fields, ok := doc.Secrets[name]
 		if !ok {
 			return nil
