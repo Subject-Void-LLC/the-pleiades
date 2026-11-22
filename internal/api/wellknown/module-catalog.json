@@ -12054,7 +12054,7 @@
         "key": "tls.certificate.serial",
         "kind": "stable",
         "type": "string",
-        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
       }
     ],
     "doc": {
@@ -12195,7 +12195,7 @@
           "name": "tls.certificate.serial",
           "type": "string",
           "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact, unless its serial number is negative or longer than 40 hex digits",
-          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
         }
       ],
       "examples": [
@@ -12319,7 +12319,7 @@
         "key": "tls.certificate.serial",
         "kind": "stable",
         "type": "string",
-        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
       }
     ],
     "doc": {
@@ -12408,7 +12408,7 @@
           "name": "tls.certificate.serial",
           "type": "string",
           "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact, unless its serial number is negative or longer than 40 hex digits",
-          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
         }
       ],
       "examples": [
@@ -14565,7 +14565,7 @@
         "key": "tls.certificate.serial",
         "kind": "stable",
         "type": "string",
-        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
       }
     ],
     "doc": {
@@ -14732,7 +14732,7 @@
           "name": "tls.certificate.serial",
           "type": "string",
           "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact, unless its serial number is negative or longer than 40 hex digits",
-          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
         }
       ],
       "examples": [
@@ -14873,7 +14873,7 @@
         "key": "tls.certificate.serial",
         "kind": "stable",
         "type": "string",
-        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+        "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
       }
     ],
     "doc": {
@@ -14980,7 +14980,7 @@
           "name": "tls.certificate.serial",
           "type": "string",
           "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact, unless its serial number is negative or longer than 40 hex digits",
-          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased. It is how a revocation list names a certificate. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning."
+          "description": "The certificate's serial number in lowercase hex, two digits a byte (00 for zero): the form openssl x509 -serial prints, lowercased, and the serial_hex of filters.parseX509Certificate, whose serial_number is the same number in decimal. It is how a revocation list names a certificate. Other tools may write a serial another way (with a leading 00, or without a leading 0), so to compare one, lowercase it, remove colons and spaces, drop one leading 00 before a first digit 8 to f, and add a leading 0 when the digits are odd in number. A serial is unique only among one issuer's certificates, and two devices that sign their own may share one, so never match a certificate on its serial alone: match the serial with tls.certificate.issuer, or match tls.certificate.fingerprint. A serial longer than 40 hex digits, or a negative one, is left out, with a warning, and the serial recorded last stays the device's fact: match tls.certificate.fingerprint too to be sure it is the current certificate's."
         }
       ],
       "examples": [
