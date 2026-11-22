@@ -8790,3 +8790,106 @@ ask what a Controller answers. If the refused key is hashed into `DAG.Version`, 
 cannot edit it away. Two build-time refusals that predate this rule have the same property and were left as they
 are: a handler taking lock-all (`internal/engine/notify.go`) and a background task taking it
 (`internal/engine/async_validate.go`).
+
+## 476. An error is shown or withheld by its kind at every place that shows that source's error: when one site gets the split, list the source's other readers and give each the same split (FAILURE_PATTERNS 1360, 1361, 1362 and 1365; an extension of LESSONS 470 from refusals to error text) (2026-11-22)
+
+**Why.** Branch `fix/walk-launch-compile-error`. FAILURE_PATTERNS 1360 gave the runbook source's errors a kind:
+a `runbook.CompileError` is the author's own mistake and is shown; anything else may carry a storage detail and is
+withheld. The fix was aimed at the launch, the check, the relaunch, the schedule's write and fan-out. The same
+source is read in other places, and each had its own wrong answer. A rollback printed the source's error whole,
+the server's absolute path included (FAILURE_PATTERNS 1361, on `main` since 2026-09-28). A template create
+answered 500 for a compile error, and `GET /runbooks/{id}` called it an invalid id (FAILURE_PATTERNS 1362). Two
+more sites are still open (FAILURE_PATTERNS 1365).
+
+**What is old and what is new.** 1360's lesson, "withhold by kind of error, not by where it was caught", was a
+sentence in an entry and had no number. LESSONS 470 says to list the routes that start the work when a refusal is
+added. The new part joins them: the split by kind is a property of the source, so the list to make is the
+source's readers, not the routes of one feature. A reader that wraps the error into a refusal the caller reads is
+the dangerous one, because the wrapping looks like handling.
+
+**Rule in practice.** (1) When an error source gains a kind, list every caller of the source with the language
+server. (2) For each, write down what a caller sees for each kind: the status code and the text. (3) An error
+wrapped with `%w` into a sentinel whose text is shown is shown whole; wrap only what is safe, and return the rest
+bare so the route logs it and answers 500. (4) Each reader gets a test through its real route with an unreadable
+file, one that does not compile and one that is gone. (5) A site that is listed and not fixed gets an open
+failure pattern, not a note.
+
+## 477. A gate that asserts "a job was made" passes on a job that can only fail: build a gate's fixture so the product would accept it, and assert the furthest outcome the gate's name claims (FAILURE_PATTERNS 1364; a refinement of LESSONS 235; in kind of FAILURE_PATTERNS 436 and 440) (2026-11-22)
+
+**Why.** Branch `fix/walk-launch-compile-error`. `TestC1Gate_OneSweepFiresATemplateAndAProjectSync`
+(`internal/schedule`) had a fixture runbook with `hosts: []` and no tasks. The builder refuses that. The gate
+passed anyway, because a launch of a runbook that does not compile used to make a job, and the gate checks for a
+job row, not for a fan-out. It went red only when the launch began to refuse such a runbook (FAILURE_PATTERNS
+1364).
+
+**What is old and what is new.** LESSONS 235 says to break what a test protects and see it fail. This gate does
+fail when nothing fires. The new part is the opposite check: a fixture can be wrong in a way the assertion never
+reaches. A gate then proves that the product accepts bad input, and reads as proof that good input works.
+
+**Rule in practice.** (1) A gate's fixture is run through what a user's input must pass: a runbook fixture is
+validated or built in the test's setup, and the setup fails when it is refused. (2) The assertion reaches the
+outcome the gate's name states. When it stops short (a row, not a run), the test's comment says where it stops.
+(3) When a gate goes red because a fixture was invalid, search the package for other fixtures written the same
+way before fixing the one.
+
+## 478. A brief states what code does only with a file and line read in this session; anything else is written as a question for the receiver to answer first (FAILURE_PATTERNS 1367; a repeat of LESSONS 471 and 472, the third occurrence in two days; in kind of FAILURE_PATTERNS 1352 and 1357) (2026-11-22)
+
+**Why.** The orchestrating session briefed the fix for FAILURE_PATTERNS 1360 with the sentence "only a template
+create or edit shows the real message". A create answered 500 "internal error" and an edit never verifies the
+runbook (FAILURE_PATTERNS 1367). The subagent checked first, as the brief told it to, and the fix grew to cover
+what it found. This was the third false premise in a brief in two days, after FAILURE_PATTERNS 1352 and 1357.
+
+**What is old and what is new.** LESSONS 471 and 472 say to check each premise in the code before sending. That
+rule asks the sender to notice which sentences are premises, and a sentence that feels known is not noticed. The
+same sentence stands in 1360's own archive entry, which says it was read from code and not exercised: a record
+is not a reading of the code either. The new part is a form that needs no noticing. Every statement of behavior
+carries its evidence or is a question.
+
+**Rule in practice.** (1) A sentence in a brief that says what code does, allows, refuses or answers ends with
+the file and line it was read from, in this session. (2) With no file and line, it is rewritten as a question:
+"what does a template create answer for a runbook that does not compile?" (3) A sentence taken from a failure
+pattern, a handoff or memory is a question until the code is read. (4) The line "check this first and stop if it
+is false" stays in every brief (LESSONS 472); it has held each time. (5) A premise a reviewer checks and finds
+true is recorded with how it was checked, read or executed.
+
+## 479. Text built from a caller's input and shown to another reader is masked, then escaped, then bounded, and the bound is applied to the final text (FAILURE_PATTERNS 1363; in kind of FAILURE_PATTERNS 1109; near LESSONS 440) (2026-11-22)
+
+**Why.** Branch `fix/walk-launch-compile-error`. The compile message quotes the author's runbook. Its first
+version was cut at 2048 bytes and then escaped, so 2048 ESC bytes came out as 8222 bytes. It was also not masked,
+and the fix sent it to readers who had never seen the runbook's text: a caller with only `runbook:check`, a
+schedule's writer, a reader of a job's `failure_reason`, and the Controller's log. Review caught both before push
+(FAILURE_PATTERNS 1363).
+
+**Reasoning.** Each step changes the text's length, and escaping can only make it longer. A bound applied before
+the last such step is a bound on something nobody reads. Masking goes first because it must see the text as the
+author wrote it; escaping first can split a shape the masker would have matched. And "the author's own text" is
+true only for the author: once a message is stored in a failure reason or written to a log, its readers are
+everyone who can read that.
+
+**Rule in practice.** (1) Order: mask, escape, bound. (2) The bound is on the whole final sentence, and the cut
+never lands inside an escape. (3) A test feeds the worst case for growth (every byte one that escapes) and
+asserts the final length. (4) Before a message that quotes input goes to a new place, list who reads that place.
+(5) Masking by shape is said to be by shape in the docs: a secret with no recognisable shape is still shown.
+
+## 480. When a refusal is added at a write that also edits rows already stored, decide which edits of a row that now fails it stay allowed, and make the write conditional on the stored values that decision read (FAILURE_PATTERNS 1363; in kind of LESSONS 475 and 427; a repeat of LESSONS 46 for the write; FAILURE_PATTERNS 45, 1085 and 1309) (2026-11-22)
+
+**Why.** Branch `fix/walk-launch-compile-error`. LESSONS 470 put the compile refusal on a schedule's write. A
+schedule's edit admits its target again, so a schedule whose runbook broke after it was saved could no longer be
+renamed or paused: it would fire into a refusal and could not be turned off. `launchable.Request.Standing` is the
+exception: an edit that keeps the target and the saved configuration and does not turn the schedule on skips the
+compile refusal alone. Its first version was computed from a row read before the write, and the write was
+unconditional, so a pause landing in between could make an enable look standing (FAILURE_PATTERNS 1363). The
+write now carries the stored `enabled`, target and saved configuration it was judged against, and is judged again
+when they have changed, at most 5 times.
+
+**What is old and what is new.** LESSONS 475 says a new refusal must not block recovery of work already done,
+and LESSONS 427 says a new refusal at creation meets inputs an older release accepted. This is the same meeting
+for an edit: the row is already stored, and the things its owner most needs to do to it (pause it, rename it)
+are edits. LESSONS 46 says a write that bypasses the normal path must still honor compare-and-swap; it is worded
+for maintenance writes and was not applied to an ordinary edit.
+
+**Rule in practice.** (1) When a refusal is added to a write, ask what an owner can still do to a row that
+already fails it. Pausing and deleting must stay possible. (2) Write the exception as a named field with a
+definition, not as a skipped check. (3) Every stored value the exception reads is a condition of the write. (4)
+A lost condition is judged again, a bounded number of times. (5) Test it with the concurrent change the
+exception would get wrong, and run that test on each database the store supports; this one ran on SQLite only.
