@@ -11,6 +11,7 @@ package credential
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
@@ -34,7 +35,16 @@ type SaveOptions struct {
 	// uses it warns that it is masked by shape only, and without it such a
 	// community is refused.
 	AllowShortCommunity bool
+	// RefuseStoredLogin refuses the save with ErrLoginStored when the entry
+	// already holds a login, checked while the save holds the credential
+	// file lock, so two commands that each found no login cannot both store
+	// one (add-credential --generate without --replace).
+	RefuseStoredLogin bool
 }
+
+// ErrLoginStored is a save's refusal, under RefuseStoredLogin, of an entry that
+// already holds a login.
+var ErrLoginStored = errors.New("a login is already stored for this device")
 
 // SaveFileStoreWith is SaveFileStore replacing the families opts names and
 // marking the entry as opts says. A family the save does not replace is
@@ -61,6 +71,11 @@ func SaveFileStoreWith(dir string, key []byte, deviceName string, cred Credentia
 		// What is stored now, read for its families only: the zero entry
 		// when the device has none, so a family it never had stays empty.
 		entry := doc.Devices[deviceName]
+		// Read under the lock: a login another command stored after this
+		// one looked is still seen here.
+		if opts.RefuseStoredLogin && entry.loginEntry != (loginEntry{}) {
+			return ErrLoginStored
+		}
 		if families&LoginFamily != 0 {
 			login, err := buildLoginEntry(svc, cred)
 			if err != nil {
@@ -151,8 +166,9 @@ func familiesOf(c Credential) Families {
 
 // checkStorable refuses a credential no save may write: a field of a family
 // the save does not replace (it would be dropped without a word), an SNMP
-// family wire.SNMPCredential.Check refuses, and a certificate holding a
-// block that is not a certificate. allowShortCommunity is the operator's
+// family wire.SNMPCredential.Check refuses, a sealed private key file whose
+// header names another key (ErrKeyHeaderMismatch), and a certificate holding
+// a block that is not a certificate. allowShortCommunity is the operator's
 // acceptance of a short community.
 func checkStorable(c Credential, families Families, allowShortCommunity bool) error {
 	if families&LoginFamily == 0 && c.HasLogin() {
@@ -166,6 +182,14 @@ func checkStorable(c Credential, families Families, allowShortCommunity bool) er
 	}
 	if families&SNMPFamily != 0 {
 		if err := c.SNMP().Check(allowShortCommunity); err != nil {
+			return err
+		}
+	}
+	// A sealed key file whose header names another key than it seals is
+	// never stored: its record would describe the key it actually holds,
+	// and any tool reading the header another.
+	if families&LoginFamily != 0 && len(c.PrivateKeyPEM) != 0 {
+		if _, err := readPublicKey(c); errors.Is(err, ErrKeyHeaderMismatch) {
 			return err
 		}
 	}
@@ -189,7 +213,9 @@ func readProblem(c Credential, shortCommunity bool) (Families, error) {
 // UnusableError is Lookup's refusal of a stored credential that breaks a
 // rule it is held to on every write (a plaintext protocol name edited in the
 // file, a short community stored without its mark, a key a save before the
-// certificate check put beside a certificate), so it never reaches a run.
+// certificate check put beside a certificate, a private key that is not the
+// one its recorded fingerprint names, a sealed key file whose header names
+// another key), so it never reaches a run.
 // It names the family at fault, which a save replacing that family fixes.
 type UnusableError struct {
 	// Device is the name the credential is stored under.

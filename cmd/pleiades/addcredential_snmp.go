@@ -19,7 +19,7 @@ import (
 // them, the login family is saved.
 var loginFlags = []string{
 	"username", "password", "password-stdin", "password-file", "key", "certificate", "pfx",
-	"passphrase", "passphrase-stdin", "generate", "replace", "token-stdin", "enable-password", "enable-password-stdin",
+	"passphrase", "passphrase-stdin", "generate", "replace", "key-type", "no-password", "token-stdin", "enable-password", "enable-password-stdin",
 }
 
 // snmpFlags are add-credential's SNMP flags. No SNMP secret is ever a flag

@@ -33,6 +33,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Template filters JSON Schema](schemas/doc-filters.json) (`pleiades doc filters --json`)
 - [Conditions JSON Schema](schemas/doc-conditions.json) (`pleiades doc conditions --json`)
 - [Facts drift JSON Schema](schemas/facts-drift.json) (`pleiades facts drift --json`)
+- [Generated credential JSON Schema](schemas/credential-generated.json) (`pleiades add-credential --generate --json`)
 - [Facts inspection JSON Schema](schemas/facts-inspection.json) (`controller facts inspect --json`)
 - [Collection coverage data](schemas/collection-coverage.json) (data, not a schema: the coverage pages as JSON)
 - [OpenAPI document](schemas/openapi.json) (also served live at `/api/v1/openapi.json`)

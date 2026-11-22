@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -14,6 +13,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
+
+// inspectAddCredentialFlags, when set, is handed every flag runAddCredential
+// registers before it parses any: a test holds them to internal/clispec, the
+// spec the reference and --help are generated from. Nil in the binary.
+var inspectAddCredentialFlags func(fs *flag.FlagSet)
 
 // runAddCredential stores one device's SSH credential, encrypted at rest,
 // in <dir>/.pleiades/credentials.yaml (internal/credential's Crawl-tier
@@ -42,10 +46,12 @@ import (
 //     unlocked with --passphrase at the moment it is used rather than
 //     here.
 //   - --generate, for a machine Pleiades is about to create: a new random
-//     ed25519 key and a new random password, neither chosen, typed nor
-//     shown by anyone. Only the key's public half is printed. It refuses
-//     to replace a stored credential without --replace, since the machine
-//     that credential reaches would then be out of reach.
+//     key (ed25519, or the --key-type asked for) and a new random password
+//     unless --no-password, neither chosen, typed nor shown by anyone. Only
+//     the key's type, fingerprint and public half are printed, as text or
+//     with --json (addcredential_generate.go). It refuses to replace a
+//     stored credential without --replace, since the machine that
+//     credential reaches would then be out of reach.
 //
 // Prompting by default, rather than requiring the secret as a bare flag
 // value, is deliberate: a flag value is visible in shell history and in
@@ -79,27 +85,37 @@ func runAddCredential(args []string) error {
 	promptPassphrase := fs.Bool("passphrase", false, "prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file")
 	stdinPassphrase := fs.Bool("passphrase-stdin", false,
 		"read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input")
-	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
+	generate := fs.Bool("generate", false, "generate a new random key (ed25519 unless --key-type says otherwise) and password, for a machine Pleiades will create; prints the key's type, fingerprint and public key line, never a secret")
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
+	keyType := fs.String("key-type", string(credential.DefaultKeyType), "with --generate, the key to make: ed25519, rsa-3072, rsa-4096, ecdsa-p256 or ecdsa-p384")
+	noPassword := fs.Bool("no-password", false, "with --generate, store the key alone with no password, so a device that refuses the key fails the login instead of taking a password")
+	asJSON := fs.Bool("json", false, "with --generate, print one JSON document instead of text: the key's type, fingerprint and public key line, never a secret")
 	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
 	promptEnable := fs.Bool("enable-password", false, "prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode")
 	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input, after the login's own secret when that is piped too")
 	noDevice := fs.Bool("no-device", false, "store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused")
 	snmp := addSNMPFlags(fs)
+	if inspectAddCredentialFlags != nil {
+		inspectAddCredentialFlags(fs)
+	}
 
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] "+
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | "+
+			"--generate [--key-type <type>] [--no-password] [--replace] [--json]] [--enable-password | --enable-password-stdin] "+
 			"[--snmp-community | --snmp-community-stdin [--allow-short-community] | --snmp-user <user> [--snmp-auth <protocol> [--snmp-priv <protocol>] [--snmp-passphrase-stdin]]] [--no-device]; "+
 			"standard input holds one line for each secret a -stdin flag asks for, in this order: the login's secret, the enable secret, then the SNMP community or the SNMPv3 authentication and privacy passphrases: %w", err)
 	}
 
-	if *replace && !*generate {
-		return fmt.Errorf("--replace only applies to --generate")
+	// The key type is read before anything else, so a typo prints no warning
+	// and consumes no input.
+	generatedType, err := checkGenerateFlags(func(flagName string) bool { return flagGiven(fs, flagName) }, *generate, *keyType)
+	if err != nil {
+		return err
 	}
-	if (*promptEnable || *stdinEnable) && (*stdinToken || *generate) {
-		return fmt.Errorf("an enable secret goes with a device login, so it cannot be combined with --token-stdin or --generate")
+	if (*promptEnable || *stdinEnable) && *stdinToken {
+		return fmt.Errorf("an enable secret goes with a device login, so it cannot be combined with --token-stdin")
 	}
 	if *promptEnable && *stdinEnable {
 		return fmt.Errorf("--enable-password and --enable-password-stdin are mutually exclusive: an enable secret is read one way")
@@ -167,11 +183,16 @@ func runAddCredential(args []string) error {
 		if *username == "" {
 			return fmt.Errorf("--username is required")
 		}
-		snmpFamily, err := withSNMP(credential.Credential{})
-		if err != nil {
-			return err
-		}
-		return generateCredential(*dir, name, *username, *replace, opts, snmpFamily)
+		// The secrets on standard input are read only once the stored login
+		// is known to be replaceable (generateCredential), so a refused
+		// --replace consumes none of them.
+		return generateCredential(generateRequest{
+			dir: *dir, device: name, username: *username,
+			options: credential.GenerateOptions{KeyType: generatedType, NoPassword: *noPassword},
+			replace: *replace, asJSON: *asJSON, save: opts,
+			readEnable: func() (string, error) { return readEnable(in, *stdinEnable, *promptEnable) },
+			readSNMP:   withSNMP,
+		})
 	}
 
 	usesCertificate := *certPath != "" || *pfxPath != ""
@@ -301,19 +322,8 @@ func runAddCredential(args []string) error {
 		cred.Password = prompted
 	}
 
-	switch {
-	case *stdinEnable:
-		read, err := in.next()
-		if err != nil {
-			return err
-		}
-		cred.EnablePassword = read
-	case *promptEnable:
-		read, err := promptSecret("enable secret: ")
-		if err != nil {
-			return err
-		}
-		cred.EnablePassword = read
+	if cred.EnablePassword, err = readEnable(in, *stdinEnable, *promptEnable); err != nil {
+		return err
 	}
 
 	if cred, err = withSNMP(cred); err != nil {
@@ -398,56 +408,33 @@ func saveCredential(dir, name string, cred credential.Credential, opts credentia
 	return nil
 }
 
-// generateCredential stores a new random key and password for device in
-// dir's vault and prints the key's public half, labelled user@device,
-// which is what a machine is given so the key may log in to it. The entry is
-// marked as opts says, and carries snmp's SNMP family when opts names it.
-func generateCredential(dir, device, username string, replace bool, opts credential.SaveOptions, snmp credential.Credential) error {
-	key, err := credential.ResolveMasterKey(vaultDir(dir))
-	if err != nil {
-		return fmt.Errorf("failed to resolve master key: %w", err)
-	}
-	store, err := credential.NewFileStore(vaultDir(dir), key)
-	if err != nil {
-		return fmt.Errorf("failed to open the credential store: %w", err)
-	}
-	// Only a stored login is what a new one would put out of reach; a device
-	// holding SNMP fields alone has none to lose. A stored credential the read
-	// refuses (credential.UnusableError) may hold a login all the same, so it
-	// too needs --replace, which then replaces it, as its refusal says to; a
-	// fault in a family this save keeps is named instead, since a new login
-	// beside it would leave the credential refused.
-	stored, err := store.Lookup(context.Background(), device)
-	var unusable *credential.UnusableError
+// readEnable reads the enable secret the flags ask for: the next line of
+// standard input, a prompt with no echo, or "" when neither was given.
+func readEnable(in *stdinQueue, stdin, prompted bool) (string, error) {
 	switch {
-	case errors.As(err, &unusable) && unusable.Family&opts.Families == 0:
-		return fmt.Errorf("%w; --generate replaces only its %s fields, so store its %s fields again first", err, opts.Families, unusable.Family)
-	case errors.As(err, &unusable) && !replace:
-		return fmt.Errorf("%w; with --generate, --replace discards it, and whatever it logs in to is then out of reach", err)
-	case errors.As(err, &unusable):
-		// --replace, and the save below replaces the family at fault.
-	case err == nil && stored.HasLogin() && !replace:
-		return fmt.Errorf("device %q already has a credential; --replace discards it, and whatever it logs in to is then out of reach", device)
-	case err != nil && !errors.Is(err, credential.ErrNotFound):
-		return fmt.Errorf("failed to read the credential store: %w", err)
+	case stdin:
+		return in.next()
+	case prompted:
+		return promptSecret("enable secret: ")
 	}
-	comment := username + "@" + device
-	cred, err := credential.Generate(username, comment)
-	if err != nil {
-		return err
-	}
-	cred = cred.WithSNMP(snmp.SNMP())
-	public, err := credential.PublicKey(cred, comment)
-	if err != nil {
-		return err
-	}
-	if err := credential.SaveFileStoreWith(vaultDir(dir), key, device, cred, opts); err != nil {
-		return fmt.Errorf("failed to save credential: %w", err)
-	}
-	fmt.Printf("stored a generated credential for device %q%s: an ed25519 key and a %d-character password, for %s\n",
-		device, unboundNote(opts), credential.GeneratedPasswordLength, username)
-	fmt.Printf("public key: %s\n", public)
-	return nil
+	return "", nil
+}
+
+// flagGiven reports whether name was set on fs's command line. A boolean
+// flag given as false asks for nothing, so it counts as not given.
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name != name {
+			return
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			given = f.Value.String() == "true"
+			return
+		}
+		given = true
+	})
+	return given
 }
 
 // unboundNote is what a stored message adds for an entry marked unbound.

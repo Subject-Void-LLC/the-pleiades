@@ -58,21 +58,22 @@ const (
 // writes that is missing here fails the check, so a new file is classified
 // on purpose rather than left unchecked.
 var contracts = map[string]kind{
-	"runbook.schema.json":      inputSchema,
-	"inventory.schema.json":    inputSchema,
-	"run-report.json":          outputSchema,
-	"facts-drift.json":         outputSchema,
-	"doc-filters.json":         outputSchema,
-	"doc-conditions.json":      outputSchema,
-	"migration-report.json":    outputSchema,
-	"facts-inspection.json":    outputSchema,
-	"pr-check-report.json":     outputSchema,
-	"version.json":             outputSchema,
-	"openapi.json":             openAPI,
-	"module-catalog.json":      catalog,
-	"collection-coverage.json": notAContract,
-	"extension-protocols.json": protocols,
-	"first-party.json":         firstParty,
+	"runbook.schema.json":       inputSchema,
+	"inventory.schema.json":     inputSchema,
+	"run-report.json":           outputSchema,
+	"facts-drift.json":          outputSchema,
+	"doc-filters.json":          outputSchema,
+	"doc-conditions.json":       outputSchema,
+	"migration-report.json":     outputSchema,
+	"facts-inspection.json":     outputSchema,
+	"pr-check-report.json":      outputSchema,
+	"version.json":              outputSchema,
+	"credential-generated.json": outputSchema,
+	"openapi.json":              openAPI,
+	"module-catalog.json":       catalog,
+	"collection-coverage.json":  notAContract,
+	"extension-protocols.json":  protocols,
+	"first-party.json":          firstParty,
 }
 
 // main runs the check and exits non-zero when the tree fails it.

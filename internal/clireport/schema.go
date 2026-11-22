@@ -76,7 +76,7 @@ var VersionSchema = Schema{
 }
 
 // Schemas are every schema this package publishes.
-var Schemas = []Schema{RunReportSchema, FiltersSchema, ConditionsSchema, VersionSchema, FactsDriftSchema}
+var Schemas = []Schema{RunReportSchema, FiltersSchema, ConditionsSchema, VersionSchema, FactsDriftSchema, GeneratedCredentialSchema}
 
 // Build returns the schema, its descriptions read from ModelFiles under the
 // repository root given. It is open where the contract is: an object may

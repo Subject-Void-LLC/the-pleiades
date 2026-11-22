@@ -99,6 +99,14 @@ type loginEntry struct {
 	// EnablePasswordEncrypted holds a network device's enable secret.
 	// Phase 127c.
 	EnablePasswordEncrypted string `yaml:"enable_password_encrypted,omitempty"`
+	// KeyType and KeyFingerprint describe the private key this login holds,
+	// read from it when the login is saved (key_info.go). Neither is a
+	// secret, so they are plaintext like Username and a listing shows them
+	// with no master key; Lookup holds the decrypted key to both. Both are
+	// empty for a login stored before they were recorded, and for a key that
+	// could not be read when it was saved.
+	KeyType        KeyType `yaml:"key_type,omitempty"`
+	KeyFingerprint string  `yaml:"key_fingerprint,omitempty"`
 }
 
 // snmpEntry is the SNMP family of a stored credential (Phase 97). The user
@@ -220,6 +228,12 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 	// reaches a run.
 	if family, err := readProblem(cred, entry.ShortCommunity); err != nil {
 		return Credential{}, &UnusableError{Device: deviceName, Family: family, Err: err}
+	}
+	// The key's recorded type and fingerprint are readable, so editable: a
+	// record that is not this key's fails the credential closed rather than
+	// letting a listing describe one key while a run logs in with another.
+	if err := checkKeyRecord(cred, entry.loginEntry); err != nil {
+		return Credential{}, &UnusableError{Device: deviceName, Family: LoginFamily, Err: err}
 	}
 	return cred, nil
 }

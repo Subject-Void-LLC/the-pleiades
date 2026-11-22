@@ -148,14 +148,16 @@ pleiades add-credential ubuntu-lab --username root --generate
 
 ```
 stored a generated credential for device "ubuntu-lab": an ed25519 key and a 24-character password, for root
+key type: ed25519
+fingerprint: SHA256:Jh1PzkvKpwrPcCFlggl3/0T+MxfMF78UIVjSE/pHTJ4
 public key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... root@ubuntu-lab
 ```
 
 `--generate` makes a random ed25519 key and a random 24-character password and stores both
 encrypted in the project's vault (`.pleiades/credentials.yaml`). No person chooses, types or
-sees either one; only the key's public half is printed. It refuses to replace a credential the
-device already has unless you add `--replace`, since the machine that credential reaches would
-then be locked out.
+sees either one; only the key's type, its fingerprint and its public half are printed. It
+refuses to replace a credential the device already has unless you add `--replace`, since the
+machine that credential reaches would then be locked out.
 
 The login is `root` because The Pleiades has no `become` yet: a method that needs root must log
 in as root. Any other user name gets passwordless `sudo` instead.

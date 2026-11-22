@@ -171,7 +171,74 @@ and says so, naming the account and the `remove-credential` command to run if th
 was not meant for that device. A device that arrives another way (an import, a sync, an edit
 to the inventory file) keeps the mark until the first run that uses the credential, which
 says so once. `pleiades list-credentials` lists every stored credential by name, account and
-kind, marks the unbound ones and says how each is bound, and never shows a value.
+kind, marks the unbound ones and says how each is bound, and never shows a secret.
+
+**Which key a credential holds.** When a credential holding a private key is stored (with
+`--key`, `--certificate` and `--key`, or `--generate`), its type and SHA256 fingerprint are
+written beside it in the clear, so `list-credentials` shows them without the master key:
+
+```console
+$ pleiades list-credentials
+web01  root  private_key  key ed25519 SHA256:ZfQpjeGpfm+9ygwX/TtPIiJPTth+JUTRdHvRfGl151g
+```
+
+The fingerprint is the one `ssh-keygen -lf` prints for the key's public half, so it matches a
+line in a machine's `authorized_keys` to the credential that logs in with it, and shows which
+devices share a key. A credential stored before this was recorded reads `key fingerprint not
+recorded`, and storing it again records it, unless it is a key this cannot read or name: a DSA
+key, a passphrase-sealed key stored without its passphrase, an encrypted PKCS#8 key, or anything
+else `ssh` cannot parse stays not recorded. A bundle (`--pfx`) is never opened when it is stored,
+so it records nothing. A sealed OpenSSH key file whose header names a different public key than
+the one its passphrase seals is refused when it is stored.
+
+The record is plain text, so anyone who can edit the file can change it. Each time a run reads the
+credential, it compares the record with the key it decrypts, read with its passphrase, never from
+the file's header. A record whose fingerprint or type is not that key's fails the run before it
+connects, naming the device and the command that stores it again. A key it cannot read or name is
+not compared; the login that uses it decides. This proves that the record and the key agree, not
+that the key is the one first stored under that name: each secret in the vault is sealed on its
+own, not bound to the entry that holds it, so a sealed key moved from another entry together with
+its record passes. The fingerprint is shown by `list-credentials` and by `add-credential
+--generate`, and is never written to a fact, a task's stats or the journal.
+
+**A login for a machine Pleiades creates.** `add-credential --generate` makes a new random key
+and a new random password that nobody chooses, types or sees, and prints only what may be
+shown, the public key line last:
+
+```console
+$ pleiades add-credential ub1 --username root --generate
+stored a generated credential for device "ub1": an ed25519 key and a 24-character password, for root
+key type: ed25519
+fingerprint: SHA256:Jh1PzkvKpwrPcCFlggl3/0T+MxfMF78UIVjSE/pHTJ4
+public key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... root@ub1
+```
+
+The key is ed25519 unless `--key-type` names another: `rsa-3072`, `rsa-4096`, `ecdsa-p256` or
+`ecdsa-p384`, matched exactly. Use ed25519 unless the device refuses it. A device that takes only
+RSA user keys needs an RSA type, and a host in FIPS mode may refuse ed25519 and take
+`ecdsa-p256`. A 2048-bit RSA key is not generated; one made elsewhere can still be stored with
+`--key`. An RSA key's line starts with `ssh-rsa`, which names the key's format, not how it signs:
+Pleiades signs with it using `rsa-sha2-512` or `rsa-sha2-256`, and says so on standard error each
+time it makes one. A server that does not advertise a SHA-2 signature refuses such a key unless the
+device's record allows `ssh-rsa` signatures (`ssh_allow_legacy_user_key_signatures`). Every type is
+stored in OpenSSH's own form.
+
+The password is for what a key cannot reach, such as a VM's console. A login holding both offers
+the key first and the password after it, so a device that refuses the key can still let the
+password in, and nothing says the key failed. `--no-password` stores the key alone, so a wrong key
+type fails the login where you can see it. `--enable-password` or `--enable-password-stdin` stores
+a network device's enable secret with the generated login. `--json` prints the same facts as one
+JSON document (`device`, `username`, `key_type`, `key_bits`, `key_fingerprint`, `public_key`,
+`password_generated`, `enable_password_stored`, `unbound`, `replaced_key_fingerprint`), never a
+secret.
+
+`--generate` never touches a device, and refuses to discard a stored login without `--replace`,
+since whatever that login reaches would then be out of reach: the new key is on no machine yet.
+With `--replace` the output names the fingerprint of the key it discarded, so you can remove that
+line from the machine that held it. A mistyped `--key-type`, a `--generate` flag given without
+`--generate`, and a stored login without `--replace` are each refused before any secret is read
+from standard input and before any key is made; a login another command stores while the key is
+being made is refused at the save, not discarded.
 
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a
