@@ -33022,12 +33022,17 @@ LESSONS 379 and 391 say only the system's own not-found answer may claim absent.
 key some call had looked for by name, and then widened "looked for" to "declared", which is one step further from the
 device than those lessons cover.
 
-**Fix.** `04ee463d`. A store answers only present or unknown
-(`TestAnswerFacts_AStoreAnswersPresentOrUnknownNeverAbsent`,
-`TestFactsRoot_AStoredObservationAloneMakesNoKeyAbsent`). A key reads absent only when an earlier task of the same
-run called a method that declares that key by exact name, with no parameter narrowing the call, and did not emit it
-(`TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent`, `internal/engine/facts_answer.go`). A value the secret
-guard refused is withheld, never absent. Any other key nothing holds is unknown, and an unknown key fails the task.
+**Fix.** `04ee463d`, then narrowed after an edge-case pass on the pull request. A store answers only present or
+unknown (`TestAnswerFacts_AStoreAnswersPresentOrUnknownNeverAbsent`,
+`TestFactsRoot_AStoredObservationAloneMakesNoKeyAbsent`). Absence is opt-in per key: a key reads absent only when an
+earlier task of the same run called, with no parameter narrowing the call, a built-in that declares the key by exact
+name with `collection.FactSpec.AbsentWhenNotEmitted`, a claim that its silence proves the device lacks the key, and
+did not emit it (`TestFactsRoot_AKeyNoObservationLookedForIsNeverAbsent`, `internal/engine/facts_answer.go`).
+`Register` refuses the claim on a family and on an external Collection's method. No built-in makes it yet:
+`facts.gather` reads with commands whose failure it cannot tell from an empty answer (`hardware.serial` is `cat ...
+2>/dev/null; true`, so a non-root login reads nothing on a device that has a serial). A value the guard refused is
+withheld, never absent. Any other key nothing holds is unknown, a CEL unknown in the condition, and the task fails
+only when the condition's result is unknown.
 
 **Open, by design.** A family's item, such as `package.nginx`, can never read absent. That needs a coverage record
 per observation: the exact keys the call looked for and the families it listed in full. It is not built, and the docs
