@@ -625,7 +625,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// A digest of a file not everyone may read is kept only keyed, under a
 		// key derived from the project's master key, which is read only when
 		// such a digest turns up (internal/facts' keyed digests).
-		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(vaultDir(opts.dir)) }, "project")),
+		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return factMasterKeyToWrite(opts.dir) }, "project")),
 		// --setting's values, for every task leaving the parameter out.
 		engine.WithRunSettings(opts.settings),
 	)
