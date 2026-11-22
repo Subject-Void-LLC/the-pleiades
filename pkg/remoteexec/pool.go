@@ -219,9 +219,12 @@ func (p *Pool) lendLocked(device string, e *pooled) *Conn {
 	return p.lend(device, e)
 }
 
-// lend wraps e's connection in a borrowed Conn. p.mu must be held.
+// lend wraps e's connection in a borrowed Conn. p.mu must be held. The
+// borrowed Conn reports the host keys e's own dial verified, since lending
+// it again performs no handshake of its own.
 func (p *Pool) lend(device string, e *pooled) *Conn {
-	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, userKey: e.conn.userKey, lease: &lease{pool: p, device: device, entry: e}}
+	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, userKey: e.conn.userKey, hostKeys: e.conn.hostKeys,
+		lease: &lease{pool: p, device: device, entry: e}}
 }
 
 // forget removes e from the Pool when it is still device's entry.

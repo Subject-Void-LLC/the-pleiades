@@ -382,6 +382,10 @@ type connectLeg struct {
 	// legacy is what the leg's own device record allows: a bastion's
 	// weakening never reaches the device behind it, nor the other way.
 	legacy Legacy
+	// hostKeys, set only on the target's own leg, keeps each key that leg's
+	// known_hosts check accepts (hostkeys.go). A bastion's leg has none, so a
+	// hop's key is never reported as the device's.
+	hostKeys *hostKeyLog
 }
 
 // Connect dials through hops, in order, then to target, completing an
@@ -406,13 +410,15 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	for _, h := range hops {
 		legs = append(legs, connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify, legacy: h.Target.Legacy})
 	}
-	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify, legacy: target.Legacy})
+	// Only the last leg, the target's, keeps what its check accepted.
+	hostKeys := newHostKeyLog(!r.opts.InsecureSkipHostKeyVerify)
+	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify, legacy: target.Legacy, hostKeys: hostKeys})
 
 	chain, keys, err := r.dialChain(ctx, legs)
 	if err != nil {
 		return nil, err
 	}
-	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy, userKey: keys[len(keys)-1]}
+	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy, userKey: keys[len(keys)-1], hostKeys: hostKeys}
 	conn.hopLegacy = hopRecords(legs[:len(hops)], chain, keys)
 	// A detached command whose connection drops polls on a fresh one, dialed
 	// the same way (detach.go).
@@ -450,6 +456,12 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", addr, err)
 	}
+	// The route's hops were verified by whoever built via; this keeps only
+	// what target's own check accepted, and nothing when it is skipped.
+	hostKeys := newHostKeyLog(!r.opts.InsecureSkipHostKeyVerify)
+	if hostKeys.verified {
+		hostKeyCB = keepAccepted(hostKeyCB, hostKeys)
+	}
 	use := &userKeyUse{}
 	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout, target.Legacy, use))
 	if err != nil {
@@ -457,7 +469,7 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 	}
 	// A route of this package's own (DialThroughHops) says what each of its
 	// hops did, so a bastion's weakening is warned about here too.
-	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw), legacy: target.Legacy, userKey: use.snapshot(), hopLegacy: routeHops(raw)}
+	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw), legacy: target.Legacy, userKey: use.snapshot(), hopLegacy: routeHops(raw), hostKeys: hostKeys}
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.ConnectVia(ctx, via, target, auth) }
 	return conn, nil
 }
@@ -525,6 +537,12 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		hostKeyCB, hkErr := hostKeyCallbackFor(r.opts, leg.insecureSkipHostKeyVerify)
 		if hkErr != nil {
 			return nil, nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
+		}
+		// The target's leg keeps what its check accepts, on every attempt
+		// below, but only when the check runs: under the skip opt-in the
+		// callback accepts anything, and nothing it accepts is kept.
+		if leg.hostKeys != nil && !leg.insecureSkipHostKeyVerify {
+			hostKeyCB = keepAccepted(hostKeyCB, leg.hostKeys)
 		}
 
 		use := &userKeyUse{}
