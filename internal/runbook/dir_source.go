@@ -313,7 +313,9 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 
 	dag, err := d.builder.BuildFromYAML(payload)
 	if err != nil {
-		return cacheEntry{}, fmt.Errorf("failed to compile runbook %q: %w", id, err)
+		// A kind of its own, so a caller can show the author the builder's
+		// message while a storage error's text stays in the log.
+		return cacheEntry{}, &CompileError{ID: id, Err: err}
 	}
 
 	nodes := NodesOf(dag)

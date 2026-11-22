@@ -13,8 +13,9 @@
 // and Controller-side dispatch can never disagree about what a given
 // runbook requires.
 //
-// This package depends only on internal/engine, pkg/capability, and the
-// standard library, deliberately: it sits below internal/api and
+// This package depends only on internal/engine, internal/termsafe (which
+// reads the standard library alone), pkg/capability, and the standard
+// library, deliberately: it sits below internal/api and
 // internal/dispatch in the dependency graph (a future dispatch handler
 // depends on this package, never the reverse), and it must never import
 // internal/ent, so a non-Controller caller (a CLI subcommand, a test) can
@@ -195,7 +196,10 @@ type Source interface {
 	// explains why: a real caller reads it straight from an HTTP query
 	// parameter) and must validate it before using it to reach any
 	// backing store, never echoing an id that failed validation back into
-	// an error.
+	// an error. A runbook that was found and read and does not build is
+	// returned as a *CompileError, which a caller reaches with errors.As;
+	// every other error is a lookup or storage failure, whose text may name
+	// a storage detail and is not for a caller outside the server.
 	Get(ctx context.Context, id string) (*Runbook, error)
 
 	// List returns every runbook id this Source can resolve, sorted.
