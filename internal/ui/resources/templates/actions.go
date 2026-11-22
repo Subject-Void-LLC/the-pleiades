@@ -100,41 +100,8 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 			// with fewer readers.
 			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, prompted,
 				api.MayRunForReal(identity.HasScope(auth.ScopeRunbookExecute)))
-			switch {
-			case errors.Is(err, launch.ErrNotFound):
-				return "", view.FieldErrors{"": {"That template no longer exists. Reload the list."}}, nil
-			case errors.Is(err, launch.ErrSurveyAnswer):
-				// The survey's own message, attached to the form rather
-				// than answered with a 500: it names the variable and says
-				// what was wrong with the answer, which is the whole point
-				// of having validated it.
-				return "", view.FieldErrors{"": {fieldMessage(err)}}, nil
-			case errors.Is(err, launch.ErrUnknownKind):
-				return "", view.FieldErrors{"": {"This controller cannot run that kind of template."}}, nil
-			case errors.Is(err, launch.ErrMode):
-				// Beside the mode control: a check turned back into a real
-				// run, or a check of a kind that cannot run as one, refused
-				// rather than launched as something else.
-				return "", view.FieldErrors{launch.ModeField: {fieldMessage(err)}}, nil
-			case errors.Is(err, api.ErrWindowedPrompt):
-				// Beside the forks control: the credential inputs asked for
-				// above are held only while the job fans out, so a window
-				// that dispatches devices later would run them without.
-				return "", view.FieldErrors{dispatch.ForksField: {"A launch that asks for credential inputs cannot also set forks: those inputs are held only while the job starts, and forks dispatches most devices later. Clear forks, or bind a stored credential."}}, nil
-			case errors.Is(err, dispatch.ErrSeededLogin):
-				// The runbook seeds a login, which no control on this form
-				// can change: the message names the task and the device.
-				return "", view.FieldErrors{"": {fieldMessage(err)}}, nil
-			case errors.Is(err, api.ErrSerialPrompt):
-				// The runbook itself batches its devices (serial:), so no
-				// control on this form is at fault: the message stands alone.
-				return "", view.FieldErrors{"": {"This runbook runs its devices in serial: batches, and a launch that asks for credential inputs cannot run it: those inputs are held only while the job starts, and every batch after the first starts later. Bind a stored credential instead."}}, nil
-			case api.CompileMessage(err) != "":
-				// The runbook does not compile, which no control on this form
-				// can change: the builder's own message names what to fix.
-				return "", view.FieldErrors{"": {api.CompileMessage(err)}}, nil
-			case err != nil:
-				return "", nil, err
+			if errs, err := launchRefusal(err); errs != nil || err != nil {
+				return "", errs, err
 			}
 
 			// The ignored fields are deliberately not surfaced here, and
@@ -505,6 +472,54 @@ func fieldMessage(err error) string {
 		return "One of the survey answers is not valid for its question."
 	}
 	return strings.ToUpper(msg[:1]) + msg[1:] + "."
+}
+
+// launchRefusal maps what LaunchTemplate returned onto this form: the
+// messages of a refusal a person can act on, keyed by the control at fault
+// ("" for the form as a whole), or the error itself when it is a fault. Both
+// are nil for a launch that was accepted.
+//
+// It is a function of the error alone so it can be tested without a request
+// identity, which Submit needs and this package cannot build.
+func launchRefusal(err error) (view.FieldErrors, error) {
+	switch {
+	case errors.Is(err, launch.ErrNotFound):
+		return view.FieldErrors{"": {"That template no longer exists. Reload the list."}}, nil
+	case errors.Is(err, launch.ErrSurveyAnswer):
+		// The survey's own message, attached to the form rather
+		// than answered with a 500: it names the variable and says
+		// what was wrong with the answer, which is the whole point
+		// of having validated it.
+		return view.FieldErrors{"": {fieldMessage(err)}}, nil
+	case errors.Is(err, launch.ErrUnknownKind):
+		return view.FieldErrors{"": {"This controller cannot run that kind of template."}}, nil
+	case errors.Is(err, launch.ErrMode):
+		// Beside the mode control: a check turned back into a real
+		// run, or a check of a kind that cannot run as one, refused
+		// rather than launched as something else.
+		return view.FieldErrors{launch.ModeField: {fieldMessage(err)}}, nil
+	case errors.Is(err, api.ErrWindowedPrompt):
+		// Beside the forks control: the credential inputs asked for
+		// above are held only while the job fans out, so a window
+		// that dispatches devices later would run them without.
+		return view.FieldErrors{dispatch.ForksField: {"A launch that asks for credential inputs cannot also set forks: those inputs are held only while the job starts, and forks dispatches most devices later. Clear forks, or bind a stored credential."}}, nil
+	case errors.Is(err, dispatch.ErrSeededLogin), errors.Is(err, dispatch.ErrFactReads):
+		// The runbook seeds a login, or a condition in it reads a stored
+		// fact, which no control on this form can change: the message
+		// names the task and the device or the key.
+		return view.FieldErrors{"": {fieldMessage(err)}}, nil
+	case errors.Is(err, api.ErrSerialPrompt):
+		// The runbook itself batches its devices (serial:), so no
+		// control on this form is at fault: the message stands alone.
+		return view.FieldErrors{"": {"This runbook runs its devices in serial: batches, and a launch that asks for credential inputs cannot run it: those inputs are held only while the job starts, and every batch after the first starts later. Bind a stored credential instead."}}, nil
+	case api.CompileMessage(err) != "":
+		// The runbook does not compile, which no control on this form
+		// can change: the builder's own message names what to fix.
+		return view.FieldErrors{"": {api.CompileMessage(err)}}, nil
+	case err != nil:
+		return nil, err
+	}
+	return nil, nil
 }
 
 // copyAction duplicates a template under a new name.
