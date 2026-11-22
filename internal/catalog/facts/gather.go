@@ -489,6 +489,23 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 	names := gatherNames{}
 	emitted := 0
+	// emit records keep. One task's observation is stored only whole and only
+	// up to collection.MaxFactsPerObservation facts, so a device listing more
+	// would store none of them while the task succeeded; it fails instead,
+	// saying how to gather less. Every probe's facts and the host key facts go
+	// through it, so the cap counts them all.
+	emit := func(keep []gatherFact) error {
+		if emitted += len(keep); emitted > collection.MaxFactsPerObservation {
+			return fmt.Errorf("%s: %s lists more than the %d facts one task may record; gather less with %s or %s",
+				fqcn, device.Name(), collection.MaxFactsPerObservation, gatherParamSubset, gatherParamFilter)
+		}
+		for _, fact := range keep {
+			if err := rc.EmitFact(fact.key, fact.value); err != nil {
+				return fmt.Errorf("%s: %s: %w", fqcn, fact.key, err)
+			}
+		}
+		return nil
+	}
 	// What each family's sources answered, in the order first seen, so the
 	// verdict below names them in a stable order.
 	families := map[string]*familyState{}
@@ -547,31 +564,15 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 				}
 			}
 		}
-		// One task's observation is stored only whole and only up to
-		// collection.MaxFactsPerObservation facts, so a device listing more
-		// would store none of them while the task succeeded; it fails
-		// instead, saying how to gather less.
-		if emitted += len(keep); emitted > collection.MaxFactsPerObservation {
-			return collection.Result{}, fmt.Errorf("%s: %s lists more than the %d facts one task may record; gather less with %s or %s",
-				fqcn, device.Name(), collection.MaxFactsPerObservation, gatherParamSubset, gatherParamFilter)
-		}
-		for _, fact := range keep {
-			if err := rc.EmitFact(fact.key, fact.value); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, fact.key, err)
-			}
+		if err := emit(keep); err != nil {
+			return collection.Result{}, err
 		}
 	}
 	// The host key the session verified, read once the probes are done
 	// (gather_hostkeys.go), and what that session says about it.
 	hostFacts, warnings := choice.hostKeyFacts(way, device.Name(), len(probes))
-	if emitted += len(hostFacts); emitted > collection.MaxFactsPerObservation {
-		return collection.Result{}, fmt.Errorf("%s: %s lists more than the %d facts one task may record; gather less with %s or %s",
-			fqcn, device.Name(), collection.MaxFactsPerObservation, gatherParamSubset, gatherParamFilter)
-	}
-	for _, fact := range hostFacts {
-		if err := rc.EmitFact(fact.key, fact.value); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, fact.key, err)
-		}
+	if err := emit(hostFacts); err != nil {
+		return collection.Result{}, err
 	}
 	// A family a source failed to list, or one no source answers for a task
 	// that named its subset, fails the task: a failed task stores none of

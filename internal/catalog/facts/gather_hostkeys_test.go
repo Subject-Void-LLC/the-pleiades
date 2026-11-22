@@ -71,6 +71,22 @@ func TestGather_RecordsTheHostKeyTheSessionVerified(t *testing.T) {
 	}
 }
 
+// TestGather_AHostKeyFactThatCannotBeRecordedFailsTheTask: the host key facts
+// go through the same emit path as every probe's, so one the store refuses
+// fails the task, naming the key, rather than reading as recorded.
+func TestGather_AHostKeyFactThatCannotBeRecordedFailsTheTask(t *testing.T) {
+	_, server := gatherHostKeyServer(t, remoteexectest.Options{})
+	rc := newGatherContext(server)
+	rc.failOn = sshfacts.FactED25519
+	_, err := gatherRun(t, server, rc, nil)
+	if err == nil || !strings.Contains(err.Error(), sshfacts.FactED25519) {
+		t.Fatalf("err = %v, want a failure naming %s", err, sshfacts.FactED25519)
+	}
+	if _, ok := rc.facts[sshfacts.FactED25519]; ok {
+		t.Errorf("the refused host key fact was recorded: %v", rc.facts)
+	}
+}
+
 // TestGather_SkippingVerificationRecordsNoHostKeyAndSaysSo: under the skip
 // opt-in the run still gathers, records no host key, and says why; a filter
 // that wants no host key fact is not told.
