@@ -33155,6 +33155,31 @@ some files under the lost key and some under the new one. Not fixed on this bran
 **Lesson.** A key is created only where nothing is sealed yet. Every path that can create a project's key checks for
 data sealed under an earlier one first, and one path fixed leaves the others to do the same harm.
 
+**Resolved, 2026-11-22.** Branch `fix/condition-optional-and-lost-key`, `001184d7`, with `db8efe30` and `b5caa3f4`
+from review. The check moved into the one function that makes the key, `credential.ResolveMasterKey`, so no writer
+can skip it. It makes a key only when `.pleiades` holds nothing sealed under one (`sealedUnderMasterKey`,
+`internal/credential/sealed_material.go`): no ciphertext in `credentials.yaml` (device credentials, registry
+accounts, database connections, named secrets; the sections read off the struct by reflection), no `seal.key`, and
+no fact file (facts, baselines, state) in `.pleiades/facts`. The journal holds nothing sealed. When something is
+sealed and the key is missing, it refuses with `ErrSealedWithoutKey`, naming each thing found, the key file and
+`PLEIADES_MASTER_KEY`, and the files to remove if the key is truly gone; there is no force flag. A key file that is
+loose or is not a key was already refused and never replaced, and the refusal now names what it sealed too. When
+what is sealed cannot be told, no key is made. Before refusing it looks for the key once more: a first version did
+not, and callers making a new project's key at once refused one another
+(`TestResolveMasterKey_ConcurrentFirstUseConverges` failed on it); nothing is sealed under a key file before the
+file is linked into place whole, so material sealed under the file's key always finds it. The run's lazy credential
+store no longer keeps a refusal, so a restored key needs no restart. Proven through the real binary
+(`TestCLI_ALostMasterKeyIsNeverReplaced`, `TestCLI_ARunInAProjectThatLostItsKeyMakesNone`): add-credential (with
+`--generate` and `--password-file`), add-secret, add-registry-credential, add-database-connection, seal-key,
+import-kubeconfig, import-containerlab, and a run through its named-secret masking and its credential lookup. A
+fact write, which found no facts and made a key beside credentials, is held by
+`TestFactKeysToWrite_ALostKeyBesideCredentialsMakesNoKey` in process. add-host makes no key. First use is unchanged,
+reading commands included (`TestCLI_ANewProjectGetsItsKeyFromItsFirstWriter`,
+`TestCLI_WritersStartedTogetherInANewProjectAgreeOnOneKey`). `TestOnlyResolveMasterKeyMakesTheMasterKey` keeps
+`crypto.ResolveKey` to that one caller and refuses a literal write of the key file elsewhere. Not covered: a set,
+well-formed `PLEIADES_MASTER_KEY` that is not the key the project was sealed under is used as given
+(`TestResolveMasterKey_AnEnvironmentKeyIsUsedAsGiven` pins it).
+
 ## 1345. An error raised after a condition read a fact was reported as the fact's fault: `!has(facts.x) && vars.typo == 1` blamed `facts.x` (fixed before push; caught in review; a repeat in kind of 270 and 1051)
 
 **Symptom.** 2026-11-21, branch `feat/41-facts-in-when`, found in review before any pull request. Once a condition
@@ -33298,6 +33323,23 @@ error. No test exists yet.
 
 **Lesson.** Two parsers of one language are built from one option list. A caller that ignores a parse error has
 decided the answer is "no".
+
+**Resolved, 2026-11-22.** Branch `fix/condition-optional-and-lost-key`, `8a3ab8d0`. Reproduced first: every reader
+failed with "unsupported syntax '.?'", `when_cel: "device.?name.orValue('') == 'web1'"` failed at run time with "no
+such attribute(s): device", a `vars.?` condition was decided once and skipped the device it should have run on, `--tags`
+refused the whole runbook, and validate missed reads beside an optional one. The parse environment is now built from
+the compile environment's own options (`conditionEnvOptions`, shared by `NewCELEvaluator` and `parseEnv`), and
+`engine.ParseCondition` is the one parser every reader uses, `factsParseEnv` and validate's `newCELEnv` folded in.
+`TestParseEnv_HasTheCompileEnvironmentsSyntax` holds the two environments' libraries and macros equal, and
+`TestConditionParity_EveryConditionThatCompilesParsesForReferences` (with `FuzzConditionParity`) holds every
+condition that compiles to parse for each reader. An optional read counts as written for absence only when its optional
+is consumed safely (`engine.SafeOptionalReads`: `hasValue()`, `orValue(...)`, `or(...)`, `optMap`, `optFlatMap`);
+`.value()` is a plain read. Callers that took a parse error for "reads nothing" now fail
+closed: `readsDevice` and `varsNeedDevice` decide such a task on each device, and `ConditionRule` refuses it, which
+`HandlersRule`, `TemplateRule` and the vars rules rely on; `select.go`, `TaskReads` and `CheckModeRule` already
+refused, and a check already reported such a condition unchecked.
+`validate` now refuses `lock_acquisition: all_at_plan_time` on a task whose variables differ by device, as the run
+does, through one function both ask (`engine.VarsDifferByDevice`).
 
 ## 1352. A paid outside review was sent a question whose premise was false: the brief said a `rollback:` step could carry a `when:`, and `validateRollbackStep` refuses one (process; a repeat in kind of 1202; LESSONS 210 and 419)
 

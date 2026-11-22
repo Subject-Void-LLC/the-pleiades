@@ -86,7 +86,11 @@ func (r *run) readsDevice(nodeID string, task *Task) bool {
 		return true
 	}
 	if r.dag.Conditions[nodeID] != nil {
-		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err == nil && uses {
+		// A condition whose references cannot be read is decided on each
+		// device, which is right whatever it reads; deciding it once would be
+		// wrong if it read device. Every condition that compiles parses here
+		// (parseEnv), so this is a backstop rather than a path a run takes.
+		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err != nil || uses {
 			return true
 		}
 		// A stored fact is the device's own, so a condition reading one is

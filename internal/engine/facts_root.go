@@ -24,9 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
-	"cel.dev/cel-go/cel"
 	celast "cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/operators"
 	"cel.dev/cel-go/common/types"
@@ -61,11 +59,6 @@ const ErrParamReadsFacts = "an expression reads facts, and a parameter may not: 
 const ErrNoFactsOnRunner = "and a Runner cannot read stored facts in this release, so nothing ran on any device; " +
 	"pleiades run reads them on the command line, and on this tier a run can gather in an earlier task and read that task's registered result (register:, then result.<name>[\"<key>\"])"
 
-// factsParseEnv parses conditions with the syntax they compile with, the
-// optional field and index (.? and [?]) included, which the shared parseEnv
-// does not enable.
-var factsParseEnv = sync.OnceValues(func() (*cel.Env, error) { return cel.NewEnv(cel.OptionalTypes()) })
-
 // ConditionFacts is what one condition reads of the facts root.
 type ConditionFacts struct {
 	// Keys are the literal keys it reads, sorted, each once.
@@ -83,18 +76,16 @@ func ConditionFactReads(c Conditional) (ConditionFacts, error) {
 
 // factReadsOf is ConditionFactReads over CEL sources.
 func factReadsOf(sources []string) (ConditionFacts, error) {
-	env, err := factsParseEnv()
-	if err != nil {
-		return ConditionFacts{}, err
-	}
 	keys := map[string]bool{}
 	var out ConditionFacts
 	for _, src := range sources {
-		ast, iss := env.Parse(src)
-		if iss.Err() != nil {
-			return ConditionFacts{}, fmt.Errorf("condition %q does not parse, so what it reads of facts cannot be told: %w", src, iss.Err())
+		// The parser every reader of a condition shares (ParseCondition),
+		// which accepts exactly the syntax the condition compiles with.
+		expr, err := ParseCondition(src)
+		if err != nil {
+			return ConditionFacts{}, fmt.Errorf("what it reads of facts cannot be told: %w", err)
 		}
-		out.Problems = append(out.Problems, collectFactReads(ast.NativeRep().Expr(), keys)...)
+		out.Problems = append(out.Problems, collectFactReads(expr, keys)...)
 	}
 	for k := range keys {
 		out.Keys = append(out.Keys, k)
@@ -246,19 +237,14 @@ func checkFactPlacement(task *Task, id string) (ConditionFacts, error) {
 // sourcesNameFacts reports whether any of sources names the facts root at
 // all, however it is used.
 func sourcesNameFacts(sources []string) (bool, error) {
-	env, err := factsParseEnv()
-	if err != nil {
-		return false, err
-	}
 	found := false
 	for _, src := range sources {
-		ast, iss := env.Parse(src)
-		if iss.Err() != nil {
-			return false, iss.Err()
+		expr, err := ParseCondition(src)
+		if err != nil {
+			return false, err
 		}
-		root := ast.NativeRep().Expr()
-		bound := boundFactsIdents(root)
-		celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+		bound := boundFactsIdents(expr)
+		celast.PreOrderVisit(expr, celast.NewExprVisitor(func(e celast.Expr) {
 			if e.Kind() == celast.IdentKind && e.AsIdent() == TemplateRootFacts && !bound[e.ID()] {
 				found = true
 			}

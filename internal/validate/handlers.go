@@ -27,7 +27,8 @@ const HandlerRule = "handlers"
 //     allowed when the rescue registers the same name too, when another task
 //     outside the block does, or when the read is written for absence: the
 //     expression ends with | default(...), or the condition tests the
-//     register with has(...).
+//     register with has(...) or reads it through the optional field or index
+//     (result.?probe, result[?"probe"]).
 func HandlersRule(world WorldView) []Finding {
 	dag := world.DAG
 	eng := render.New()
@@ -59,6 +60,7 @@ func HandlersRule(world WorldView) []Finding {
 				}
 			}
 		}
+		// A condition that cannot be read is ConditionRule's refusal.
 		if uses, err := engine.ConditionUsesRoot(task.Conditional, engine.TemplateRootError); err == nil && uses {
 			add(id, fmt.Sprintf("task %s's condition reads error, which is the failure a rescue: answers and is there only for a rescue: task", taskName(id, task)))
 		}
@@ -143,6 +145,8 @@ func unguardedReads(eng render.Engine, task *engine.Task, maybe map[string]bool)
 			}
 		}
 	}
+	// A condition that cannot be read is ConditionRule's refusal; the same
+	// sources parsed for the reads parse for the tests.
 	if names, _, err := engine.ConditionReads(task.Conditional); err == nil {
 		tested, _ := engine.ConditionTestsPresence(task.Conditional)
 		for _, name := range names {

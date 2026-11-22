@@ -1,7 +1,10 @@
 package credential
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
@@ -40,10 +43,26 @@ const masterKeyFileName = "master.key"
 //     regenerating would produce a new key that cannot decrypt any
 //     secret already encrypted under the old one, silently losing access
 //     to it.
-//  3. Otherwise, a fresh 32-byte key is generated with crypto/rand,
-//     base64-encoded, and written to <dir>/.pleiades/master.key (creating
-//     the .pleiades directory with mode 0o700 if needed) with mode
-//     0o600, then the raw key bytes are returned.
+//  3. Otherwise, only while <dir>/.pleiades holds nothing sealed under a
+//     master key (sealedUnderMasterKey: the credential file's ciphertext, the
+//     seal key, the fact store's files), a fresh 32-byte key is generated
+//     with crypto/rand, base64-encoded, and written to
+//     <dir>/.pleiades/master.key (creating the .pleiades directory with mode
+//     0o700 if needed) with mode 0o600, then the raw key bytes are returned.
+//     A project that holds something sealed and has no key is refused with
+//     ErrSealedWithoutKey, naming what it holds and the key to restore: a new
+//     key would open none of it and would seal what comes next under a
+//     second key, leaving a store no one key reads (FAILURE_PATTERNS 1344).
+//     So is a project where whether anything is sealed cannot be told.
+//
+// A key file that is there and cannot be used (another account may read it,
+// it is not a key) is refused at step 2 and never replaced, and the refusal
+// names what the project holds sealed under it too.
+//
+// This is the one function that makes a project's master key, so every
+// writer (add-credential, add-secret, seal-key, the importers, a fact write)
+// and every reader that resolves the key on first use takes the rule;
+// internal/archtest's TestOnlyResolveMasterKeyMakesTheMasterKey keeps it so.
 //
 // This is a thin wrapper around crypto.ResolveKey (internal/crypto's own
 // generic env-var/file/generate-and-persist resolution, extracted from
@@ -51,6 +70,45 @@ const masterKeyFileName = "master.key"
 // this package's own env var and file name so its behavior, including
 // every case master_key_test.go covers, is unchanged.
 func ResolveMasterKey(dir string) ([]byte, error) {
+	key, err := ExistingMasterKey(dir)
+	if err == nil {
+		return key, nil
+	}
+	found, scanErr := sealedUnderMasterKey(dir)
+	if !errors.Is(err, ErrNoMasterKey) {
+		// A key that is there and cannot be used is never replaced; say what
+		// it sealed, so nobody removes it thinking it guards nothing.
+		if scanErr == nil && len(found) > 0 {
+			whats := make([]string, len(found))
+			for i, m := range found {
+				whats[i] = m.what
+			}
+			return nil, fmt.Errorf("%w; %s holds %s sealed under it, so the key is never replaced: fix it or set %s", err, filepath.Join(dir, masterKeyDirName), strings.Join(whats, ", "), masterKeyEnvVar)
+		}
+		return nil, err
+	}
+	if scanErr != nil {
+		// As below: a key made meanwhile by another caller is the answer.
+		if key, err := ExistingMasterKey(dir); !errors.Is(err, ErrNoMasterKey) {
+			return key, err
+		}
+		return nil, fmt.Errorf("the project has no master key, and whether %s holds what one sealed cannot be told (%w): no new key is made", filepath.Join(dir, masterKeyDirName), scanErr)
+	}
+	if len(found) > 0 {
+		// Look once more before refusing. Another command, or another caller
+		// in this process, may have made the project's first key and sealed
+		// something under it between the first look and the scan. Nothing is
+		// sealed under a key file before that file is in place: the key is
+		// written whole to a temporary file and only then linked to its name
+		// (crypto's generateAndSaveKey), and only a caller holding the linked
+		// key seals. So material sealed under the file's key always finds the
+		// file here; material that still finds none was sealed under a key
+		// this project does not hold.
+		if key, err := ExistingMasterKey(dir); !errors.Is(err, ErrNoMasterKey) {
+			return key, err
+		}
+		return nil, lostKeyError(dir, found)
+	}
 	return crypto.ResolveKey(dir, masterKeyEnvVar, filepath.Join(masterKeyDirName, masterKeyFileName))
 }
 

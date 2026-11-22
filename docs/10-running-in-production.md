@@ -2109,7 +2109,17 @@ The 32-byte master key is resolved in this order, and the choice is never silent
    would produce a key that cannot decrypt anything already encrypted under the
    old one).
 3. Otherwise, a fresh key is generated with `crypto/rand` and written to
-   `<project>/.pleiades/master.key` with mode `0600`, inside a `0700` directory.
+   `<project>/.pleiades/master.key` with mode `0600`, inside a `0700` directory,
+   but only while `<project>/.pleiades/` holds nothing sealed under a master key: no
+   encrypted value in `credentials.yaml` (a device credential, a registry account, a
+   database connection, a named secret), no `seal.key`, and no stored fact. Beside
+   any of those the command refuses, names what it found, and asks for the key that
+   sealed it, since a new key would open none of it. If that key is truly gone,
+   remove the files the message names that you accept losing.
+
+A set and well-formed `PLEIADES_MASTER_KEY` is used as given: nothing checks that it
+is the key the project's files were sealed under, so a different one is not refused
+until a read fails to decrypt, and whatever is stored meanwhile is sealed under it.
 
 Neither a runbook file nor `inventory.yaml` ever contains a password: the only
 place a device's own connection detail (host, port, and anything credential-shaped

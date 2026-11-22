@@ -48,7 +48,14 @@ runbook, so they win over everything above, as they do in Ansible.
 A value may read other variables, such as `"{{ vars.base }}/app"`. A circle
 of variables that read each other fails the task and names the circle. A
 variable the run never gives is an error, not an empty string, unless the read
-is guarded with `| default(...)`.
+is guarded with `| default(...)`. In a condition the guard is `has(vars.name)`,
+`"name" in vars`, or CEL's optional field or index, `vars.?name.orValue("x")` or
+`vars[?"name"].hasValue()`; `validate` reads each of these as written for a
+missing name. An optional read counts only when its optional is used without its
+value being taken (`hasValue()`, `orValue(...)`, `or(...)`, `optMap`, `optFlatMap`):
+`vars.?name.value()` fails without the name, as `vars.name` does, and is held to the
+same rule. The optional forms work on a registered result the same way
+(`result.?probe.hasValue()`).
 
 ```yaml
 # Writes the service's settings file from the runbook's variables.
@@ -462,8 +469,8 @@ tasks:
   `PLEIADES_MASTER_KEY` and `.pleiades/master.key`; a gather then a read in one run
   needs no key, and its first stored fact makes one. A project that stored facts and
   has lost its key cannot read any device's, so every task reading one fails, the
-  same way for every device, and no fact is stored again (no new key is made beside
-  the old facts) until the key is restored. A key file another account may read, or
+  same way for every device, and no fact is stored again (no command makes a new key
+  beside the old facts, or beside a stored credential) until the key is restored. A key file another account may read, or
   a value that is not a key, is named as that, not as a missing key. A project with
   its key and no stored facts passes `validate`; the reading task fails when the run
   reaches it, since whether a device has been gathered is known only then.
@@ -704,8 +711,9 @@ each device, put the devices in `hosts:`.
 **A `when:` on a task with `target:` is decided for the target, not for the runbook's `hosts:`.**
 Such a task runs on the devices its `target:` names, and its condition goes with it. A condition
 that reads `device`, or a variable that can differ by device (a `set_fact`, a device's own
-variables), is decided on each target device with that device's values. A condition that reads
-only the run's data is decided once for the task.
+variables), is decided on each target device with that device's values, however it reads them:
+`device.name`, `device["name"]`, or CEL's optional `device.?name` and `device[?"name"]`. A condition
+that reads only the run's data is decided once for the task.
 
 ```text
 - name: save the core router's configuration when it is a Cisco IOS device
