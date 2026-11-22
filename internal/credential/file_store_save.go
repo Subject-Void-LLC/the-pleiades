@@ -40,16 +40,14 @@ func SaveFileStore(dir string, key []byte, deviceName string, cred Credential) e
 // change, and writes it back atomically into a directory only the owner may
 // open. Every writer goes through it, so device and registry credentials are
 // saved one way.
+//
+// It holds the credential file lock (save_lock.go) from before the read
+// until the new file is in place, so writers started together take turns and
+// none writes the file back without another's entry. The directory is made
+// first because the lock file lives in it; a change that is then refused
+// leaves the directory and the empty lock file, and no credential file.
 func updateCredentialsDocument(dir string, change func(doc *credentialsDocument) error) error {
 	path := credentialsPath(dir)
-	doc, err := readCredentialsDocument(path)
-	if err != nil {
-		return err
-	}
-	if err := change(&doc); err != nil {
-		return err
-	}
-
 	dirPath := filepath.Dir(path)
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", dirPath, err)
@@ -66,6 +64,20 @@ func updateCredentialsDocument(dir string, change func(doc *credentialsDocument)
 	// Schema/Injection Hardening audit, FAILURE_PATTERNS.md #22).
 	if err := os.Chmod(dirPath, 0o700); err != nil { // #nosec G302 -- 0o700 is a directory permission (owner rwx), not a file permission; gosec's 0600 threshold does not distinguish the two
 		return fmt.Errorf("failed to set permissions on %s: %w", dirPath, err)
+	}
+
+	unlock, err := lockCredentials(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	doc, err := readCredentialsDocument(path)
+	if err != nil {
+		return err
+	}
+	if err := change(&doc); err != nil {
+		return err
 	}
 
 	data, err := yaml.Marshal(doc)

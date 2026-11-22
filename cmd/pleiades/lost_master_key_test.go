@@ -264,8 +264,8 @@ func vaultSnapshot(t *testing.T, dir string) []byte {
 
 // TestCLI_WritersStartedTogetherInANewProjectAgreeOnOneKey: several
 // add-credential processes started at once in a project with no key all
-// succeed, each sealing its credential, and every credential stored opens
-// with the one key file left behind. A process that found no key, then found a
+// succeed, each sealing its credential, every one of them is stored, and each
+// opens with the one key file left behind. A process that found no key, then found a
 // credential another had just sealed under the key it made, once refused the
 // project as one whose key was lost.
 func TestCLI_WritersStartedTogetherInANewProjectAgreeOnOneKey(t *testing.T) {
@@ -304,8 +304,11 @@ func TestCLI_WritersStartedTogetherInANewProjectAgreeOnOneKey(t *testing.T) {
 			t.Fatal(err)
 		}
 		listed, err := credential.ListCredentials(dir)
-		if err != nil || len(listed) == 0 {
-			t.Fatalf("round %d: listed %d credentials: %v", round, len(listed), err)
+		// Every writer's credential is there: each save holds the credential
+		// file lock across its read and its write, so none writes the file
+		// back without another's entry.
+		if err != nil || len(listed) != writers {
+			t.Fatalf("round %d: %d writers left %d credentials: %v", round, writers, len(listed), err)
 		}
 		for _, c := range listed {
 			if got, err := store.Lookup(context.Background(), c.Name); err != nil || got.Password != "s3cret-pw" {
