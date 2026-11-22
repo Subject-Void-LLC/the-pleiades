@@ -122,6 +122,16 @@ func severerFor(raw net.Conn) func() {
 	return func() { _ = raw.Close() }
 }
 
+// routeHops returns what each hop of raw's route allowed and did, when the
+// route is this package's own (DialThroughHops), and nothing for a connection
+// some other dialer opened, which has no hops this package dialed.
+func routeHops(raw net.Conn) []hopLegacy {
+	if t, ok := raw.(*hopTunneledConn); ok {
+		return t.hops
+	}
+	return nil
+}
+
 // routedConn is a connection opened through a route, reporting as its peer
 // the address the route was asked for.
 type routedConn struct {

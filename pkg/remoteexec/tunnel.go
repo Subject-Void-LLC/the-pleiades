@@ -54,7 +54,7 @@ func (r *Runner) DialThroughHops(ctx context.Context, hops []Hop, target Target)
 		legs[i] = connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify, legacy: h.Target.Legacy}
 	}
 
-	chain, err := r.dialChain(ctx, legs)
+	chain, keys, err := r.dialChain(ctx, legs)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,11 @@ func (r *Runner) DialThroughHops(ctx context.Context, hops []Hop, target Target)
 	}
 	r.breaker.RecordSuccess(target.Addr())
 
-	return newHopTunneledConn(finalConn, chain), nil
+	tunneled := newHopTunneledConn(finalConn, chain)
+	// What each hop's record allowed and its key did, for an SSH connection
+	// opened over this one (ConnectVia) to warn about.
+	tunneled.hops = hopRecords(legs, chain, keys)
+	return tunneled, nil
 }
 
 // hopTunneledConn wraps the final raw net.Conn DialThroughHops opens.
@@ -124,6 +128,9 @@ type hopTunneledConn struct {
 	real     net.Conn
 	chain    []*ssh.Client
 	pumpDone chan struct{}
+	// hops is what each hop's record allowed and its stored key did, read
+	// by ConnectVia (routeHops) for the warnings of the connection it carries.
+	hops []hopLegacy
 }
 
 func newHopTunneledConn(real net.Conn, chain []*ssh.Client) *hopTunneledConn {

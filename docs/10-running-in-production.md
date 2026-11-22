@@ -2596,7 +2596,9 @@ Every SSH connection names the algorithms it may agree to, the SSH library's sec
 more: no SHA-1 key exchange, no `ssh-rsa` (SHA-1) or DSA host key signature, no CBC, 3DES or RC4
 cipher and no `hmac-sha1-96`, although the library itself would still offer some of these to a
 client that names none. An RSA host key is still accepted, proved with a SHA-2 signature
-(`rsa-sha2-256` or `rsa-sha2-512`), which OpenSSH 7.2 and later, and current IOS XE, offer.
+(`rsa-sha2-256` or `rsa-sha2-512`), which OpenSSH 7.2 and later, and current IOS XE, offer. The
+same holds for the login: a stored RSA key signs with `rsa-sha2-512` or `rsa-sha2-256`, never with
+`ssh-rsa` (SHA-1), and a DSA key, which can sign only with `ssh-dss`, does not sign at all.
 
 An old device that offers nothing better (an IOSvL2 15.2 switch offers only
 `diffie-hellman-group14-sha1` and an `ssh-rsa` host key) is refused, naming what it offered and
@@ -2609,6 +2611,20 @@ weakening, on any device reached over SSH (a `linux_server`, `generic_ssh`, `gen
 | `ssh_allow_legacy_key_exchange: true` | SHA-1 Diffie-Hellman key exchange: `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1`, and the 1024-bit `diffie-hellman-group1-sha1`. |
 | `ssh_allow_legacy_host_keys: true` | A host key proved with `ssh-rsa` (SHA-1), or a DSA key (`ssh-dss`), and their certificates. |
 | `ssh_allow_legacy_ciphers: true` | The CBC, 3DES and RC4 ciphers and the truncated `hmac-sha1-96` MAC. |
+| `ssh_allow_legacy_user_key_signatures: true` | A stored RSA key signing the login with `ssh-rsa` (SHA-1), or a DSA key with `ssh-dss`, and their certificates. |
+
+A server that does not advertise SHA-2 for user keys (OpenSSH before 7.2, an OpenSSH set to
+`PubkeyAcceptedAlgorithms ssh-rsa`, and some older network devices) takes an RSA key only with
+`ssh-rsa`. A login with such a key is refused, naming `ssh_allow_legacy_user_key_signatures`,
+but only once the server has said it would take the key that way; a server that refuses the key
+outright gets a plain refused login. A credential holding both a key and a password logs in with
+the password instead, as it does when a server refuses the key, and that connection warns, on every
+run and every onboarding, that the stored key was not used. `ssh_allow_legacy_host_keys` does not
+allow a SHA-1 login signature, and this property does not allow a SHA-1 host key. A Pleiades build
+in FIPS 140 mode refuses the SHA-1 signature whatever the record says, naming FIPS rather than the
+property. An external Collection that connects through `sdk.Connect` is held to this as a built-in
+method is; one that uses the private key it is handed some other way is not, and nothing can stop
+it signing with SHA-1.
 
 The secure algorithms are always offered first, so a device that can do better still does.
 Every connection to a device with a flag set warns, on every run and every onboarding, either

@@ -220,10 +220,11 @@ func hostKeyRefused(err error) bool {
 }
 
 // answeredRefusal reports whether err is an answer rather than the network
-// failing: a refused credential, a host key this side refused, or a
-// handshake that found no algorithm in common (legacy.go), since a server
-// offers the same algorithms on every attempt. None is retried, and none is
-// counted against the address's circuit, which belongs to every caller.
+// failing: a refused credential, a host key this side refused, a handshake
+// that found no algorithm in common (legacy.go), since a server offers the
+// same algorithms on every attempt, or a stored key this side would not sign
+// with for the same reason (userkey.go). None is retried, and none is counted
+// against the address's circuit, which belongs to every caller.
 func answeredRefusal(err error) bool {
-	return authRejected(err) || hostKeyRefused(err) || negotiationRefused(err)
+	return authRejected(err) || hostKeyRefused(err) || negotiationRefused(err) || signatureRefused(err)
 }

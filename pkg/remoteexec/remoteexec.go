@@ -408,14 +408,12 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	}
 	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify, legacy: target.Legacy})
 
-	chain, err := r.dialChain(ctx, legs)
+	chain, keys, err := r.dialChain(ctx, legs)
 	if err != nil {
 		return nil, err
 	}
-	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy}
-	for i, h := range hops {
-		conn.hopLegacy = append(conn.hopLegacy, hopLegacy{addr: legs[i].addr, legacy: h.Target.Legacy})
-	}
+	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy, userKey: keys[len(keys)-1]}
+	conn.hopLegacy = hopRecords(legs[:len(hops)], chain, keys)
 	// A detached command whose connection drops polls on a fresh one, dialed
 	// the same way (detach.go).
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.Connect(ctx, hops, target, auth) }
@@ -452,11 +450,14 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", addr, err)
 	}
-	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout, target.Legacy))
+	use := &userKeyUse{}
+	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout, target.Legacy, use))
 	if err != nil {
-		return nil, &DialError{Addr: addr, Err: ExplainNegotiation(err, addr, target.Legacy)}
+		return nil, &DialError{Addr: addr, Err: explainLogin(ExplainNegotiation(err, addr, target.Legacy), addr, use.snapshot())}
 	}
-	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw), legacy: target.Legacy}
+	// A route of this package's own (DialThroughHops) says what each of its
+	// hops did, so a bastion's weakening is warned about here too.
+	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw), legacy: target.Legacy, userKey: use.snapshot(), hopLegacy: routeHops(raw)}
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.ConnectVia(ctx, via, target, auth) }
 	return conn, nil
 }
@@ -473,8 +474,12 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 // for the identical reason (a hop's client owns the tunneled connection
 // the next one was built on), so a partial chain is never left dangling
 // for the caller to notice only when something later breaks.
-func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, err error) {
+//
+// keys holds, one per leg in order, what that leg's stored key did during the
+// login that opened it (userkey.go), for the connection's warnings.
+func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, keys []userKeyOutcome, err error) {
 	chain = make([]*ssh.Client, 0, len(legs))
+	keys = make([]userKeyOutcome, 0, len(legs))
 	defer func() {
 		if err != nil {
 			for i := len(chain) - 1; i >= 0; i-- {
@@ -491,7 +496,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 			// caller meant. Checked per leg: a hop with no credential
 			// must refuse naming that hop, never fall through to
 			// whatever the target's own Auth happens to be.
-			return nil, fmt.Errorf("remoteexec: no usable authentication method for %s", leg.addr)
+			return nil, nil, fmt.Errorf("remoteexec: no usable authentication method for %s", leg.addr)
 		}
 
 		// Step 1: fail fast on an open circuit, with zero network I/O and
@@ -506,7 +511,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		// is where the dial happens, so the loop is where the probe is
 		// claimed.
 		if !r.breaker.Permitted(leg.addr) {
-			return nil, fmt.Errorf("remoteexec: %w for %s, too many recent failures", breaker.ErrOpen, leg.addr)
+			return nil, nil, fmt.Errorf("remoteexec: %w for %s, too many recent failures", breaker.ErrOpen, leg.addr)
 		}
 
 		// Step 2: build this leg's own host key check. A host key source
@@ -515,10 +520,11 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		// including a hop.
 		hostKeyCB, hkErr := hostKeyCallbackFor(r.opts, leg.insecureSkipHostKeyVerify)
 		if hkErr != nil {
-			return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
+			return nil, nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
 		}
 
-		config := leg.auth.clientConfig(hostKeyCB, leg.addr, r.opts.DialTimeout, leg.legacy)
+		use := &userKeyUse{}
+		config := leg.auth.clientConfig(hostKeyCB, leg.addr, r.opts.DialTimeout, leg.legacy, use)
 
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after
@@ -527,18 +533,38 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		if i > 0 {
 			dial = dialThroughHop(chain[i-1])
 		}
-		next, dialErr := r.dialWithRetry(ctx, dial, leg.addr, config)
+		// Each attempt starts its own record of what the stored key did, so
+		// the warnings describe the login that opened the connection.
+		attempt := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+			use.reset()
+			return dial(ctx, addr, config)
+		}
+		next, dialErr := r.dialWithRetry(ctx, attempt, leg.addr, config)
 		if dialErr != nil {
 			// A handshake with nothing in common names what the server
-			// offered and the property that would allow it (legacy.go).
-			return nil, &DialError{Addr: leg.addr, Err: ExplainNegotiation(dialErr, leg.addr, leg.legacy)}
+			// offered and the property that would allow it (legacy.go), and
+			// a stored key refused for a legacy signature is named even when
+			// a password was then refused too (userkey.go).
+			return nil, nil, &DialError{Addr: leg.addr, Err: explainLogin(ExplainNegotiation(dialErr, leg.addr, leg.legacy), leg.addr, use.snapshot())}
 		}
 
 		// Step 4: a successful dial closes the circuit, or completes a
 		// half-open probe successfully, for this leg.
 		r.breaker.RecordSuccess(leg.addr)
 		chain = append(chain, next)
+		keys = append(keys, use.snapshot())
 	}
 
-	return chain, nil
+	return chain, keys, nil
+}
+
+// hopRecords returns, for the hop legs of a chain dialed by dialChain, what
+// each hop's record allowed and its stored key did, with the hop's own client,
+// so the hop's weakenings are warned about on the connection it carries.
+func hopRecords(hops []connectLeg, chain []*ssh.Client, keys []userKeyOutcome) []hopLegacy {
+	var out []hopLegacy
+	for i, leg := range hops {
+		out = append(out, hopLegacy{addr: leg.addr, legacy: leg.legacy, userKey: keys[i], client: chain[i]})
+	}
+	return out
 }

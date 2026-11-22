@@ -1,0 +1,1 @@
+A device that logs in with a stored RSA or DSA key, and whose SSH server takes that key only with an `ssh-rsa` (SHA-1) or `ssh-dss` signature, is now refused with a message naming the server and the fix: set `ssh_allow_legacy_user_key_signatures: true` on that device's record. A credential that also holds a password logs in with it instead, with a warning.

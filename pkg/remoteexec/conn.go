@@ -81,40 +81,55 @@ type Conn struct {
 	// to, which LegacyWarnings holds against what it did agree to.
 	legacy Legacy
 
+	// userKey is what the stored key did when this connection logged in: the
+	// algorithm it signed with, or a legacy one it would not sign with while
+	// a password logged in instead (userkey.go).
+	userKey userKeyOutcome
+
 	// hopLegacy is what each bastion hop's own record allowed, one entry per
 	// hop in order, so a weakening on a bastion is reported too: its session
 	// carries the device's traffic (LegacyWarnings).
 	hopLegacy []hopLegacy
 }
 
-// hopLegacy is one bastion hop's address and the legacy algorithms its record
-// allowed, kept so the hop's negotiated algorithms can be warned about.
+// hopLegacy is one bastion hop's address, the legacy algorithms its record
+// allowed, what its stored key did and its own client, kept so the hop's
+// negotiated algorithms and login can be warned about.
 type hopLegacy struct {
-	addr   string
-	legacy Legacy
+	addr    string
+	legacy  Legacy
+	userKey userKeyOutcome
+	client  *ssh.Client
 }
 
 // LegacyWarnings says, for the named device, what this connection did with
 // each legacy SSH algorithm its record allows (legacy.go): that it used one,
-// naming it, or that it did not need it. It covers the device's own leg and
-// each bastion hop that allows any. It is empty for a device whose records
-// allow none, which is every connection by default. A caller reports them on
+// naming it, or that it did not need it. It also says when a stored key was
+// not used because the server takes it only with a legacy signature the
+// record does not allow, and a password logged in instead (userkey.go),
+// whatever the record allows. It covers the device's own leg and each bastion
+// hop. It is empty for a device whose records allow none and whose key signed
+// the login, which is every connection by default. A caller reports them on
 // every connection, so a weakening is never forgotten once set.
 func (c *Conn) LegacyWarnings(device string) []string {
 	if c == nil || c.client == nil {
 		return nil
 	}
-	var out []string
-	if !c.legacy.IsZero() {
-		out = append(out, connectionWarnings(device, c.legacy, negotiatedAlgorithms(c.client))...)
-	}
-	for i, h := range c.hopLegacy {
-		if h.legacy.IsZero() || i >= len(c.chain) {
-			continue
-		}
-		out = append(out, connectionWarnings("bastion "+h.addr+" carrying "+device, h.legacy, negotiatedAlgorithms(c.chain[i]))...)
+	out := legWarnings(device, c.legacy, c.userKey, c.client)
+	for _, h := range c.hopLegacy {
+		out = append(out, legWarnings("bastion "+h.addr+" carrying "+device, h.legacy, h.userKey, h.client)...)
 	}
 	return out
+}
+
+// legWarnings is one leg's warnings, for the named device: what its client
+// did with each weakening l allows, then a stored key it did not use.
+func legWarnings(device string, l Legacy, key userKeyOutcome, client *ssh.Client) []string {
+	var out []string
+	if !l.IsZero() {
+		out = connectionWarnings(device, l, negotiatedAlgorithms(client), key)
+	}
+	return append(out, skippedKeyWarnings(device, key)...)
 }
 
 // negotiatedAlgorithms is what a client's handshake agreed to. A client

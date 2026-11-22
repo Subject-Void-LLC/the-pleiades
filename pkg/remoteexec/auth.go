@@ -15,10 +15,10 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// Auth is a username paired with exactly one resolved SSH
-// authentication method.
+// Auth is a username paired with its resolved SSH authentication: a stored
+// key, a password, or both.
 //
-// Both fields are unexported, and that is the point. The secret is
+// Every field is unexported, and that is the point. The secret is
 // consumed when the Auth is built and is never readable back out, so a
 // caller cannot accidentally print, log, marshal or copy a password out
 // of this type. That is a different answer to the same problem
@@ -30,9 +30,13 @@ import (
 // Runner.Connect.
 type Auth struct {
 	user string
-	// methods are offered to the server in order: a key before a password
-	// when a credential holds both, as OpenSSH's client does.
-	methods []ssh.AuthMethod
+	// key is the stored private key, nil when the credential holds none. It
+	// is offered before a password, as OpenSSH's client does, and wrapped
+	// afresh for each connection (userKeySigner, userkey.go) so its
+	// signature is held to what that connection's device record allows.
+	key ssh.AlgorithmSigner
+	// password is the password method, nil when the credential holds none.
+	password ssh.AuthMethod
 
 	// identity tells two Auths apart without holding their secrets: an
 	// HMAC, under a key drawn at random once per process, of the user and
@@ -71,25 +75,42 @@ func identityOf(kind string, parts ...[]byte) [sha256.Size]byte {
 // A zero Auth is not usable, which is what stops an unauthenticated
 // connection attempt from ever leaving the process.
 func (a Auth) usable() bool {
-	return len(a.methods) > 0
+	return a.key != nil || a.password != nil
+}
+
+// methods returns the methods one connection to addr offers, in order: the
+// stored key first, wrapped so it signs only what legacy allows and records
+// what it did in use, then the password.
+func (a Auth) methods(addr string, legacy Legacy, use *userKeyUse) []ssh.AuthMethod {
+	var out []ssh.AuthMethod
+	if a.key != nil {
+		out = append(out, ssh.PublicKeys(newUserKeySigner(a.key, addr, legacy, use)))
+	}
+	if a.password != nil {
+		out = append(out, a.password)
+	}
+	return out
 }
 
 // clientConfig builds the ssh.ClientConfig for one connection to addr: this
-// Auth's user and method, the caller's host key check (which names the keys
-// when it refuses one, hostkeyerror.go), the algorithms legacy allows and no
-// others (legacy.go), the host key algorithms that check can verify offered
-// first (hostKeyAlgorithms), and dialTimeout as a fallback bound.
+// Auth's user and methods, its stored key held to the user key signatures
+// legacy allows and recording what it did in use (userkey.go), the caller's
+// host key check (which names the keys when it refuses one, hostkeyerror.go),
+// the algorithms legacy allows and no others (legacy.go), the host key
+// algorithms that check can verify offered first (hostKeyAlgorithms), and
+// dialTimeout as a fallback bound.
 //
 // It is a method on Auth rather than a free function so the method
 // itself never has to leave this type, not even to be assembled into a
-// config by code elsewhere in the package.
-func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout time.Duration, legacy Legacy) *ssh.ClientConfig {
+// config by code elsewhere in the package. It is also the one place a stored
+// key reaches the library, which internal/archtest holds.
+func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout time.Duration, legacy Legacy, use *userKeyUse) *ssh.ClientConfig {
 	return &ssh.ClientConfig{
 		// Named explicitly, never left to the library, whose own default
 		// still offers SHA-1 key exchange and the truncated SHA-1 MAC.
 		Config:          legacy.algorithms(),
 		User:            a.user,
-		Auth:            a.methods,
+		Auth:            a.methods(addr, legacy, use),
 		HostKeyCallback: describeHostKeyRefusal(hostKey),
 		// Always set: the library's default also offers ssh-rsa (SHA-1)
 		// and DSA. The types known_hosts holds for addr come first, so a
@@ -106,7 +127,7 @@ func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout
 
 // PasswordAuth returns an Auth that authenticates as user with password.
 func PasswordAuth(user, password string) Auth {
-	return Auth{user: user, methods: []ssh.AuthMethod{ssh.Password(password)}, identity: identityOf("password", []byte(user), []byte(password))}
+	return Auth{user: user, password: ssh.Password(password), identity: identityOf("password", []byte(user), []byte(password))}
 }
 
 // PrivateKeyAuth returns an Auth that authenticates as user with the
@@ -127,7 +148,19 @@ func PrivateKeyAuth(user string, privateKeyPEM []byte, passphrase string) (Auth,
 	if err != nil {
 		return Auth{}, fmt.Errorf("parse private key: %w", err)
 	}
-	return Auth{user: user, methods: []ssh.AuthMethod{ssh.PublicKeys(signer)}, identity: identityOf("key", []byte(user), signer.PublicKey().Marshal())}, nil
+	return keyAuth(user, signer)
+}
+
+// keyAuth returns an Auth that authenticates as user with signer. A signer
+// that cannot choose its signature algorithm is refused: the library would
+// sign with the key's own format, ssh-rsa for an RSA key, and nothing could
+// hold it to SHA-2. Every key the library parses can choose.
+func keyAuth(user string, signer ssh.Signer) (Auth, error) {
+	key, ok := signer.(ssh.AlgorithmSigner)
+	if !ok {
+		return Auth{}, fmt.Errorf("parse private key: a %s key that cannot choose its signature algorithm", signer.PublicKey().Type())
+	}
+	return Auth{user: user, key: key, identity: identityOf("key", []byte(user), signer.PublicKey().Marshal())}, nil
 }
 
 // AuthFrom turns the four pieces of authentication material this
@@ -162,7 +195,8 @@ func AuthFrom(user, password string, privateKeyPEM []byte, passphrase string) (A
 		keyIdentity := key.identity
 		return Auth{
 			user:     user,
-			methods:  []ssh.AuthMethod{key.methods[0], ssh.Password(password)},
+			key:      key.key,
+			password: ssh.Password(password),
 			identity: identityOf("key+password", []byte(user), keyIdentity[:], []byte(password)),
 		}, nil
 
