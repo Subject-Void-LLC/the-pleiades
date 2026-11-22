@@ -144,8 +144,11 @@ store an encrypted credential for a device
 | --passphrase-stdin | `bool` | `false` | read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input |
 | --enable-password | `bool` | `false` | prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode |
 | --enable-password-stdin | `bool` | `false` | read that enable secret as one line on standard input, after the login's own secret when that is piped too |
-| --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
+| --generate | `bool` | `false` | generate a new random key (ed25519 unless --key-type says otherwise) and password, for a machine Pleiades will create; prints the key's type, fingerprint and public key line, never a secret |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
+| --key-type | `string` | `ed25519` | with --generate, the key to make: ed25519, rsa-3072, rsa-4096, ecdsa-p256 or ecdsa-p384 |
+| --no-password | `bool` | `false` | with --generate, store the key alone with no password, so a device that refuses the key fails the login instead of taking a password |
+| --json | `bool` | `false` | with --generate, print one JSON document instead of text: the key's type, fingerprint and public key line, never a secret |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
 | --no-device | `bool` | `false` | store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused |
 | --snmp-community | `bool` | `false` | prompt for an SNMPv1/v2c community, stored apart from the login |
@@ -163,6 +166,8 @@ store an encrypted credential for a device
 `pleiades add-credential cluster1 --token-stdin < token`
 
 `pleiades add-credential ubuntu-lab --username root --generate`
+
+`pleiades add-credential old-switch --username admin --generate --key-type rsa-3072 --no-password`
 
 `pleiades add-credential web01 --username root --password-file web01.sealed`
 

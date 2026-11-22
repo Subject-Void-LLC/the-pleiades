@@ -54,8 +54,8 @@ func storedCredential(t *testing.T, dir, device string) credential.Credential {
 }
 
 // TestCLI_AddCredentialStoresAnEnableSecret: with --password-stdin the
-// enable secret is the second line, alone it is the only one, and it never
-// goes with a token or a generated credential or is read two ways.
+// enable secret is the second line, alone it is the only one, it goes with a
+// generated credential, and it never goes with a token or is read two ways.
 func TestCLI_AddCredentialStoresAnEnableSecret(t *testing.T) {
 	dir := t.TempDir()
 	if out, err := runPleiades(t, dir, "init"); err != nil {
@@ -97,10 +97,19 @@ func TestCLI_AddCredentialStoresAnEnableSecret(t *testing.T) {
 		t.Errorf("piped passphrase kept %v, enable %q; want both lines kept apart", c.Passphrase == "k3y-pass", c.EnablePassword)
 	}
 
+	// A generated login takes one too: the enable secret is the only line.
+	if out, err := runPleiadesWithStdin(t, dir, "en4ble\n", "add-credential", "r5", "--username", "cisco", "--generate", "--enable-password-stdin"); err != nil {
+		t.Fatalf("add-credential --generate with an enable secret: %v\n%s", err, out)
+	} else if strings.Contains(out, "en4ble") {
+		t.Errorf("the output shows the enable secret:\n%s", out)
+	}
+	if c := storedCredential(t, dir, "r5"); len(c.PrivateKeyPEM) == 0 || c.EnablePassword != "en4ble" {
+		t.Errorf("a generated login and an enable secret: key %d bytes, enable set %v", len(c.PrivateKeyPEM), c.EnablePassword == "en4ble")
+	}
+
 	for name, args := range map[string][]string{
-		"with a token":    {"add-credential", "r3", "--token-stdin", "--enable-password-stdin"},
-		"with --generate": {"add-credential", "r3", "--username", "u", "--generate", "--enable-password-stdin"},
-		"read two ways":   {"add-credential", "r3", "--username", "u", "--password-stdin", "--enable-password", "--enable-password-stdin"},
+		"with a token":  {"add-credential", "r3", "--token-stdin", "--enable-password-stdin"},
+		"read two ways": {"add-credential", "r3", "--username", "u", "--password-stdin", "--enable-password", "--enable-password-stdin"},
 	} {
 		if out, err := runPleiadesWithStdin(t, dir, "x\ny\n", args...); err == nil || !strings.Contains(out, "enable") {
 			t.Errorf("%s: %v\n%s; want refused naming the enable secret", name, err, out)

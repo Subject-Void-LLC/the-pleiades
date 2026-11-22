@@ -192,6 +192,42 @@ key fails the run before it connects, naming the device and the command that sto
 The fingerprint is shown only here. It is never written to a fact, a task's stats or the
 journal.
 
+**A login for a machine Pleiades creates.** `add-credential --generate` makes a new random key
+and a new random password that nobody chooses, types or sees, and prints only what may be
+shown, the public key line last:
+
+```console
+$ pleiades add-credential ub1 --username root --generate
+stored a generated credential for device "ub1": an ed25519 key and a 24-character password, for root
+key type: ed25519
+fingerprint: SHA256:Jh1PzkvKpwrPcCFlggl3/0T+MxfMF78UIVjSE/pHTJ4
+public key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... root@ub1
+```
+
+The key is ed25519 unless `--key-type` names another: `rsa-3072`, `rsa-4096`, `ecdsa-p256` or
+`ecdsa-p384`, matched exactly. Use ed25519 unless the device refuses it. A device that takes only
+RSA user keys needs an RSA type, and a host in FIPS mode may refuse ed25519 and take
+`ecdsa-p256`. A 2048-bit RSA key is not generated; one made elsewhere can still be stored with
+`--key`. An RSA key's line starts with `ssh-rsa`, which names the key's format, not how it signs:
+Pleiades signs with `rsa-sha2-256` or `rsa-sha2-512`, and says so on standard error each time it
+makes one, so a device that takes only SHA-1 `ssh-rsa` signatures refuses the key unless it sets
+`ssh_allow_legacy_user_key_signatures`. Every type is stored in OpenSSH's own form.
+
+The password is for what a key cannot reach, such as a VM's console. A login holding both offers
+the key first and the password after it, so a device that refuses the key can still let the
+password in, and nothing says the key failed. `--no-password` stores the key alone, so a wrong key
+type fails the login where you can see it. `--enable-password` or `--enable-password-stdin` stores
+a network device's enable secret with the generated login. `--json` prints the same facts as one
+JSON document (`device`, `username`, `key_type`, `key_bits`, `key_fingerprint`, `public_key`,
+`password_generated`, `enable_password_stored`, `unbound`, `replaced_key_fingerprint`), never a
+secret.
+
+`--generate` never touches a device, and refuses to discard a stored login without `--replace`,
+since whatever that login reaches would then be out of reach: the new key is on no machine yet.
+With `--replace` the output names the fingerprint of the key it discarded, so you can remove that
+line from the machine that held it. Every refusal, a mistyped `--key-type` included, comes before
+any secret is read from standard input and before any key is made.
+
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a
 `<` redirect, give `add-credential` a sealed file instead. The project prints its public

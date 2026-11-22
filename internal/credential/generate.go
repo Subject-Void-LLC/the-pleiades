@@ -3,9 +3,7 @@
 package credential
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"math/big"
@@ -29,28 +27,14 @@ const passwordAlphabet = upper + lower + digits
 
 // Generate returns a credential for username holding a new ed25519
 // private key, in OpenSSH's own form and labelled comment, and a new
-// random password, both drawn from crypto/rand.
+// random password, both drawn from crypto/rand: GenerateWith with its
+// defaults (generate_key.go).
 //
 // The key is what logs in; the password is for what a key cannot reach,
 // a VM's console. Both are stored encrypted like any other credential,
 // and neither is ever printed: PublicKey gives the one part that may be.
 func Generate(username, comment string) (Credential, error) {
-	if username == "" {
-		return Credential{}, fmt.Errorf("credential: a generated credential needs a username")
-	}
-	_, private, err := ed25519.GenerateKey(entropy)
-	if err != nil {
-		return Credential{}, fmt.Errorf("credential: generating a key: %w", err)
-	}
-	block, err := ssh.MarshalPrivateKey(private, comment)
-	if err != nil {
-		return Credential{}, fmt.Errorf("credential: encoding the key: %w", err)
-	}
-	password, err := randomPassword(GeneratedPasswordLength)
-	if err != nil {
-		return Credential{}, err
-	}
-	return Credential{Username: username, Password: password, PrivateKeyPEM: pem.EncodeToMemory(block)}, nil
+	return GenerateWith(username, comment, GenerateOptions{})
 }
 
 // MaxGeneratedSecretLength bounds a generated named secret (add-secret
