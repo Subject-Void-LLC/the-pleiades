@@ -10,6 +10,7 @@
 package credential
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -44,14 +45,20 @@ type KeyInfo struct {
 // since the error may reach a run's output and its journal.
 var ErrKeyMismatch = errors.New("its private key does not match the key type and fingerprint recorded beside it")
 
+// ErrKeyHeaderMismatch is the refusal of a private key file in OpenSSH's form,
+// sealed by a passphrase, whose header carries another public key than the
+// one the passphrase seals. Such a file is never stored, and one already
+// stored is refused when its record is checked.
+var ErrKeyHeaderMismatch = errors.New("its private key file names one public key in its header and seals another")
+
 // DescribeKey returns the type, size and fingerprint of cred's private key,
-// reading the key with cred's passphrase when it has one.
+// reading the key with cred's passphrase when it has one (readPublicKey).
 func DescribeKey(cred Credential) (KeyInfo, error) {
-	signer, err := signerOf(cred)
+	pub, err := readPublicKey(cred)
 	if err != nil {
 		return KeyInfo{}, err
 	}
-	return describePublicKey(signer.PublicKey())
+	return describePublicKey(pub)
 }
 
 // describePublicKey names pub's algorithm and size and computes its
@@ -101,27 +108,31 @@ func signerOf(cred Credential) (ssh.Signer, error) {
 	return signer, nil
 }
 
-// storedPublicKey returns the public half of the private key cred holds as
-// the file stores it, for checking the record. A key sealed by a passphrase
-// in OpenSSH's form carries its public half beside the sealed part, and that
-// is read without the passphrase or its deliberately slow key derivation, so
-// a Lookup does not pay that again before the login pays it once. That
-// public half sits inside the same master-key ciphertext as the rest of the
-// key, so nobody without the master key can change it. Any other key is
-// parsed whole.
-func storedPublicKey(cred Credential) (ssh.PublicKey, error) {
-	if cred.Passphrase != "" {
-		_, err := ssh.ParsePrivateKey(cred.PrivateKeyPEM)
-		var missing *ssh.PassphraseMissingError
-		if errors.As(err, &missing) && missing.PublicKey != nil {
-			return missing.PublicKey, nil
-		}
-	}
+// readPublicKey returns the public half of the key cred's private key file
+// seals, read with cred's passphrase when it has one, so what is described is
+// always the key a login signs with. A file in OpenSSH's form sealed by a
+// passphrase also carries a public key in its header, readable without the
+// passphrase, which golang.org/x/crypto/ssh never compares with the key it
+// seals; when the two differ the file is refused with ErrKeyHeaderMismatch,
+// since a tool that trusted the header would name one key while the login
+// used another.
+func readPublicKey(cred Credential) (ssh.PublicKey, error) {
 	signer, err := signerOf(cred)
 	if err != nil {
 		return nil, err
 	}
-	return signer.PublicKey(), nil
+	sealed := signer.PublicKey()
+	if cred.Passphrase == "" {
+		return sealed, nil
+	}
+	// Without the passphrase the parse stops at the header, which costs none
+	// of the passphrase's slow key derivation.
+	_, err = ssh.ParsePrivateKey(cred.PrivateKeyPEM)
+	var missing *ssh.PassphraseMissingError
+	if errors.As(err, &missing) && missing.PublicKey != nil && !bytes.Equal(missing.PublicKey.Marshal(), sealed.Marshal()) {
+		return nil, ErrKeyHeaderMismatch
+	}
+	return sealed, nil
 }
 
 // recordKey writes the type and fingerprint of cred's private key onto entry,
@@ -131,11 +142,7 @@ func recordKey(entry *loginEntry, cred Credential) {
 	if len(cred.PrivateKeyPEM) == 0 {
 		return
 	}
-	pub, err := storedPublicKey(cred)
-	if err != nil {
-		return
-	}
-	info, err := describePublicKey(pub)
+	info, err := DescribeKey(cred)
 	if err != nil {
 		return
 	}
@@ -143,10 +150,16 @@ func recordKey(entry *loginEntry, cred Credential) {
 }
 
 // checkKeyRecord holds cred, as Lookup decrypted it, to the type and
-// fingerprint entry records. An entry recording neither is one stored before
-// they were recorded, or whose key could not be read then, and is not
-// checked. Any other difference is ErrKeyMismatch, naming which part
-// differs and never a value.
+// fingerprint entry records, reading the key the passphrase seals, never the
+// header beside it. An entry recording neither is one stored before they were
+// recorded, or whose key could not be read then, and is not checked. Any
+// other difference is refused, ErrKeyHeaderMismatch for a file whose header
+// names another key and ErrKeyMismatch otherwise, naming which part differs
+// and never a value.
+//
+// What this proves is that the record and the key agree, not that either is
+// the one first stored there: the vault seals each field with no associated
+// data, so a whole sealed key moved from another entry with its record passes.
 func checkKeyRecord(cred Credential, entry loginEntry) error {
 	if entry.KeyType == "" && entry.KeyFingerprint == "" {
 		return nil
@@ -154,7 +167,10 @@ func checkKeyRecord(cred Credential, entry loginEntry) error {
 	if len(cred.PrivateKeyPEM) == 0 {
 		return fmt.Errorf("%w: a key is recorded and no private key is stored", ErrKeyMismatch)
 	}
-	pub, err := storedPublicKey(cred)
+	pub, err := readPublicKey(cred)
+	if errors.Is(err, ErrKeyHeaderMismatch) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("%w: the stored private key cannot be read to compare", ErrKeyMismatch)
 	}

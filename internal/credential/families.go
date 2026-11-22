@@ -11,6 +11,7 @@ package credential
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
@@ -151,8 +152,9 @@ func familiesOf(c Credential) Families {
 
 // checkStorable refuses a credential no save may write: a field of a family
 // the save does not replace (it would be dropped without a word), an SNMP
-// family wire.SNMPCredential.Check refuses, and a certificate holding a
-// block that is not a certificate. allowShortCommunity is the operator's
+// family wire.SNMPCredential.Check refuses, a sealed private key file whose
+// header names another key (ErrKeyHeaderMismatch), and a certificate holding
+// a block that is not a certificate. allowShortCommunity is the operator's
 // acceptance of a short community.
 func checkStorable(c Credential, families Families, allowShortCommunity bool) error {
 	if families&LoginFamily == 0 && c.HasLogin() {
@@ -166,6 +168,14 @@ func checkStorable(c Credential, families Families, allowShortCommunity bool) er
 	}
 	if families&SNMPFamily != 0 {
 		if err := c.SNMP().Check(allowShortCommunity); err != nil {
+			return err
+		}
+	}
+	// A sealed key file whose header names another key than it seals is
+	// never stored: its record would describe the key it actually holds,
+	// and any tool reading the header another.
+	if families&LoginFamily != 0 && len(c.PrivateKeyPEM) != 0 {
+		if _, err := readPublicKey(c); errors.Is(err, ErrKeyHeaderMismatch) {
 			return err
 		}
 	}
@@ -190,7 +200,8 @@ func readProblem(c Credential, shortCommunity bool) (Families, error) {
 // rule it is held to on every write (a plaintext protocol name edited in the
 // file, a short community stored without its mark, a key a save before the
 // certificate check put beside a certificate, a private key that is not the
-// one its recorded fingerprint names), so it never reaches a run.
+// one its recorded fingerprint names, a sealed key file whose header names
+// another key), so it never reaches a run.
 // It names the family at fault, which a save replacing that family fixes.
 type UnusableError struct {
 	// Device is the name the credential is stored under.
