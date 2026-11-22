@@ -478,12 +478,16 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 // keys holds, one per leg in order, what that leg's stored key did during the
 // login that opened it (userkey.go), for the connection's warnings.
 func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, keys []userKeyOutcome, err error) {
-	chain = make([]*ssh.Client, 0, len(legs))
+	// dialed is every client this call opened, which the cleanup closes. It
+	// is not chain: a return statement sets chain, to nil on every failure,
+	// before a deferred function runs, so a cleanup reading chain closed
+	// nothing and left every hop before a failed leg open on its bastion.
+	dialed := make([]*ssh.Client, 0, len(legs))
 	keys = make([]userKeyOutcome, 0, len(legs))
 	defer func() {
 		if err != nil {
-			for i := len(chain) - 1; i >= 0; i-- {
-				_ = chain[i].Close()
+			for i := len(dialed) - 1; i >= 0; i-- {
+				_ = dialed[i].Close()
 			}
 		}
 	}()
@@ -528,10 +532,10 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after
-		// it tunnels through the previous leg's own client, chain[i-1].
+		// it tunnels through the previous leg's own client, dialed[i-1].
 		dial := r.dial
 		if i > 0 {
-			dial = dialThroughHop(chain[i-1])
+			dial = dialThroughHop(dialed[i-1])
 		}
 		// Each attempt starts its own record of what the stored key did, so
 		// the warnings describe the login that opened the connection.
@@ -551,11 +555,11 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		// Step 4: a successful dial closes the circuit, or completes a
 		// half-open probe successfully, for this leg.
 		r.breaker.RecordSuccess(leg.addr)
-		chain = append(chain, next)
+		dialed = append(dialed, next)
 		keys = append(keys, use.snapshot())
 	}
 
-	return chain, keys, nil
+	return dialed, keys, nil
 }
 
 // hopRecords returns, for the hop legs of a chain dialed by dialChain, what
