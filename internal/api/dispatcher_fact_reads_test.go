@@ -101,6 +101,16 @@ func TestLaunchTemplate_RefusesAFactReadingRunbookBeforeTheJobExists(t *testing.
 	if listed, _ := jobs.List(context.Background(), "", 10); len(listed) != 1 {
 		t.Errorf("a refused relaunch left %d jobs, want the first one alone", len(listed))
 	}
+	// Over HTTP the relaunch is a 422 naming the key, never a 500.
+	req := httptest.NewRequest(http.MethodPost, "/jobs/"+jobID+"/relaunch", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", jobID)
+	req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	after.RelaunchJob(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "os.family") {
+		t.Errorf("relaunch over HTTP: status %d, body %s; want 422 naming the key", rec.Code, rec.Body.String())
+	}
 }
 
 // TestLaunchRoutes_AFactReadingRunbookIs422: over HTTP the launch route and

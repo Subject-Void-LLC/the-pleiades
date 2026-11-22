@@ -435,6 +435,10 @@ func (d *Dispatcher) RelaunchJob(w http.ResponseWriter, r *http.Request) {
 			RespondError(w, r, http.StatusUnprocessableEntity, "the template this job ran no longer exists")
 		case errors.Is(err, ErrNotRelaunchable):
 			RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
+		case errors.Is(err, dispatch.ErrSeededLogin), errors.Is(err, dispatch.ErrFactReads):
+			// The runbook as it is now is refused on every launch, a relaunch
+			// included; the message is the runbook's own text.
+			RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 		default:
 			loggerFrom(r).ErrorContext(r.Context(), "failed to relaunch job",
 				slog.String("job_id", jobID),
