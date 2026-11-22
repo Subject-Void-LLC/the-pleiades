@@ -123,3 +123,42 @@ func TestRefuseFactReads_NamesEveryTaskAndWrapsItsError(t *testing.T) {
 		t.Fatalf("refusal = %v", err)
 	}
 }
+
+// lastPayloadVersionWithoutFactReads is the newest dispatch payload version
+// a Runner reads that predates the facts root: that Runner compiles a
+// condition naming facts as an undeclared name and fails, after the job was
+// accepted and its dispatch published.
+const lastPayloadVersionWithoutFactReads = 2
+
+// TestFanOut_AFactReadingDispatchCarriesAVersionAnOlderRunnerRefuses is a
+// guard for the day the Walk tier's refusal of a fact-reading runbook is
+// lifted: a dispatch of such a runbook must then carry a payload version an
+// N-1 Runner refuses by version, before it compiles anything. While the
+// refusal stands nothing is published and the guard has nothing to hold.
+func TestFanOut_AFactReadingDispatchCarriesAVersionAnOlderRunnerRefuses(t *testing.T) {
+	if wire.DispatchPayloadVersion < lastPayloadVersionWithoutFactReads {
+		t.Fatalf("the payload version went backwards: %d", wire.DispatchPayloadVersion)
+	}
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	repo := &namedRepository{}
+	repo.Devices = append(repo.Devices, capableDevice("id-0", "dev-0", "10.0.0.1"))
+	worker := dispatch.NewWorker(store, repo, factsRunbookSource(t), bus, nil)
+	if err := worker.HandleJobRequested(requestJobWithLaunchFields(t, t.Context(), store, "pb-facts", "routers", nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
+	for _, evt := range bus.published {
+		var p wire.DispatchPayload
+		if err := json.Unmarshal(evt.Data, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.PayloadVersion <= lastPayloadVersionWithoutFactReads {
+			t.Fatalf("a runbook reading stored facts was dispatched at payload version %d, which a Runner from before fact reads takes and then "+
+				"fails to compile after the job was accepted: raise DispatchPayloadVersion and write a fact-reading dispatch at it "+
+				"(pkg/wire/dispatch_version.go, PayloadVersionFor), so an N-1 Runner refuses it by version (CheckVersion) before it runs anything",
+				p.PayloadVersion)
+		}
+	}
+}
