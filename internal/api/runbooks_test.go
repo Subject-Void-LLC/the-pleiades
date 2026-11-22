@@ -7,7 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -150,5 +153,37 @@ func TestRunbookHandler_GetRejectsAnUnusableIDWithoutEchoingIt(t *testing.T) {
 	}
 	if jsonContains(rec.Body.String(), "passwd") {
 		t.Errorf("body = %s, want the rejected id withheld", rec.Body.String())
+	}
+}
+
+// TestRunbookHandler_GetSaysWhyARunbookDoesNotCompile: over the real source, a
+// runbook that was read and does not build answers 400 with the builder's
+// message, where it used to answer "invalid runbook id" about an id that was
+// valid; a malformed id still answers that, and a runbook that builds 200.
+func TestRunbookHandler_GetSaysWhyARunbookDoesNotCompile(t *testing.T) {
+	router := runbooksRouter(t, newCompileSource(t).src)
+
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/runbooks/broken", "")
+	if missing := says(rec.Body.String(), builderSays); rec.Code != http.StatusBadRequest || len(missing) > 0 {
+		t.Errorf("status %d, body %s; want 400 saying %q", rec.Code, rec.Body.String(), builderSays)
+	}
+	rec = doJSON(t, router, http.MethodGet, "/api/v1/runbooks/not.an.id", "")
+	if rec.Code != http.StatusBadRequest || !jsonContains(rec.Body.String(), "invalid runbook id") {
+		t.Errorf("a malformed id: status %d, body %s; want 400 invalid runbook id", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(t, router, http.MethodGet, "/api/v1/runbooks/plain", ""); rec.Code != http.StatusOK {
+		t.Errorf("a runbook that builds: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	// A handler built with no logger logs to the process default and answers
+	// the same.
+	direct := api.NewRunbookHandler(newCompileSource(t).src, nil)
+	req := httptest.NewRequest(http.MethodGet, "/runbooks/broken", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "broken")
+	rec = httptest.NewRecorder()
+	direct.Get(rec, req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
+	if rec.Code != http.StatusBadRequest || len(says(rec.Body.String(), builderSays)) > 0 {
+		t.Errorf("with no logger: status %d, body %s", rec.Code, rec.Body.String())
 	}
 }

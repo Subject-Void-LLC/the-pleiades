@@ -406,3 +406,30 @@ func TestDispatcherLaunch_ARunbookBrokenBetweenItsTwoReadsIsStillARefusal(t *tes
 		t.Errorf("Preflight of a new write = %v, want the refusal", err)
 	}
 }
+
+// TestLaunchRoute_PromptedInputsOnASerialRunbookIs422: over HTTP the launch
+// route answers the serial refusal as a 422 with its own sentence, the one
+// refusal read from the runbook that had no test through the route.
+func TestLaunchRoute_PromptedInputsOnASerialRunbookIs422(t *testing.T) {
+	c := newCompileSource(t)
+	c.write(t, "rolling", "id: rolling\nserial: 2\ntasks:\n  - name: step\n    noop: {}\n")
+	tmpl := promptableTemplate()
+	tmpl.Definition = "rolling"
+	tmpl.CredentialIDs = []int{18}
+	jobs := newTestJobStore(t)
+	dispatcher := api.NewDispatcher(c.src, jobs, newCapturingBus(), api.WithTemplates(stubTemplates{tmpl: tmpl}))
+
+	req := httptest.NewRequest(http.MethodPost, "/templates/12/launch", strings.NewReader(`{"credentials":{"18":{"api_token":"typed-at-launch"}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "12")
+	req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	dispatcher.LaunchFromTemplate(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "serial:") || strings.Contains(rec.Body.String(), "typed-at-launch") {
+		t.Errorf("status %d, body %s; want 422 naming serial: and no input value", rec.Code, rec.Body.String())
+	}
+	if listed, _ := jobs.List(context.Background(), "", 10); len(listed) != 0 {
+		t.Errorf("the refused launch left %d jobs", len(listed))
+	}
+}

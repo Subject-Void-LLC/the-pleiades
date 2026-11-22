@@ -40,6 +40,24 @@ func compileMessage(err error) string {
 	return ""
 }
 
+// unreadableRunbook is why a rollback cannot read the runbook its job ran,
+// by the error's kind. ErrNotRollbackable's text is shown to the caller, so
+// it carries only what is safe to show: the builder's message for a runbook
+// that does not compile, and a plain sentence for one that is gone. Any other
+// error is a storage failure whose text can name the server's runbook path;
+// it is returned without ErrNotRollbackable, so the route logs it and answers
+// "internal error". The rollback is refused in all three cases, as before.
+func unreadableRunbook(id string, err error) error {
+	switch {
+	case compileMessage(err) != "":
+		return fmt.Errorf("%w: the runbook it ran cannot be read: %s", ErrNotRollbackable, compileMessage(err))
+	case errors.Is(err, runbook.ErrNotFound):
+		return fmt.Errorf("%w: the runbook it ran cannot be read: it no longer exists", ErrNotRollbackable)
+	default:
+		return fmt.Errorf("read runbook %s to plan a rollback: %w", id, err)
+	}
+}
+
 // CompileMessage is compileMessage for the server-rendered views, which launch
 // through the same Dispatcher and attach the same sentence to their form.
 func CompileMessage(err error) string { return compileMessage(err) }

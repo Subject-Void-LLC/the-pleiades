@@ -108,8 +108,16 @@ func (h *RunbookHandler) Get(w http.ResponseWriter, r *http.Request) {
 			RespondError(w, r, http.StatusNotFound, "runbook not found")
 			return
 		}
-		// Everything else -- a malformed id, a traversal attempt, a file
-		// that will not compile -- is reported as a bad request without
+		// A runbook that was read and does not compile answers with the
+		// builder's own message, the one thing that lets its author fix it
+		// (runbook.CompileError: the id has passed the source's check by
+		// then, and the text names no path).
+		if message := compileMessage(err); message != "" {
+			RespondError(w, r, http.StatusBadRequest, message)
+			return
+		}
+		// Everything else (a malformed id, a traversal attempt, a file the
+		// source cannot read) is reported as a bad request without
 		// echoing the id back. The source treats id as untrusted and
 		// refuses it before touching the filesystem; reflecting a rejected
 		// value into the response is the shape FAILURE_PATTERNS.md #72

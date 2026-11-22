@@ -11363,7 +11363,7 @@
                 }
               }
             },
-            "description": "id is malformed, or the runbook does not compile."
+            "description": "id is malformed, or the runbook does not compile, in which case the message is the builder's own."
           },
           "404": {
             "content": {
