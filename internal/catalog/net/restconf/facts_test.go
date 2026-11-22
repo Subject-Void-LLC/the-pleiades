@@ -6,6 +6,7 @@ package restconf_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,7 @@ func TestFacts_RecordsTheCertificateItsPinTrusted(t *testing.T) {
 		tlsfacts.FactKeyFingerprint: devicetls.KeyFingerprint(cert),
 		tlsfacts.FactNotAfter:       cert.NotAfter.UTC().Format(time.RFC3339),
 		tlsfacts.FactSubject:        cert.Subject.String(),
+		tlsfacts.FactSerial:         hex.EncodeToString(cert.SerialNumber.Bytes()),
 	}
 	for k, v := range want {
 		if rc.facts[k] != v || rc.stats[k] != v {

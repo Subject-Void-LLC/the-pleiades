@@ -8,6 +8,7 @@ package gnmi_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -160,7 +161,8 @@ func TestFacts_RecordsTheCertificateAndNamesAPinToRetire(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rc.facts[tlsfacts.FactFingerprint] != devicetls.Fingerprint(cert) || rc.facts[tlsfacts.FactKeyFingerprint] != devicetls.KeyFingerprint(cert) ||
-		rc.facts[tlsfacts.FactNotAfter] != cert.NotAfter.UTC().Format(time.RFC3339) || rc.facts[tlsfacts.FactIssuer] != cert.Issuer.String() {
+		rc.facts[tlsfacts.FactNotAfter] != cert.NotAfter.UTC().Format(time.RFC3339) || rc.facts[tlsfacts.FactIssuer] != cert.Issuer.String() ||
+		rc.facts[tlsfacts.FactSerial] != hex.EncodeToString(cert.SerialNumber.Bytes()) {
 		t.Errorf("facts %v, want the server's certificate", rc.facts)
 	}
 	warnings, _ := rc.stats[sdk.StatWarnings].([]string)

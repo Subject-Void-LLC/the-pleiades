@@ -875,10 +875,10 @@ decodes a JWT's payload claims without verifying its signature; never treat the 
 
 ### `filters.parseX509Certificate`
 
-parses a PEM-encoded X.509 certificate into its subject, issuer, validity window and SANs.
+parses a PEM-encoded X.509 certificate into its subject, issuer, validity window, serial number (serial_number in decimal, serial_hex in lowercase hex of its bytes, as the tls.certificate.serial fact holds it) and SANs.
 
 - `filters.parseX509Certificate(string) -> map(string, dyn)`
-  - `filters.parseX509Certificate(certPEM) // {"subject": "CN=host.example.com", "issuer": "CN=host.example.com", "not_before": "2024-01-01T00:00:00Z", "not_after": "2034-01-01T00:00:00Z", "serial_number": "...", "dns_names": [...], "ip_addresses": [...]}`
+  - `filters.parseX509Certificate(certPEM) // {"subject": "CN=host.example.com", "issuer": "CN=host.example.com", "not_before": "2024-01-01T00:00:00Z", "not_after": "2034-01-01T00:00:00Z", "serial_number": "305441741", "serial_hex": "1234abcd", "dns_names": [...], "ip_addresses": [...]}`
 
 ### `filters.pathExtractExtension`
 

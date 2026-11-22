@@ -44,7 +44,9 @@ func ParseJWTPayloadUnverified(token string) map[string]any {
 }
 
 // ParseX509Certificate parses a PEM-encoded X.509 certificate into its
-// subject, issuer, validity window and subject alternative names.
+// subject, issuer, validity window, serial number and subject alternative
+// names. serial_number is the serial in decimal, and serial_hex the same
+// number in SerialHex's form, which the tls.certificate.serial fact holds.
 // not_before/not_after are RFC 3339 strings in UTC, this Part's own
 // established "ISO8601" convention (pkg/filters/timeconvert.go's
 // parseISO8601), so a certificate's expiry can be handed straight to
@@ -79,6 +81,7 @@ func ParseX509Certificate(pemCert string) map[string]any {
 		"not_before":    cert.NotBefore.UTC().Format(time.RFC3339),
 		"not_after":     cert.NotAfter.UTC().Format(time.RFC3339),
 		"serial_number": cert.SerialNumber.String(),
+		"serial_hex":    SerialHex(cert.SerialNumber),
 		"dns_names":     dnsNames,
 		"ip_addresses":  ips,
 	}
