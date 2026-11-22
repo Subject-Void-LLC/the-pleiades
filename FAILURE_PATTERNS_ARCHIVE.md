@@ -33656,3 +33656,46 @@ refused), and which errors are safe to show (a build error, as against a storage
 
 **Lesson.** LESSONS 470 covers the placement. For the text: an error is withheld from a caller by what kind it is,
 not by where it was caught. The author's own build error is shown; a storage detail is not.
+
+**Resolved 2026-11-22 (fixed on `fix/walk-launch-compile-error`, `ef49d89c` and `0d30cc43`; on main until it
+merges).** The symptom was exercised before the fix: a launch answered 202 and made a job, a schedule's write
+answered 201, a saved schedule fired a job, and fan-out recorded `runbook "pb-1" could not be resolved`. One premise
+was false. A template create did not show the real message either: the Controller's catalog adapter returned a plain
+error, which the handler answered with 500 and "internal error".
+
+**Why the launch tolerated the error.** No reason was recorded. The launch read no runbook at all until `6e8ba355`
+(2026-10-31) added a read to refuse `serial:` with prompted inputs, written `err == nil` because fan-out was already
+the place a runbook was resolved. `e708daa6`, `fb80fdf2` and `a7cbdb0d` added refusals inside the same guard.
+
+**Fix.** The directory source returns a build failure as `*runbook.CompileError` (`internal/runbook/compile_error.go`),
+reached with `errors.As`. Its `Message` is the builder's text on one line, escaped with `termsafe.EscapeLine` and
+cut at 2048 bytes. The source builds from the file's bytes with no directory (`BuildFromYAML`), so the builder opens
+nothing and names no path. A launch, a check and a relaunch answer 422 with it and make no job; a schedule's write
+is refused through `Preflight`; fan-out records it as the failure reason of a job whose runbook broke after its
+launch; a template create answers 400 with it (`api.RunbookCatalog`). A missing or unreadable runbook is still left
+to fan-out, with its text withheld.
+
+**A saved schedule.** It fires into the same refusal, a `launchable.Refusal`, which `Scanner.fire` records as
+skipped with `launch_failed`, logs, and does not retry. The message is in the Controller's log, not in the row: the
+occurrence's reason is a closed vocabulary. A schedule's edit admits its target again, so the refusal would have
+made such a schedule impossible to rename or pause. `launchable.Request.Standing` says an edit keeps the target and
+the saved configuration and does not turn the schedule on, and the Dispatcher lets the compile refusal through for
+that write alone. The seeded-login and fact-read refusals still refuse such an edit, as before.
+
+**Tests.** `internal/api`: `TestLaunchTemplate_RefusesARunbookThatDoesNotCompile`,
+`TestLaunchRoutes_ARunbookThatDoesNotCompileIs422`, `TestSchedules_ARunbookThatDoesNotCompileIsRefusedAtTheWrite`,
+`TestSchedules_OneSavedBeforeItsRunbookBrokeSkipsAndStaysEditable`,
+`TestTemplates_CreatingOneOverARunbookThatDoesNotCompileIs400` and
+`TestWorker_HandleJobRequested_ACompileErrorIsTheFailureReason` (`internal/dispatch`) were each seen failing first.
+`TestLaunchTemplate_ARunbookTheSourceCannotGiveIsStillLeftToFanOut` and
+`TestWorker_HandleJobRequested_AStorageErrorKeepsItsTextOutOfTheReason` hold the other kind to its old behavior.
+
+**Not proven.** Nothing ran against a real Controller and Runner: `tests/e2e` and the `cmd/controller` gates were
+not run here. The two form cases (the launch form and the relaunch control in `internal/ui`) are wired and have no
+test of their own. The builder's text quotes what the author wrote, so a value an author pasted into a runbook can
+appear in a refusal or a failure reason.
+
+**Left as found.** A rollback of a job whose runbook cannot be read answers 422 with the source's own error text
+(`internal/api/dispatcher_rollback.go`, `ErrNotRollbackable`), which for a storage error can name a path. Read from
+code, not exercised, and not changed here. The launch form does not name `dispatch.ErrFactReads`, so that refusal
+renders as a fault there.
