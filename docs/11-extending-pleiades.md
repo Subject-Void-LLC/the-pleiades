@@ -821,7 +821,7 @@ organization's name. Every first-party namespace is reserved whether or not this
 The Pleiades includes that Collection: the namespace of each first-party Collection
 (`file`, `container`, `net`, `virt`, `kubernetes` and the rest), The Pleiades's own
 (`pleiades`), Ansible's (`ansible`), and the namespace of each built-in fact family (`os`,
-`host`, `package` and the rest). The list ships as data,
+`host`, `package`, `ssh`, `tls`, `snmp` and the rest). The list ships as data,
 [`docs/reference/schemas/first-party.json`](reference/schemas/first-party.json), with the
 routing table from each first-party method to its Collection. A name joins the list only
 on a minor release, never on a patch. A program using a reserved namespace is refused at
