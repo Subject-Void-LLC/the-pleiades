@@ -12,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/ansiblefacts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sshfacts"
 )
 
 // ansibleDistributionFacts is the five Ansible facts the distribution facts
@@ -62,15 +64,18 @@ func TestGatherOSRelease_MapsToAnsibleOnEveryMeasuredDistribution(t *testing.T) 
 // to pkg/ansiblefacts' key table, so a fact added here is not silently
 // left out of the mapping a converted playbook reads through. os.edition is
 // the one with no Ansible name of its own (it is Ansible's
-// ansible_distribution on Windows).
+// ansible_distribution on Windows). The ssh.host_key facts have none either:
+// Ansible's nearest (ansible_ssh_host_key_<type>_public) hold the public key
+// itself, not its fingerprint, so mapping one to the other would hand a
+// converted playbook a value of another shape under Ansible's name.
 func TestGatherFacts_EachHasItsAnsibleName(t *testing.T) {
 	names := gatherFactNames()
-	if len(names) != 21 {
+	if len(names) != 21+len(sshfacts.FactKeys) {
 		t.Errorf("%d facts declared: %v", len(names), names)
 	}
 	for _, key := range names {
 		ansible, ok := ansiblefacts.AnsibleKey(key)
-		if identityWithoutAnsibleName[key] {
+		if identityWithoutAnsibleName[key] || slices.Contains(sshfacts.FactKeys, key) {
 			if ok {
 				t.Errorf("%s maps to %s", key, ansible)
 			}

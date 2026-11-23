@@ -90,6 +90,11 @@ type Conn struct {
 	// hop in order, so a weakening on a bastion is reported too: its session
 	// carries the device's traffic (LegacyWarnings).
 	hopLegacy []hopLegacy
+
+	// hostKeys is what the target's known_hosts check accepted on the dial
+	// that made this connection (VerifiedHostKeys, hostkeys.go), shared by
+	// every view of it and every Conn a Pool lends for it.
+	hostKeys *hostKeyLog
 }
 
 // hopLegacy is one bastion hop's address, the legacy algorithms its record

@@ -8893,3 +8893,21 @@ already fails it. Pausing and deleting must stay possible. (2) Write the excepti
 definition, not as a skipped check. (3) Every stored value the exception reads is a condition of the write. (4)
 A lost condition is judged again, a bounded number of times. (5) Test it with the concurrent change the
 exception would get wrong, and run that test on each database the store supports; this one ran on SQLite only.
+
+## 481. A deferred cleanup releases only what it recorded itself: in a function with named results, `return nil, err` sets the result before the defer runs, so a cleanup that reads the named result closes nothing on the very paths it exists for (FAILURE_PATTERNS 1374, a repeat of 168) (2026-11-22)
+
+**Why.** Branch `fix/ssh-user-key-signatures`. `pkg/remoteexec`'s `dialChain` closed the hops it had dialed, on
+failure, from its named result `chain`. Every failing return set `chain` to nil first, so a hop chain whose later leg
+failed left each bastion before it holding an authenticated session (FAILURE_PATTERNS 1374). 168 had fixed this leak
+with a defer over a local variable; a refactor the next day turned the local into a named result, and the defer's
+text did not change.
+
+**Reasoning.** A deferred function sees the named results after the return statement has assigned them. A cleanup
+that runs "if err != nil" reads them exactly when every return writes them, usually to nil. The code reads right and
+compiles, and a test of the success path cannot tell.
+
+**Rule in practice.** (1) A cleanup defer keeps its own list of what it must release (a local slice appended to as
+each resource opens), never a named result. (2) When a refactor turns a local into a named result, or moves a loop
+into a function that returns its results by name, read every defer in that function again. (3) The test for a failure
+cleanup fails a step after one that succeeded and counts what is still open from the far side, as
+`TestHops_AFailedLegClosesTheHopsBeforeIt` counts the bastion's live connections.

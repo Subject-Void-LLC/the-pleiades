@@ -34096,3 +34096,240 @@ mixed-version class, an older build meeting a newer build's records, on the Cont
 **Lesson.** A retry for a transient cause is applied only where the record says that cause can hold: a journal
 whose run recorded its end is no longer expected to be mid-write, so one more read a moment later buys nothing. And a read that runs at the end of every
 run is sized against the project's whole history, not one run's.
+
+## 1372. An RSA user key signed SSH logins with `ssh-rsa` (SHA-1) whenever the server sent no `server-sig-algs`, with no device opt-in, while the host key side was already held to SHA-2 unless `ssh_allow_legacy_host_keys` allowed it (fixed on `fix/ssh-user-key-signatures`, `9b02ad3e`; on main until it merges; breaking; in kind of LESSONS 244)
+
+**Symptom.** 2026-11-22. Found while designing `add-credential --key-type rsa-3072` (branch
+`feat/credential-key-types`), not by a failure. A stored RSA key could log in to a device by signing with `ssh-rsa`,
+which is SHA-1, and nothing on the device's record allowed it or warned about it. A server whose `server-sig-algs`
+extension a machine in the middle removed looks the same as an old server that never sent one.
+
+**Root cause.** Read this session by the lead: `pkg/remoteexec/auth.go` (lines 120 to 130 on main) passed
+`ssh.PublicKeys(signer)` a signer with no limit on its algorithms. In x/crypto v0.58.0, `ssh/client_auth.go`'s
+`pickSignatureAlgorithm` falls back to the key's format, `ssh-rsa`, when the server sends no `server-sig-algs`. The
+legacy opt-in work had gated the host key the server proves itself with (`ssh_allow_legacy_host_keys`,
+`pkg/remoteexec/legacy.go`). The signature the client proves itself with is the other direction of the same
+handshake, and it had no gate.
+
+**Fix.** `9b02ad3e`. A new device property, `ssh_allow_legacy_user_key_signatures`, which no other legacy property
+implies, and a signer wrapper in `pkg/remoteexec/userkey.go` that signs with `rsa-sha2-512` or `rsa-sha2-256` and
+signs nothing weaker unless the record allows it; a DSA key does not sign at all. The property is warned about on
+every run and onboarding that has it. A credential holding a key and a password whose key is refused this way logs in
+with the password and warns. Tests: `TestUserKeySigner_OffersSHA2First`, `TestUserKeySigner_EveryWayOfAskingIsHeld`,
+`TestUserKeySigner_AnOuterWrapperCannotGetAroundIt`, `TestConnect_AnRSACertificateIsHeldToo`,
+`TestPool_NeverLendsALegacySignedLoginToARecordWithoutTheProperty`, and against a real sshd,
+`TestSSHContainer_AnRSAKeySignsSHA1OnlyWhereTheRecordAllowsIt`
+(`internal/transport/ssh/rsa_signature_container_test.go`). `internal/archtest`'s
+`TestOnlyRemoteexecHandsTheLibraryALogin` keeps every login inside `pkg/remoteexec`. The branch passed `make pr-check`
+at `9674037f`.
+
+**Breaking.** A device that logs in by `ssh-rsa` today needs the property. The branch's
+`changelog/ssh-user-key-signatures-sha2.breaking.md` says so, and says to upgrade Controllers before Runners: a
+Controller that predates the property does not pass it to a Runner, which then refuses the key even on a record that
+sets it. It also warns that a stale stored password now costs one failed login per connection toward an account
+lockout.
+
+**Not proven.** No real device that takes only `ssh-rsa` (IOS 15.2, or OpenSSH before 7.2) has been reached; the proof
+is an sshd configured to advertise no SHA-2. Not covered, by the branch's own security fragment: a key handed to
+`ansible-playbook`, and a key an external Collection uses outside `sdk.Connect`.
+
+**Searched.** By "ssh-rsa", "SHA-1", "server-sig-algs", "rsa-sha2", "signature", "legacy" and `ssh_allow_legacy`, and by
+the class (a weak-algorithm gate on one direction of a handshake only). No earlier entry. The nearest rule is LESSONS
+244 (when one of two sibling paths carries a guard, check the other one).
+
+**Lesson.** A weak-algorithm opt-in covers every place the algorithm can be chosen, in both directions of the protocol:
+the key the server proves itself with and the signature the client proves itself with. List those places from the
+library's code (here `pickSignatureAlgorithm`), not from the settings the product already has.
+
+## 1373. Project sync over SSH (go-git) still signed with `ssh-rsa`, and 1372's new archtest saw only files that import x/crypto/ssh directly (fixed on `fix/ssh-user-key-signatures`, `8e4cfa33`; caught in review; on main until it merges; a sibling of 1372; in kind of 892 and LESSONS 156 and 244)
+
+**Symptom.** 2026-11-22, reported by the branch's reviewer after `9b02ad3e`. An RSA project key still signed a git
+sync's SSH login with SHA-1. The archtest that `9b02ad3e` added to keep logins inside `pkg/remoteexec` passed anyway.
+
+**Root cause.** Reported: `internal/project/git.go` (line 360) built its SSH auth with go-git's
+`gitssh.NewPublicKeys`, which signs through x/crypto with the same fallback as 1372. The archtest scanned only files
+that import `golang.org/x/crypto/ssh` by that path, so go-git's constructors and a dot import were outside it. The fix
+and its guard were scoped to the package that had the finding; a second library wrapping the same signing path, and a
+second spelling of the import, were outside both.
+
+**Fix.** `8e4cfa33`. `remoteexec.HoldToSHA2` holds a key that no device record governs to SHA-2, with no opt-in, and
+project sync uses it. The archtest, now `TestOnlyTheHoldingFilesHandAnSSHLibraryALogin`, also reads go-git's SSH auth
+forms and dot imports. Tests: `TestGitSyncer_AnRSAKeyNeverSignsSHA1` (`internal/project/git_ssh_test.go`),
+`TestHoldToSHA2_HoldsAKeyNoRecordGoverns`. A git server that advertises no SHA-2 for its RSA key now fails project
+sync, with no property to allow it; the branch's breaking fragment names the message.
+
+**Searched.** By "go-git", "project sync", "archtest" and the class. 892 (`sdk.Connect` ignored a device's route, a
+sibling of 860) is the same class: a rule held on one connection path and missing on a sibling. LESSONS 156 says a
+claim of exclusive ownership ships with its AST rule; here the rule existed, and its reach was narrower than the
+claim.
+
+**Lesson.** As LESSONS 244. An archtest that guards a call reads every way the code can reach that call: through a
+wrapping library, under another import name, through a dot import. Plant one case of each form and see the test fail
+on it before trusting it.
+
+## 1374. A failed later hop left every earlier bastion connection open: `dialChain`'s deferred cleanup read its named result `chain`, which every failing `return nil, ...` had already set to nil (a repeat of 168) (fixed on `fix/ssh-user-key-signatures`, `dd6dd566`; on main and in v0.3.0 until it merges; security)
+
+**Symptom.** 2026-11-22, found on branch `fix/ssh-user-key-signatures`. When a hop chain's leg past the first failed (a
+refused login, a refused host key, a device that never answered), each bastion before it kept an authenticated
+session open until the bastion dropped it itself, for `Connect` and `DialThroughHops` alike. A wait or a loop retrying
+through a bastion opened one more each time.
+
+**Root cause.** Reported at `pkg/remoteexec/remoteexec.go:476-535` (at `02d4b75b`); the lead read the fix's diff. A
+`return nil, ..., err` assigns the results before deferred functions run, so the cleanup's `chain` was empty on every
+failure and it closed nothing.
+
+**Why 168's fix did not hold.** Read this session in git history. 168's fix (`dc8e2df2`, 2026-08-21) declared `chain`
+as a local variable (`chain := ...`) in `Connect`, and its defer closed what the loop had dialed. The next day,
+`d320c8c4` (Phase 73) moved the loop into `dialChain` and made `chain` a named result (`chain = ...`). The defer's text
+stayed the same and its meaning changed. The test 168 names (`TestSSHContainer_HopChain_EmptyRouteIsUnchanged`) is a
+leak check on a chain that succeeded; no test failed a leg after one that worked, or it would have seen the cleanup
+close nothing. Both commits are in v0.3.0.
+
+**Impact (security, reasoned, not measured).** Anyone able to make the target leg fail again and again (a device that
+refuses the login, or an address that answers with the wrong host key) piles up authenticated sessions on the bastion
+until it runs out of sessions or memory: a denial of service for every route through it. No secret is exposed by it.
+
+**Fix.** `dd6dd566`. The cleanup closes `dialed`, a slice of its own that no return statement writes.
+`TestHops_AFailedLegClosesTheHopsBeforeIt` (`pkg/remoteexec/hop_cleanup_test.go`) counts the bastion's live
+connections from the bastion's side after a refused second leg, for both entry points; the commit message says it
+failed before the change.
+
+**Searched.** By "bastion", "hop", "defer", "named result", "leak" and "left open". 168 is this defect's first form. 193
+(two constructors leaked their NATS connection on every error path) is the same family. No entry for a defer reading a
+named result.
+
+**Lesson.** LESSONS 481. And 168's lesson asked for a leak check against a loop that runs more than once; the check
+also fails a step after one that succeeded, since that is the only path a failure cleanup runs on.
+
+## 1375. `pool.lend` built a borrowed `Conn` from a hand-picked list of fields, so the branch's new per-connection `hostKeys` was dropped on every borrowed connection (a repeat of 691; in kind of 940; LESSONS 348) (fixed before push, `dda44404`)
+
+**Symptom.** 2026-11-22, branch `feat/ssh-host-key-facts`, reported by its writer. A borrowed pooled connection
+carried no host keys, so a facts read over it could not record the key its own login had verified.
+
+**Root cause.** Reported: `pkg/remoteexec/pool.go` (line 226) made the borrowed `Conn` by naming its fields. 691 is the
+same shape (`engine.Select` copied the DAG by naming fields and dropped `Vars`), and so is 940 (`renderDoc` dropped a
+new `collection.Param` field). LESSONS 348's rule, to add the new field to the copy in the same change, is a thing to
+remember, and nothing checks it, so it did not hold a third time.
+
+**Fix.** `dda44404`. `lend` copies the whole struct, then resets the fields that belong to one borrow.
+`TestLend_EveryConnFieldIsPlaced` (`pkg/remoteexec/pool_lend_test.go`) uses reflection and fails on a field of `Conn`
+that is neither carried nor reset; `TestLend_CarriesTheConnectionAndResetsTheBorrow` checks the values.
+
+**Searched.** By "field by field", "copied", "dropped", "every field" and "pool". 691 and 940 as above; LESSONS 348 and
+414 (a digest over chosen fields lists every field, held by a reflection test).
+
+**Lesson.** As LESSONS 414: a copy over chosen fields lists every field as carried or reset, and a reflection test
+fails on a field in neither list. A reminder alone has now failed three times.
+
+## 1376. Ten fact families reserved after v0.3.0 had no breaking changelog fragment, though reserving a family also reserves the method namespace of the same name, so an external Collection using one would stop loading on upgrade, and its whole directory with it (a repeat of LESSONS 412) (fixed on `feat/ssh-host-key-facts`, `0b6c4316`; never released)
+
+**Symptom.** 2026-11-22, branch `feat/ssh-host-key-facts`, reported by its writer. The branch reserved `ssh.`. Looking
+for the fragment that should name it found that `config.`, `file_attached.`, `gnmi.`, `netconf.`, `restconf.`,
+`snmp.`, `tls.`, `yang.` and `ansible_` had been reserved since v0.3.0 with none either.
+
+**Root cause.** Reported: `pkg/collection/firstparty.go` (lines 102 to 106) reserves a family's namespace along with
+the family. `tools/schemacompat` compares `first-party.json` with the last release, and v0.3.0 has no such file, so
+every reservation made before the next release is compared against nothing and passes.
+
+**Why LESSONS 412 did not hold.** Its rule is worded for "the change that adds a contract file". It was applied once,
+in Phase 136a (`changelog/first-party-names-reserved.breaking.md`). Every later reservation before the next release is
+just as invisible to the checker, and nothing asked for a fragment for them.
+
+**Fix.** `0b6c4316`. `changelog/fact-families-reserved-after-0-3-0.breaking.md` names all ten, the namespaces they
+reserve, and that a refused program stops the whole directory from loading.
+
+**Searched.** By "reserv", "namespace", "first-party.json", "schemacompat" and "breaking". LESSONS 412 is the class;
+979 is an earlier Phase 136a defect in the same reservation (a second reader of the family list).
+
+**Lesson.** Until a release carries a contract file, every change that grows the file writes its breaking fragment by
+hand, not only the change that added it. A reviewer checks by listing what the file gained since the last tag.
+
+## 1377. For a passphrase-sealed OpenSSH key, the recorded fingerprint and the check read the file's unencrypted header public key, which x/crypto never compares with the sealed private key, so a crafted file could list key A and log in with key B (fixed before push, `7e717200`; caught in review; security)
+
+**Symptom.** 2026-11-22, branch `feat/credential-key-types`, caught by review in the branch's own new code. The branch
+records each stored key's type and SHA256 fingerprint, shows them in `pleiades list-credentials`, and refuses at run
+time a credential whose record does not describe its key.
+
+**Root cause.** Reported: in x/crypto v0.58, `ssh/keys.go` (lines 1672 to 1753) reads an OpenSSH private key file's
+header public key without comparing it with the private key the file seals. The branch's first version described a
+sealed key by that header, so the record, `list-credentials` and the check all named whatever the header said.
+
+**Impact (reasoned).** Someone who can hand an operator a key file could make the record and the check show one key
+while every login used another. Never released.
+
+**Fix.** `7e717200`. A sealed key is described by what it seals (`internal/credential/key_info.go`, `families.go`),
+and a header naming another key is refused. Tests: `TestReadPublicKey_RefusesAHeaderNamingAnotherKey` and
+`TestSaveAndLookup_RefuseAHeaderNamingAnotherKey` (`internal/credential/key_header_test.go`). Whether the library's
+behavior is worth raising upstream is the owner's decision; nothing was sent.
+
+**Searched.** By "passphrase", "fingerprint", "public key", "header" and "OpenSSH". 623 is `add-credential` reading a
+piped passphrase, a different defect. No earlier entry.
+
+**Lesson.** A description of a secret is taken from the secret itself, never from a label stored beside it that
+nothing checks against it.
+
+## 1378. The credential vault's AES-GCM passes no associated data, so a sealed key or password and its readable record can be moved from one device's entry to another by whoever can write the 0600 file, and the device is then sent another device's secret (open; owner decision; fix not started; security)
+
+**Symptom.** 2026-11-22, reported by the writer of `feat/credential-key-types` and confirmed by its reviewer. Not
+measured.
+
+**Root cause.** Reported: `internal/crypto/aes.go` (lines 55 and 69) seals and opens with no additional data, so
+nothing binds a ciphertext to the device entry or field it was written for. The branch adds to what moves with it:
+each entry now carries a readable key type and fingerprint beside its ciphertext, and the two move together. Stored
+facts are already bound this way (`internal/crypto/fact_hook.go`, the key token as associated data, Phase 41).
+
+**Impact (reasoned, not measured).** It needs write access to the credential file (0600, the owner's). With it, a
+writer who cannot read any secret can still make the platform send device X's login to device Y, and so to whoever
+runs Y.
+
+**Fix.** Needs a stored-format migration (associated data naming the entry and field) and the owner's decision. Not
+started.
+
+**Searched.** By "associated data", "AAD", "GCM", "vault", "ciphertext" and "another device". 970 (a stored fact's
+device edge had a setter, so a value could move to another device) is the same class in the fact store. No earlier
+entry for the vault.
+
+**Lesson.** A sealed value is bound to the place it belongs through associated data, or a writer can move it between
+places without breaking the seal.
+
+## 1379. A facts baseline taken before a release reads every new stable fact key as `added`, so the first gather after the upgrade reports drift (exit 3) on every device that gains one (open; documented in changelog notes; no fix built)
+
+**Symptom.** 2026-11-22, reported. Met three times in one day: #227's identity facts, `tls.certificate.serial` (#228,
+`48334fdc`), and `ssh.host_key.*` (`feat/ssh-host-key-facts`).
+
+**Root cause.** Reported: `internal/facts/drift.go` (lines 159 to 170) and `internal/facts/baseline.go` (lines 131 to
+133). A baseline records the keys and values it saw, not the set of keys its release declared, so a key a later
+release starts recording reads as added.
+
+**Status.** Open. The changelog says what to do (take the baseline again after the first gather, or narrow it with
+`--keys`): for the serial in `35506151` (#228), and for the host keys and #227's fragment in `462cb047`. No code
+change.
+
+**Searched.** By "baseline", "drift", "added" and "new key". 1323 to 1329 are the drift branch's own defects; 1326 (a
+key the store still held counted as present) is the nearest. 1167 (a digest over a struct's JSON changed when a field
+was added) is the same class: a record compared across releases whose scope grows.
+
+**Lesson.** A comparison stored for later records the scope it was taken under (here, the declared key set), or every
+release that grows the scope reads as a change.
+
+## 1380. `tests/mac/.env`, `tests/bsd/.env` and `tests/win/.env` are missing from the main clone, so every `make pr-check` on 2026-11-22 recorded its Mac, FreeBSD and Windows legs as not run and still passed (open; needs the owner)
+
+**Symptom.** 2026-11-22. Read by the lead: each of `tests/mac`, `tests/bsd` and `tests/win` holds only `.env.example`,
+and the directories last changed on 2026-10-29. Four pr-check reports that day ran none of the three legs and passed.
+Read by this records pass in the report for `e0efd842`: each leg has `verdict: not-run` at `step: settings`, with
+"no Mac configured (PLEIADES_MAC in tests/mac/.env)" and the FreeBSD and Windows forms, and the report's verdict is
+`pass`. The previous handoff named the missing files for the owner; no pattern was written then.
+
+**Root cause.** Why the files are gone is not known. A leg with no settings records not run, and the run's verdict does
+not count it, so the gate shrinks without failing. CI_LESSONS 4 says a pass of pr-check is a pass of every leg; the
+tool does not hold that. CI tests no package on FreeBSD or Windows, so for a branch changing code those legs cover,
+the pre-push gate was the only place it would have run.
+
+**Status.** Open. Restoring the files needs the owner (they hold machine addresses). Whether a leg with no machine
+configured should fail the run, or the receipt name the legs it lacked, is not decided.
+
+**Searched.** By "not-run", "unset", "PLEIADES_MAC", "mac-check", "bsd-check", "win-check", "leg" and "skip". No earlier
+entry. LESSONS 417 (silence from a scanner that can skip is not a pass) and 464 (a gate that skips a language tests
+nothing written in it) are the class.
+
+**Lesson.** CI_LESSONS 43.

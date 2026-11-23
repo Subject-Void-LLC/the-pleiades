@@ -2564,6 +2564,19 @@ own, and only from a handshake that completed, so a server that presents a certi
 does not hold is never recorded as presenting it. A read that saw more than one certificate at the
 device's address records none.
 
+**SSH host key facts.** `facts.gather` records the fingerprint of each SSH host key a device proved
+itself with as a stable fact, `ssh.host_key.<type>` (`ed25519`, `ecdsa_p256`, `ecdsa_p384`,
+`ecdsa_p521`, `rsa` or `dsa`), valued as `ssh-keygen -lf` prints it (`SHA256:<base64>`). It comes from
+the session the read already makes, and only from a key that session's known_hosts check accepted on
+the device's own leg, never a bastion's. A task that sets `insecure_skip_host_key_verify` records none
+and warns that it did not. A read that met more than one server at the device's address records none
+and warns: a retried login whose earlier attempt accepted another key known_hosts lists for the
+address, two connections that proved themselves with different keys, or two keys of one type. A
+device reached over WinRM has no SSH host key and records none; a task whose filter asks only for
+these facts says so. No code reads these facts as trust: known_hosts alone decides what a session
+trusts, so a changed `ssh.host_key.*` value says the device now proves itself with another key
+known_hosts accepts, and the refusal of a key known_hosts does not list is the alarm, not the fact.
+
 A certificate within 30 days of its last day is warned about in words that fit how the device is
 trusted, and so is one past its last day that a pin still accepts (a pin ignores dates; an expired
 certificate nothing pins is refused, so it is never reached to be warned about). Under a certificate

@@ -513,6 +513,7 @@ story, per `.AGENTS/AGENTS.md`.
 478. A brief states what code does only with a file and line read in this session; anything else is written as a question for the receiver to answer first (FAILURE_PATTERNS 1367; a repeat of LESSONS 471 and 472, the third occurrence in two days; in kind of FAILURE_PATTERNS 1352 and 1357) (2026-11-22)
 479. Text built from a caller's input and shown to another reader is masked, then escaped, then bounded, and the bound is applied to the final text (FAILURE_PATTERNS 1363; in kind of FAILURE_PATTERNS 1109; near LESSONS 440) (2026-11-22)
 480. When a refusal is added at a write that also edits rows already stored, decide which edits of a row that now fails it stay allowed, and make the write conditional on the stored values that decision read (FAILURE_PATTERNS 1363; in kind of LESSONS 475 and 427; a repeat of LESSONS 46 for the write; FAILURE_PATTERNS 45, 1085 and 1309) (2026-11-22)
+481. A deferred cleanup releases only what it recorded itself: in a function with named results, `return nil, err` sets the result before the defer runs, so a cleanup that reads the named result closes nothing on the very paths it exists for (FAILURE_PATTERNS 1374, a repeat of 168) (2026-11-22)
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
